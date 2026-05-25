@@ -1,8 +1,12 @@
 using DV.Common;
+using DV.Logic.Job;
+using DV.ThingTypes;
 using GRDNInterchange.Data;
 using GRDNInterchange.Jobs;
 using HarmonyLib;
+using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 using UnityModManagerNet;
 
 namespace GRDNInterchange
@@ -58,10 +62,15 @@ namespace GRDNInterchange
             // Subscribe to save event so we persist before the game writes to disk
             SaveGameManager.AboutToSave += OnAboutToSave;
 
-            // Scan all origin stations for cars that might have slipped through
-            // (e.g. loaded world mid-job before the mod was installed)
             if (IsHostOrSingleplayer())
+            {
+                // Intercept vanilla FH jobs that were loaded from save before HubRegistry
+                // was ready — the Harmony patch saw !registry.IsReady and bailed on them.
+                InterceptSavedVanillaJobs();
+
+                // Scan for any cars with cargo but no job at all (e.g. mod installed mid-save)
                 ScanAndRecoverOrphanedFeeders();
+            }
         }
 
         private static void OnAboutToSave(SaveType saveType)
@@ -81,15 +90,110 @@ namespace GRDNInterchange
             }
         }
 
+        /// <summary>
+        /// Retroactively intercept vanilla FH jobs that were loaded from a save file.
+        /// DV calls FinalizeSetupAndGenerateFirstJob during world streaming, before
+        /// OnWorldLoaded fires, so HubRegistry isn't ready and the Harmony patch skips them.
+        /// This sweep runs once immediately after HubRegistry is initialised.
+        /// </summary>
+        private static void InterceptSavedVanillaJobs()
+        {
+            var registry  = HubRegistry.Instance;
+            var store     = CarDestinationStore.Instance;
+            var tcReg     = TrainCarRegistry.Instance;
+            if (registry == null || !registry.IsReady || tcReg == null) return;
+
+            var excluded = Settings.ExcludedYardIds;
+
+            // jobChainControllers is private — reflect it once
+            var jccField = typeof(StationProceduralJobsController).GetField(
+                "jobChainControllers",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            int intercepted = 0;
+
+            foreach (var sc in StationController.allStations)
+            {
+                var originYardId = sc.stationInfo.YardID;
+                if (registry.IsHub(originYardId)) continue;
+                if (excluded.Contains(originYardId)) continue;
+
+                var assignedHubId = registry.GetAssignedHubId(originYardId);
+                var hubStation    = registry.GetHub(assignedHubId);
+                if (hubStation == null) continue;
+
+                var chains = jccField?.GetValue(sc.ProceduralJobsController)
+                             as List<JobChainController>;
+                if (chains == null) continue;
+
+                foreach (var jcc in chains.ToList()) // ToList — DestroyChain modifies the list
+                {
+                    var job = jcc.currentJobInChain;
+                    if (job == null) continue;
+                    if (job.jobType != JobType.Transport) continue;
+                    if (Jobs.JobUtils.ManagedJobIds.Contains(job.ID)) continue;
+
+                    var destYardId = job.chainData?.chainDestinationYardId;
+                    if (string.IsNullOrEmpty(destYardId)) continue;
+                    if (excluded.Contains(destYardId)) continue;
+                    if (destYardId == assignedHubId) continue; // already going to the right hub
+
+                    // Collect cars
+                    var go        = jcc.jobChainGO;
+                    var transport = go?.GetComponent<StaticTransportJobDefinition>();
+                    if (transport?.carsToTransport == null) continue;
+
+                    var cars = new List<TrainCar>();
+                    foreach (var lc in transport.carsToTransport)
+                        if (tcReg.logicCarToTrainCar.TryGetValue(lc, out var tc))
+                            cars.Add(tc);
+                    if (cars.Count == 0) continue;
+
+                    var startTrack = Jobs.JobUtils.FindCommonTrack(cars);
+                    if (startTrack == null) continue;
+
+                    // Only destroy if hub has inbound space to accept the feeder
+                    if (Jobs.JobUtils.BestInboundTrack(hubStation) == null)
+                    {
+                        Log($"[Main] Skipping late-intercept of {job.ID} — no inbound space at {assignedHubId}");
+                        continue;
+                    }
+
+                    Log($"[Main] Late-intercepting saved job {job.ID} ({originYardId}→{destYardId})");
+                    jcc.DestroyChain();
+
+                    int max = Mathf.Max(1, Settings.MaxCarsPerFeeder);
+                    for (int i = 0; i < cars.Count; i += max)
+                    {
+                        int take  = System.Math.Min(max, cars.Count - i);
+                        var batch = cars.GetRange(i, take);
+                        var jobId = Jobs.JobUtils.NextId(originYardId, destYardId);
+
+                        foreach (var car in batch)
+                            if (!store.IsInterchangeCar(car.CarGUID))
+                                store.Register(car.CarGUID, destYardId, originYardId, assignedHubId, jobId);
+
+                        Jobs.FeederJobSpawner.SpawnFeeder(batch, startTrack, sc, hubStation, jobId);
+                    }
+                    intercepted++;
+                }
+            }
+
+            Log($"[Main] InterceptSavedVanillaJobs: {intercepted} job chain(s) replaced with feeders.");
+        }
+
         private static void ScanAndRecoverOrphanedFeeders()
         {
             var registry = HubRegistry.Instance;
             if (registry == null || !registry.IsReady) return;
 
+            var excluded = Settings.ExcludedYardIds;
+
             foreach (var sc in StationController.allStations)
             {
                 var yardId = sc.stationInfo.YardID;
                 if (registry.IsHub(yardId)) continue;
+                if (excluded.Contains(yardId)) continue;   // never touch military/excluded yards
                 FeederJobSpawner.ScanAndSpawnMissingFeeders(sc);
             }
         }

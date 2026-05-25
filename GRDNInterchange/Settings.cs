@@ -17,6 +17,19 @@ namespace GRDNInterchange
                 .Where(s => s.Length > 0)
                 .ToList();
 
+        // ── Excluded stations ──────────────────────────────────────────────────────
+        // Yards whose jobs the mod will NEVER intercept.
+        // Military chain (MB, HMB, MFMB) must stay isolated from civilian routing.
+        [Draw("Excluded Yard IDs — never intercept (comma-separated, e.g. MB,HMB,MFMB)")]
+        public string ExcludedYardIdsRaw = "MB,HMB,MFMB";
+
+        public HashSet<string> ExcludedYardIds =>
+            new HashSet<string>(
+                ExcludedYardIdsRaw.Split(',')
+                    .Select(s => s.Trim().ToUpperInvariant())
+                    .Where(s => s.Length > 0),
+                System.StringComparer.Ordinal);
+
         // ── Feeder job limits ──────────────────────────────────────────────────────
         [Draw("Max cars per feeder job (1–20)")]
         public int MaxCarsPerFeeder = 6;

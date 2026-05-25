@@ -23,7 +23,7 @@ namespace GRDNInterchange.Patches
     /// because those cars are not yet loaded (CargoType.None), and DV generates a
     /// Transport job naturally when the SL completes — we intercept that one instead.
     ///
-    /// We only intercept on the host player; clients see the GI-* jobs
+    /// We only intercept on the host player; clients see the GRDN jobs
     /// replicated normally by DV's own networking.
     /// </summary>
     [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.FinalizeSetupAndGenerateFirstJob))]
@@ -41,8 +41,8 @@ namespace GRDNInterchange.Patches
             var job = __instance.currentJobInChain;
             if (job == null) return;
 
-            // Skip GI-* jobs we spawned ourselves
-            if (job.ID != null && job.ID.StartsWith("GI-")) return;
+            // Skip jobs we spawned ourselves (tracked by ID in JobUtils.ManagedJobIds)
+            if (job.ID != null && Jobs.JobUtils.ManagedJobIds.Contains(job.ID)) return;
 
             // Only intercept Transport (FH) jobs — not ShuntingLoad, EmptyHaul, etc.
             if (job.jobType != JobType.Transport)
@@ -54,6 +54,14 @@ namespace GRDNInterchange.Patches
 
             if (string.IsNullOrEmpty(originYardId) || string.IsNullOrEmpty(destYardId))
                 return;
+
+            // Skip excluded yards (military chain, etc.) — configurable in UMM settings
+            var excluded = GRDNInterchange.Main.Settings.ExcludedYardIds;
+            if (excluded.Contains(originYardId) || excluded.Contains(destYardId))
+            {
+                Main.Log($"[Intercept] Skipping excluded route {originYardId}→{destYardId}");
+                return;
+            }
 
             // If origin is a hub — let it pass (sort/block/final-mile jobs can target hubs)
             if (registry.IsHub(originYardId)) return;
@@ -75,33 +83,46 @@ namespace GRDNInterchange.Patches
             var cars = GetJobTrainCars(__instance);
             if (cars == null || cars.Count == 0) return;
 
-            // Register each car's true destination before we destroy the vanilla job
-            var store = CarDestinationStore.Instance;
-            foreach (var car in cars)
-            {
-                if (!store.IsInterchangeCar(car.CarGUID))
-                    store.Register(car.CarGUID, destYardId, originYardId, assignedHubId);
-            }
+            // ── Pre-flight: verify the replacement can actually be built ──────────
+            // Do NOT destroy the vanilla job until we are certain a feeder can replace it.
 
-            // Destroy vanilla job chain
-            Main.Log($"[Intercept] Destroying vanilla job {job.ID} ({originYardId}→{destYardId}), spawning feeder");
-            __instance.DestroyChain();
-
-            // Find the starting track
             var startingTrack = JobUtils.FindCommonTrack(cars);
             if (startingTrack == null)
             {
-                Main.Log($"[Intercept] Could not determine starting track for {originYardId} cars");
+                Main.Log($"[Intercept] Skipping {job.ID} — could not determine starting track");
                 return;
             }
 
-            // Spawn feeder job(s), capped at MaxCarsPerFeeder per job
+            if (JobUtils.BestInboundTrack(hubStation) == null)
+            {
+                Main.Log($"[Intercept] Skipping {job.ID} — no inbound space at {assignedHubId}");
+                return;
+            }
+
+            // All checks passed — safe to replace
+            Main.Log($"[Intercept] Replacing vanilla job {job.ID} ({originYardId}→{destYardId}) with feeder to {assignedHubId}");
+            __instance.DestroyChain();
+
+            var store = CarDestinationStore.Instance;
+
+            // Spawn feeder job(s), capped at MaxCarsPerFeeder per job.
+            // Each batch gets its own job ID based on true origin/destination (e.g. "SM-GF-77").
+            // This ID will be reused for the final-mile leg so the player sees the same number
+            // on pick-up (at origin) and on delivery (from hub to true destination).
             int max = Mathf.Max(1, Main.Settings.MaxCarsPerFeeder);
             for (int i = 0; i < cars.Count; i += max)
             {
                 int take  = System.Math.Min(max, cars.Count - i);
                 var batch = cars.GetRange(i, take);
-                FeederJobSpawner.SpawnFeeder(batch, startingTrack, originStation, hubStation);
+
+                // Job ID encodes the true journey, not the intermediate hub leg
+                var jobId = JobUtils.NextId(originYardId, destYardId);
+
+                foreach (var car in batch)
+                    if (!store.IsInterchangeCar(car.CarGUID))
+                        store.Register(car.CarGUID, destYardId, originYardId, assignedHubId, jobId);
+
+                FeederJobSpawner.SpawnFeeder(batch, startingTrack, originStation, hubStation, jobId);
             }
         }
 

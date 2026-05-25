@@ -17,6 +17,10 @@ namespace GRDNInterchange.Data
         private readonly Dictionary<string, StationController> _hubStations =
             new Dictionary<string, StationController>();
 
+        // Cache nearest-hub lookups — computed once per spoke station, not per-car
+        private readonly Dictionary<string, string> _assignedHubCache =
+            new Dictionary<string, string>(System.StringComparer.Ordinal);
+
         private HubRegistry(Settings s)
         {
             _hubYardIds = new HashSet<string>(s.HubYardIds);
@@ -50,16 +54,24 @@ namespace GRDNInterchange.Data
             _hubStations.TryGetValue(yardId, out var sc) ? sc : null;
 
         /// <summary>
-        /// Returns the hub yard ID nearest to the given origin station by world distance.
-        /// Falls back to the first configured hub if positions can't be compared.
+        /// Returns the hub yard ID nearest to the given station by world distance.
+        /// Result is cached after the first lookup — safe because hub topology is
+        /// fixed for the lifetime of a loaded world.
         /// </summary>
         public string GetAssignedHubId(string originYardId)
         {
+            if (_assignedHubCache.TryGetValue(originYardId, out var cached))
+                return cached;
+
             var origin = StationController.allStations
                 .FirstOrDefault(sc => sc.stationInfo.YardID == originYardId);
 
             if (origin == null)
-                return _hubStations.Keys.FirstOrDefault() ?? "HB";
+            {
+                var fallback = _hubStations.Keys.FirstOrDefault() ?? "HB";
+                _assignedHubCache[originYardId] = fallback;
+                return fallback;
+            }
 
             var nearest = _hubStations
                 .OrderBy(kvp => Vector3.Distance(
@@ -67,13 +79,12 @@ namespace GRDNInterchange.Data
                     kvp.Value.transform.position))
                 .FirstOrDefault();
 
-            if (nearest.Key != null)
-            {
-                Main.Log($"[HubRegistry] {originYardId} → nearest hub is {nearest.Key} " +
-                         $"({Vector3.Distance(origin.transform.position, nearest.Value.transform.position):F0} m)");
-            }
+            var result = nearest.Key ?? _hubStations.Keys.FirstOrDefault() ?? "HB";
+            _assignedHubCache[originYardId] = result;
 
-            return nearest.Key ?? _hubStations.Keys.FirstOrDefault() ?? "HB";
+            Main.Log($"[HubRegistry] {originYardId} → nearest hub {result} " +
+                     $"({Vector3.Distance(origin.transform.position, nearest.Value.transform.position):F0} m) [cached]");
+            return result;
         }
 
         /// <summary>

@@ -17,17 +17,21 @@ namespace GRDNInterchange.Jobs
         /// Replace a vanilla origin→destination transport job with a feeder origin→hub job.
         /// Cars and their true destinations are registered in CarDestinationStore.
         /// </summary>
+        /// <summary>
+        /// Spawn a feeder job from <paramref name="originStation"/> to
+        /// <paramref name="hubStation"/>. The <paramref name="jobId"/> is the
+        /// true-origin→true-destination ID (e.g. "SM-GF-77") that the player sees
+        /// and that will be reused on the final-mile leg.
+        /// </summary>
         public static void SpawnFeeder(
             List<TrainCar> cars,
             Track startingTrack,
             StationController originStation,
-            StationController hubStation)
+            StationController hubStation,
+            string jobId)
         {
             var originYardId = originStation.stationInfo.YardID;
             var hubYardId    = hubStation.stationInfo.YardID;
-
-            // We don't have the true destination here — it was extracted by the intercept patch
-            // and already stored in CarDestinationStore before this call.
 
             // Find an inbound track at the hub with space
             var destTrack = JobUtils.BestInboundTrack(hubStation);
@@ -37,7 +41,7 @@ namespace GRDNInterchange.Jobs
                 return;
             }
 
-            var go  = new GameObject($"GI-FEEDER-{originYardId}-{hubYardId}");
+            var go  = new GameObject($"GRDN-Feeder-{originYardId}-{hubYardId}");
             var def = go.AddComponent<StaticTransportJobDefinition>();
 
             def.carsToTransport         = JobUtils.ToLogicCars(cars);
@@ -51,10 +55,12 @@ namespace GRDNInterchange.Jobs
                 originStation.logicStation,
                 JobUtils.EstimateTimeLimit(cars.Count),
                 JobUtils.EstimateWage(cars.Count),
+                // chainData uses the actual next-stop (hub), not the true final destination.
+                // The job ID carries the true journey identity.
                 JobUtils.Chain(originYardId, hubYardId),
                 JobLicenses.Basic | JobLicenses.FreightHaul
             );
-            def.ForceJobId(JobUtils.NextId("FEED"));
+            def.ForceJobId(jobId);
 
             JobUtils.ActivateJobChain(def, originStation);
 
@@ -71,6 +77,7 @@ namespace GRDNInterchange.Jobs
 
             var originYardId = originStation.stationInfo.YardID;
             if (HubRegistry.Instance.IsHub(originYardId)) return;
+            if (GRDNInterchange.Main.Settings.ExcludedYardIds.Contains(originYardId)) return;
 
             var hubYardId   = HubRegistry.Instance.GetAssignedHubId(originYardId);
             var hubStation  = HubRegistry.Instance.GetHub(hubYardId);
@@ -80,29 +87,56 @@ namespace GRDNInterchange.Jobs
             var registry = TrainCarRegistry.Instance;
             if (registry == null) return;
 
-            // Find cars at this station not already in the interchange system
+            // Build a set of logic cars that already belong to an active job chain at this station.
+            // jobChainControllers is private so we access it via reflection (same pattern as
+            // responsibleStationForJobChain in JobUtils.ActivateJobChain).
+            var carsInJobs = new HashSet<Car>();
+            var jccField = typeof(StationProceduralJobsController).GetField(
+                "jobChainControllers",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var activeChains = jccField?.GetValue(originStation.ProceduralJobsController)
+                               as List<JobChainController>;
+            if (activeChains != null)
+                foreach (var jcc in activeChains)
+                    if (jcc?.carsForJobChain != null)
+                        foreach (var c in jcc.carsForJobChain)
+                            if (c != null) carsInJobs.Add(c);
+
+            // Find cars at this station not already in the interchange system and not in any active job
             var unregistered = registry.logicCarToTrainCar.Values
                 .Where(tc => !tc.IsLoco
                           && tc.logicCar?.CurrentTrack != null
                           && TrackClassifier.GetYardId(tc.logicCar.CurrentTrack) == originYardId
                           && !store.IsInterchangeCar(tc.CarGUID)
-                          && tc.logicCar.CurrentCargoTypeInCar != CargoType.None)
+                          && tc.logicCar.CurrentCargoTypeInCar != CargoType.None
+                          && !carsInJobs.Contains(tc.logicCar))  // skip cars already in a job
                 .ToList();
 
             if (unregistered.Count == 0) return;
 
-            // Group by track and spawn one feeder per track group
+            // Group by track, then batch within each group by MaxCarsPerFeeder
+            int max    = Mathf.Max(1, GRDNInterchange.Main.Settings.MaxCarsPerFeeder);
             var byTrack = unregistered.GroupBy(tc => tc.logicCar.CurrentTrack);
             foreach (var group in byTrack)
             {
-                var cars = group.ToList();
-                // True destination unknown on scan — use a placeholder (same as origin for now)
-                // Real feeder interception happens via the patch on newly-generated vanilla jobs
-                foreach (var car in cars)
-                    if (!store.IsInterchangeCar(car.CarGUID))
-                        store.Register(car.CarGUID, hubYardId, originYardId, hubYardId);
+                var trackCars = group.ToList();
+                var track     = group.Key;
 
-                SpawnFeeder(cars, group.Key, originStation, hubStation);
+                for (int i = 0; i < trackCars.Count; i += max)
+                {
+                    int take  = System.Math.Min(max, trackCars.Count - i);
+                    var batch = trackCars.GetRange(i, take);
+
+                    // True destination unknown at scan time — placeholder is the hub itself.
+                    // Real feeder interception handles newly-generated vanilla jobs via the patch.
+                    var jobId = JobUtils.NextId(originYardId, hubYardId);
+
+                    foreach (var car in batch)
+                        if (!store.IsInterchangeCar(car.CarGUID))
+                            store.Register(car.CarGUID, hubYardId, originYardId, hubYardId, jobId);
+
+                    SpawnFeeder(batch, track, originStation, hubStation, jobId);
+                }
             }
         }
     }

@@ -71,7 +71,7 @@ namespace GRDNInterchange.Jobs
                 var outboundTrack = JobUtils.BestOutboundTrack(hub);
                 if (outboundTrack != null)
                 {
-                    SpawnMoveJob(crossHubCars, inboundTrack, outboundTrack, hub, hubYardId, "SORT-OUT");
+                    SpawnMoveJob(crossHubCars, inboundTrack, outboundTrack, hub, hubYardId);
                     foreach (var c in crossHubCars)
                         store.SetPhase(c.CarGUID, InterchangePhase.SortAtHub);
                     Main.Log($"[SortJobSpawner] {crossHubCars.Count} cross-hub cars → outbound at {hubYardId}");
@@ -93,9 +93,10 @@ namespace GRDNInterchange.Jobs
                     Main.Log($"[SortJobSpawner] No storage track at {hubYardId} for dest {destYardId}");
                     continue;
                 }
-                SpawnMoveJob(cars, inboundTrack, storageTrack, hub, hubYardId, "SORT-STR");
+                SpawnMoveJob(cars, inboundTrack, storageTrack, hub, hubYardId);
+                // Mark BreakAtHub so FinalMileSpawner picks these up once the sort job completes
                 foreach (var c in cars)
-                    store.SetPhase(c.CarGUID, InterchangePhase.SortAtHub);
+                    store.SetPhase(c.CarGUID, InterchangePhase.BreakAtHub);
                 Main.Log($"[SortJobSpawner] {cars.Count} same-side cars for {destYardId} → storage at {hubYardId}");
             }
 
@@ -105,22 +106,25 @@ namespace GRDNInterchange.Jobs
                 var storageTrack = JobUtils.BestStorageTrack(hub, hubYardId);
                 if (storageTrack != null)
                 {
-                    SpawnMoveJob(hubLocalCars, inboundTrack, storageTrack, hub, hubYardId, "SORT-LOC");
+                    SpawnMoveJob(hubLocalCars, inboundTrack, storageTrack, hub, hubYardId);
                     foreach (var c in hubLocalCars)
                         store.SetPhase(c.CarGUID, InterchangePhase.Delivered);
                 }
             }
         }
 
+        /// <summary>
+        /// Spawn a sort/shunt move job within the hub. Both origin and destination
+        /// are the same yard (hubYardId), so the job ID is e.g. "HB-HB-01".
+        /// </summary>
         private static void SpawnMoveJob(
             List<TrainCar> cars,
             Track fromTrack,
             Track toTrack,
             StationController hub,
-            string hubYardId,
-            string idPrefix)
+            string hubYardId)
         {
-            var go  = new GameObject($"GI-{idPrefix}-{hubYardId}");
+            var go  = new GameObject($"GRDN-Sort-{hubYardId}");
             var def = go.AddComponent<StaticTransportJobDefinition>();
 
             def.carsToTransport         = JobUtils.ToLogicCars(cars);
@@ -137,7 +141,7 @@ namespace GRDNInterchange.Jobs
                 JobUtils.Chain(hubYardId, hubYardId),
                 JobLicenses.Basic | JobLicenses.Shunting
             );
-            def.ForceJobId(JobUtils.NextId(idPrefix));
+            def.ForceJobId(JobUtils.NextId(hubYardId, hubYardId));
 
             JobUtils.ActivateJobChain(def, hub);
             Main.Log($"[SortJobSpawner] Spawned sort job {def.job?.ID} ({cars.Count} cars, {fromTrack?.ID?.FullID}→{toTrack?.ID?.FullID})");

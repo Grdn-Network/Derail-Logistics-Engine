@@ -12,6 +12,14 @@ namespace GRDNInterchange.Data
         public string TrueDestYardId { get; set; }
         public string TrueOriginYardId { get; set; }
         public string AssignedHubYardId { get; set; }
+
+        /// <summary>
+        /// The player-visible job ID for this car's journey, e.g. "SM-GF-77".
+        /// Format is {trueOrigin}-{trueDest}-{NN} and is reused for every
+        /// player-facing leg (feeder and final mile).
+        /// </summary>
+        public string JobId { get; set; }
+
         /// <summary>Phase this car is currently in within the interchange chain.</summary>
         public InterchangePhase Phase { get; set; } = InterchangePhase.Feeder;
     }
@@ -39,16 +47,18 @@ namespace GRDNInterchange.Data
         // ── Write ──────────────────────────────────────────────────────────────────
 
         public void Register(string carGuid, string trueDestYardId,
-                             string trueOriginYardId, string hubYardId)
+                             string trueOriginYardId, string hubYardId,
+                             string jobId = null)
         {
             _store[carGuid] = new CarDestRecord
             {
                 TrueDestYardId    = trueDestYardId,
                 TrueOriginYardId  = trueOriginYardId,
                 AssignedHubYardId = hubYardId,
+                JobId             = jobId,
                 Phase             = InterchangePhase.Feeder,
             };
-            Main.Log($"[Store] Registered {carGuid}: {trueOriginYardId}→{trueDestYardId} via {hubYardId}");
+            Main.Log($"[Store] Registered {carGuid}: {trueOriginYardId}→{trueDestYardId} via {hubYardId} [{jobId}]");
         }
 
         public void SetPhase(string carGuid, InterchangePhase phase)

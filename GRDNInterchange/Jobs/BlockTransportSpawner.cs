@@ -35,10 +35,16 @@ namespace GRDNInterchange.Jobs
                 return;
             }
 
+            var store         = CarDestinationStore.Instance;
             var outboundTracks = TrackClassifier.GetOutboundTracks(fromHub);
             foreach (var track in outboundTracks)
             {
-                var carsOnTrack = track.GetCarsFullyOnTrack();
+                // Only count interchange cars that have finished sorting (SortAtHub phase).
+                // Ignores any non-GRDN cars and cars whose sort job is still running.
+                var carsOnTrack = track.GetCarsFullyOnTrack()
+                    ?.Where(c => store.IsInterchangeCar(c.carGuid) &&
+                                 store.Get(c.carGuid)?.Phase == InterchangePhase.SortAtHub)
+                    .ToList();
                 if (carsOnTrack == null || carsOnTrack.Count < settings.BlockThresholdCars)
                     continue;
 
@@ -55,7 +61,6 @@ namespace GRDNInterchange.Jobs
 
                 SpawnBlockJob(trainCars, track, destTrack, fromHub, fromYardId, toYardId);
 
-                var store = CarDestinationStore.Instance;
                 foreach (var c in trainCars)
                     store.SetPhase(c.CarGUID, InterchangePhase.BlockHaul);
 
@@ -71,7 +76,7 @@ namespace GRDNInterchange.Jobs
             string fromYardId,
             string toYardId)
         {
-            var go  = new GameObject($"GI-BLOCK-{fromYardId}-{toYardId}");
+            var go  = new GameObject($"GRDN-Block-{fromYardId}-{toYardId}");
             var def = go.AddComponent<StaticTransportJobDefinition>();
 
             def.carsToTransport         = JobUtils.ToLogicCars(cars);
@@ -88,7 +93,7 @@ namespace GRDNInterchange.Jobs
                 JobUtils.Chain(fromYardId, toYardId),
                 JobLicenses.Basic | JobLicenses.FreightHaul
             );
-            def.ForceJobId(JobUtils.NextId("BLOCK"));
+            def.ForceJobId(JobUtils.NextId(fromYardId, toYardId));
 
             JobUtils.ActivateJobChain(def, fromHub);
             Main.Log($"[BlockTransportSpawner] Spawned block job {def.job?.ID} ({fromYardId}→{toYardId}, {cars.Count} cars)");

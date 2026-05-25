@@ -57,12 +57,18 @@ namespace GRDNInterchange.Jobs
                 return;
             }
 
-            // Group by true destination
-            var byDest = readyCars.GroupBy(tc => store.Get(tc.CarGUID)?.TrueDestYardId ?? "");
-
-            foreach (var group in byDest)
+            // Group by (true destination, job ID) so each original contract gets its own job.
+            // e.g. SM-GF-77 and CW-GF-12 both go to GF but remain separate player jobs.
+            var byDestAndJob = readyCars.GroupBy(tc =>
             {
-                var destYardId = group.Key;
+                var rec = store.Get(tc.CarGUID);
+                return (dest: rec?.TrueDestYardId ?? "", jobId: rec?.JobId ?? "");
+            });
+
+            foreach (var group in byDestAndJob)
+            {
+                var destYardId = group.Key.dest;
+                var jobId      = group.Key.jobId;
                 if (string.IsNullOrEmpty(destYardId)) continue;
 
                 var cars = group.ToList();
@@ -92,12 +98,13 @@ namespace GRDNInterchange.Jobs
                     continue;
                 }
 
-                SpawnFinalMileJob(cars, fromTrack, destTrack, hub, hubYardId, destYardId, destStation);
+                // Reuse the same job ID that was on the feeder leg (e.g. "SM-GF-77")
+                SpawnFinalMileJob(cars, fromTrack, destTrack, hub, hubYardId, destYardId, destStation, jobId);
 
                 foreach (var c in cars)
                     store.SetPhase(c.CarGUID, InterchangePhase.FinalMile);
 
-                Main.Log($"[FinalMileSpawner] Final-mile {hubYardId}→{destYardId}: {cars.Count} cars");
+                Main.Log($"[FinalMileSpawner] Final-mile {hubYardId}→{destYardId}: {cars.Count} cars [{jobId}]");
             }
         }
 
@@ -129,11 +136,12 @@ namespace GRDNInterchange.Jobs
             StationController hub,
             string hubYardId,
             string destYardId,
-            StationController destStation)
+            StationController destStation,
+            string jobId)
         {
             _ = destStation; // reserved for future ShuntingUnload variant
 
-            var go  = new GameObject($"GI-FM-{hubYardId}-{destYardId}");
+            var go  = new GameObject($"GRDN-FM-{hubYardId}-{destYardId}");
             var def = go.AddComponent<StaticTransportJobDefinition>();
 
             def.carsToTransport         = JobUtils.ToLogicCars(cars);
@@ -150,7 +158,14 @@ namespace GRDNInterchange.Jobs
                 JobUtils.Chain(hubYardId, destYardId),
                 JobLicenses.Basic | JobLicenses.FreightHaul
             );
-            def.ForceJobId(JobUtils.NextId("FM"));
+
+            // Reuse the same job ID that was on the feeder leg so the player sees the
+            // same number (e.g. "SM-GF-77") from pick-up at origin to drop-off at destination.
+            // The previously-completed feeder is gone so DV won't see a duplicate active ID.
+            if (!string.IsNullOrEmpty(jobId))
+                def.ForceJobId(jobId);
+            else
+                def.ForceJobId(JobUtils.NextId(hubYardId, destYardId));
 
             JobUtils.ActivateJobChain(def, hub);
             Main.Log($"[FinalMileSpawner] Spawned {def.job?.ID}: {hubYardId}→{destYardId} ({cars.Count} cars)");

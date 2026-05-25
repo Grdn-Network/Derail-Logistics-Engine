@@ -8,13 +8,17 @@ using System.Linq;
 namespace GRDNInterchange.Patches
 {
     /// <summary>
-    /// Fires after any job chain completes. Routes GI-* job completions to the
-    /// appropriate next-phase spawner based on the job ID prefix.
+    /// Fires after any job chain completes. Routes GRDN job completions to the
+    /// appropriate next-phase spawner using hub topology.
     ///
-    ///   GI-FEED-*     → Feeder completed: trigger sort at hub
-    ///   GI-SORT-*     → Sort completed:   check if block train threshold met
-    ///   GI-BLOCK-*    → Block arrived:    mark cars BreakAtHub, spawn final-mile
-    ///   GI-FM-*       → Final-mile done:  mark cars Delivered
+    ///   Spoke → Hub           = Feeder completed → trigger sort at hub
+    ///   Hub   → same Hub      = Sort completed   → check block threshold + final mile
+    ///   Hub   → different Hub = Block arrived    → mark BreakAtHub, spawn final-mile
+    ///   Hub   → Spoke         = Final-mile done  → mark Delivered
+    ///
+    /// Job IDs are in {trueOrigin}-{trueDest}-{NN} format (e.g. "SM-GF-77") and are
+    /// reused across the feeder and final-mile legs of the same shipment.
+    /// Sort and block jobs carry hub-route IDs (e.g. "HB-HB-01", "HB-MF-01").
     /// </summary>
     [HarmonyPatch(typeof(JobChainController), "OnLastJobInChainCompleted")]
     public static class JobCompletionPatch
@@ -28,22 +32,28 @@ namespace GRDNInterchange.Patches
             if (job == null) return;
 
             var jobId = job.ID ?? "";
-            if (!jobId.StartsWith("GI-")) return;
+
+            // Only process jobs we generated
+            if (!Jobs.JobUtils.ManagedJobIds.Contains(jobId)) return;
 
             var registry = HubRegistry.Instance;
             var store    = CarDestinationStore.Instance;
             if (registry == null || store == null) return;
 
-            Main.Log($"[JobCompletionPatch] GI job completed: {jobId}");
+            Main.Log($"[JobCompletionPatch] GRDN job completed: {jobId}");
 
-            // ── Feeder arrived at hub ──────────────────────────────────────────────
-            if (jobId.StartsWith("GI-FEED-"))
+            var originYardId = job.chainData?.chainOriginYardId;
+            var destYardId   = job.chainData?.chainDestinationYardId;
+            if (string.IsNullOrEmpty(originYardId) || string.IsNullOrEmpty(destYardId)) return;
+
+            bool originIsHub = registry.IsHub(originYardId);
+            bool destIsHub   = registry.IsHub(destYardId);
+
+            // ── Feeder: spoke → hub ────────────────────────────────────────────────
+            if (!originIsHub && destIsHub)
             {
                 var cars = GetTrainCarsFromChain(__instance);
                 if (cars == null || cars.Count == 0) return;
-
-                var destYardId = job.chainData?.chainDestinationYardId;
-                if (string.IsNullOrEmpty(destYardId)) return;
 
                 var hub = registry.GetHub(destYardId);
                 if (hub == null) return;
@@ -53,30 +63,28 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // ── Sort job completed ─────────────────────────────────────────────────
-            if (jobId.StartsWith("GI-SORT-"))
+            // ── Sort (intra-hub shunt): hub → same hub ─────────────────────────────
+            if (originIsHub && destIsHub && originYardId == destYardId)
             {
-                var hubYardId = job.chainData?.chainOriginYardId;
-                if (string.IsNullOrEmpty(hubYardId)) return;
-
-                var hub = registry.GetHub(hubYardId);
+                var hub = registry.GetHub(originYardId);
                 if (hub == null) return;
 
+                // Check if a cross-hub block train threshold has been met
                 BlockTransportSpawner.TrySpawnBlock(hub, GRDNInterchange.Main.Settings);
+
+                // Spawn final-mile for any same-hub cars (now in BreakAtHub phase)
+                FinalMileSpawner.SpawnFinalMileJobs(hub);
                 return;
             }
 
-            // ── Block train arrived at receiving hub ───────────────────────────────
-            if (jobId.StartsWith("GI-BLOCK-"))
+            // ── Block haul: hub → different hub ───────────────────────────────────
+            if (originIsHub && destIsHub && originYardId != destYardId)
             {
                 var cars = GetTrainCarsFromChain(__instance);
                 if (cars == null || cars.Count == 0) return;
 
                 foreach (var c in cars)
                     store.SetPhase(c.CarGUID, InterchangePhase.BreakAtHub);
-
-                var destYardId = job.chainData?.chainDestinationYardId;
-                if (string.IsNullOrEmpty(destYardId)) return;
 
                 var hub = registry.GetHub(destYardId);
                 if (hub == null) return;
@@ -87,8 +95,8 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // ── Final-mile delivered ───────────────────────────────────────────────
-            if (jobId.StartsWith("GI-FM-"))
+            // ── Final mile: hub → spoke ────────────────────────────────────────────
+            if (originIsHub && !destIsHub)
             {
                 var cars = GetTrainCarsFromChain(__instance);
                 if (cars == null) return;
