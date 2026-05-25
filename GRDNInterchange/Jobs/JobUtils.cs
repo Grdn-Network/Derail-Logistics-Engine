@@ -80,11 +80,19 @@ namespace GRDNInterchange.Jobs
         /// and register it with the station's procedural controller.
         /// Note: JobChainController is NOT a MonoBehaviour — it is a plain class.
         /// </summary>
+        private static readonly System.Reflection.FieldInfo _responsibleStationField =
+            typeof(JobChainController).GetField(
+                "responsibleStationForJobChain",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
         public static JobChainController ActivateJobChain(
             StaticJobDefinition def,
             StationController station)
         {
             var jcc = new JobChainController(def.gameObject);
+            _responsibleStationField?.SetValue(jcc, station);
+            if (def is StaticTransportJobDefinition transport && transport.carsToTransport != null)
+                jcc.carsForJobChain = transport.carsToTransport;
             jcc.AddJobDefinitionToChain(def);
             jcc.FinalizeSetupAndGenerateFirstJob(false);
             station.ProceduralJobsController.AddJobChainController(jcc);
