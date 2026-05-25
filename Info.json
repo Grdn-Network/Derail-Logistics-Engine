@@ -1,0 +1,11 @@
+{
+  "Id": "GRDNInterchange",
+  "DisplayName": "GRDN Interchange",
+  "Author": "Grdn-Network",
+  "Version": "0.1.0",
+  "AssemblyName": "GRDNInterchange.dll",
+  "EntryMethod": "GRDNInterchange.Main.Load",
+  "HomePage": "https://github.com/Grdn-Network/grdn-interchange",
+  "ManagerVersion": "0.27.0",
+  "Requirements": []
+}

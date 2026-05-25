@@ -1,0 +1,18 @@
+## Build output
+build/
+bin/
+obj/
+
+## Lib stubs (copied from local DV install — not redistributable)
+GRDNInterchange/lib/
+
+## IDE / OS
+.vs/
+*.user
+.idea/
+*.suo
+.DS_Store
+Thumbs.db
+
+## UMM settings written at runtime
+GRDNInterchange/Settings.xml
