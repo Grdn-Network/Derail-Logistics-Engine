@@ -66,6 +66,9 @@ namespace GRDNInterchange.Data
 
         public bool IsInterchangeCar(string carGuid) => _store.ContainsKey(carGuid);
 
+        /// <summary>Returns a snapshot of all tracked car records (for debug output).</summary>
+        public IReadOnlyDictionary<string, CarDestRecord> GetAll() => _store;
+
         // ── Persistence ────────────────────────────────────────────────────────────
 
         public void SaveTo(SaveGameData data)

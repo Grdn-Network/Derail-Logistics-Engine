@@ -2,6 +2,7 @@ using DV.Common;
 using GRDNInterchange.Data;
 using GRDNInterchange.Jobs;
 using HarmonyLib;
+using System.Linq;
 using UnityModManagerNet;
 
 namespace GRDNInterchange
@@ -98,6 +99,43 @@ namespace GRDNInterchange
         private static void OnGUI(UnityModManager.ModEntry entry)
         {
             Settings.Draw(entry);
+
+            UnityEngine.GUILayout.Space(8);
+            if (UnityEngine.GUILayout.Button("Dump Interchange State to Log", UnityEngine.GUILayout.Width(280)))
+                DumpState();
+        }
+
+        private static void DumpState()
+        {
+            var store = CarDestinationStore.Instance;
+            if (store == null) { Log("[Debug] CarDestinationStore not initialised"); return; }
+
+            var all = store.GetAll();
+            Log($"[Debug] ── Interchange State ── ({all.Count} tracked cars)");
+
+            // Group by phase for readability
+            var byPhase = all.Values
+                .GroupBy(r => r.Phase)
+                .OrderBy(g => (int)g.Key);
+            foreach (var g in byPhase)
+                Log($"[Debug]   {g.Key}: {g.Count()} car(s)");
+
+            // Per-car detail
+            foreach (var kv in all)
+            {
+                var r = kv.Value;
+                Log($"[Debug]   {kv.Key.Substring(0, 8)}… " +
+                    $"{r.TrueOriginYardId}→{r.TrueDestYardId} via {r.AssignedHubYardId} [{r.Phase}]");
+            }
+
+            // Hub registry summary
+            var reg = HubRegistry.Instance;
+            if (reg != null)
+            {
+                Log("[Debug] Registered hubs:");
+                foreach (var hub in reg.AllHubs)
+                    Log($"[Debug]   {hub.stationInfo.YardID}");
+            }
         }
 
         private static void OnSaveGUI(UnityModManager.ModEntry entry)

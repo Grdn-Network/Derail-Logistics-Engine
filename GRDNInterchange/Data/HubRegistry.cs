@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace GRDNInterchange.Data
 {
     /// <summary>
     /// Knows which stations are hubs and which hub serves each origin station.
+    /// Hub assignment is computed by nearest-hub distance so no manual list is needed.
     /// Initialized once after WorldStreamingInit.LoadingFinished.
     /// </summary>
     public class HubRegistry
@@ -12,14 +14,12 @@ namespace GRDNInterchange.Data
         public static HubRegistry Instance { get; private set; }
 
         private readonly HashSet<string> _hubYardIds;
-        private readonly HashSet<string> _mfSideStations;
         private readonly Dictionary<string, StationController> _hubStations =
             new Dictionary<string, StationController>();
 
         private HubRegistry(Settings s)
         {
-            _hubYardIds       = new HashSet<string>(s.HubYardIds);
-            _mfSideStations   = new HashSet<string>(s.MFSideStations);
+            _hubYardIds = new HashSet<string>(s.HubYardIds);
         }
 
         public static void Initialize(Settings settings)
@@ -50,26 +50,37 @@ namespace GRDNInterchange.Data
             _hubStations.TryGetValue(yardId, out var sc) ? sc : null;
 
         /// <summary>
-        /// Returns the hub yard ID that serves the given origin station.
-        /// MF-side stations → "MF", everything else → "HB".
-        /// Falls back to the first configured hub if neither "HB" nor "MF" exists.
+        /// Returns the hub yard ID nearest to the given origin station by world distance.
+        /// Falls back to the first configured hub if positions can't be compared.
         /// </summary>
         public string GetAssignedHubId(string originYardId)
         {
-            var preferredHub = _mfSideStations.Contains(originYardId) ? "MF" : "HB";
-            if (_hubStations.ContainsKey(preferredHub)) return preferredHub;
-            // Fallback: any available hub
-            return _hubStations.Keys.FirstOrDefault() ?? preferredHub;
+            var origin = StationController.allStations
+                .FirstOrDefault(sc => sc.stationInfo.YardID == originYardId);
+
+            if (origin == null)
+                return _hubStations.Keys.FirstOrDefault() ?? "HB";
+
+            var nearest = _hubStations
+                .OrderBy(kvp => Vector3.Distance(
+                    origin.transform.position,
+                    kvp.Value.transform.position))
+                .FirstOrDefault();
+
+            if (nearest.Key != null)
+            {
+                Main.Log($"[HubRegistry] {originYardId} → nearest hub is {nearest.Key} " +
+                         $"({Vector3.Distance(origin.transform.position, nearest.Value.transform.position):F0} m)");
+            }
+
+            return nearest.Key ?? _hubStations.Keys.FirstOrDefault() ?? "HB";
         }
 
         /// <summary>
         /// The "opposite" hub — where cross-hub block trains are destined.
         /// </summary>
-        public string GetOppositeHubId(string fromHubYardId)
-        {
-            return _hubStations.Keys.FirstOrDefault(id => id != fromHubYardId)
-                ?? fromHubYardId;
-        }
+        public string GetOppositeHubId(string fromHubYardId) =>
+            _hubStations.Keys.FirstOrDefault(id => id != fromHubYardId) ?? fromHubYardId;
 
         public IEnumerable<StationController> AllHubs => _hubStations.Values;
 

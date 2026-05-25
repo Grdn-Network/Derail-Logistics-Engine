@@ -5,6 +5,7 @@ using GRDNInterchange.Jobs;
 using HarmonyLib;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 namespace GRDNInterchange.Patches
 {
@@ -94,8 +95,14 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // Spawn the feeder job
-            FeederJobSpawner.SpawnFeeder(cars, startingTrack, originStation, hubStation);
+            // Spawn feeder job(s), capped at MaxCarsPerFeeder per job
+            int max = Mathf.Max(1, Main.Settings.MaxCarsPerFeeder);
+            for (int i = 0; i < cars.Count; i += max)
+            {
+                int take  = System.Math.Min(max, cars.Count - i);
+                var batch = cars.GetRange(i, take);
+                FeederJobSpawner.SpawnFeeder(batch, startingTrack, originStation, hubStation);
+            }
         }
 
         private static List<TrainCar> GetJobTrainCars(JobChainController jcc)
