@@ -94,7 +94,19 @@ namespace GRDNInterchange.Jobs
             if (def is StaticTransportJobDefinition transport && transport.carsToTransport != null)
                 jcc.carsForJobChain = transport.carsToTransport;
             jcc.AddJobDefinitionToChain(def);
-            jcc.FinalizeSetupAndGenerateFirstJob(false);
+            try
+            {
+                jcc.FinalizeSetupAndGenerateFirstJob(false);
+            }
+            catch (System.Exception ex)
+            {
+                // If job generation fails, destroy the partial JCC and its GameObject so it
+                // doesn't corrupt autosave ("Uninitialized chain controller!").
+                Main.Log($"[JobUtils] ActivateJobChain failed ({ex.GetType().Name}): {ex.Message}");
+                try { jcc.DestroyChain(); } catch { }
+                UnityEngine.Object.Destroy(def.gameObject);
+                return null;
+            }
             station.ProceduralJobsController.AddJobChainController(jcc);
             return jcc;
         }

@@ -18,6 +18,10 @@ namespace GRDNInterchange.Patches
     ///   3. Destroy the vanilla job chain.
     ///   4. Spawn a feeder job from the origin to the assigned hub.
     ///
+    /// We only intercept Transport (FH) jobs. ShuntingLoad (SL) jobs are skipped
+    /// because those cars are not yet loaded (CargoType.None), and DV generates a
+    /// Transport job naturally when the SL completes — we intercept that one instead.
+    ///
     /// We only intercept on the host player; clients see the GI-* jobs
     /// replicated normally by DV's own networking.
     /// </summary>
@@ -39,8 +43,8 @@ namespace GRDNInterchange.Patches
             // Skip GI-* jobs we spawned ourselves
             if (job.ID != null && job.ID.StartsWith("GI-")) return;
 
-            // Only intercept freight transport / shunting-load jobs
-            if (job.jobType != JobType.Transport && job.jobType != JobType.ShuntingLoad)
+            // Only intercept Transport (FH) jobs — not ShuntingLoad, EmptyHaul, etc.
+            if (job.jobType != JobType.Transport)
                 return;
 
             // Extract origin and destination yard IDs from the job's chain data
