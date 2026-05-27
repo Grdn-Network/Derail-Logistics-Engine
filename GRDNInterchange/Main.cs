@@ -186,8 +186,16 @@ namespace GRDNInterchange
                     // (SortJobSpawner treats hub-local cars — trueDest==hub — as immediately Delivered.)
 
                     // Collect cars
-                    var go        = jcc.jobChainGO;
-                    var transport = go?.GetComponent<StaticTransportJobDefinition>();
+                    var go = jcc.jobChainGO;
+                    // Use Unity's overloaded == (not C# ?.) so destroyed fake-null GOs are caught.
+                    // go?.GetComponent throws NullReferenceException on a destroyed GameObject.
+                    if (go == null)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} jobChainGO is null/destroyed — destroying chain");
+                        jcc.DestroyChain();
+                        continue;
+                    }
+                    var transport = go.GetComponent<StaticTransportJobDefinition>();
                     if (transport?.carsToTransport == null)
                     {
                         Log($"[Main] {originYardId}: {job.ID} no StaticTransportJobDefinition or carsToTransport null — destroying");
