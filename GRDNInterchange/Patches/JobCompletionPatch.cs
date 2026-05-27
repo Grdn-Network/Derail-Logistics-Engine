@@ -28,13 +28,10 @@ namespace GRDNInterchange.Patches
         {
             if (!GRDNInterchange.Main.IsHostOrSingleplayer()) return;
 
-            // currentJobInChain may be null after the last job completes — fall back to
-            // the final entry in the chain so we can still read origin/dest.
-            var job = __instance.currentJobInChain
-                      ?? __instance.jobChain?.LastOrDefault();
+            var job = __instance.currentJobInChain;
             if (job == null) return;
 
-            var jobId = job.ID ?? "";
+            var jobId = job.ID ?? string.Empty;
 
             // NOTE: ManagedJobIds guard has been intentionally removed.
             // ManagedJobIds is empty after every save/load (it is not persisted), so

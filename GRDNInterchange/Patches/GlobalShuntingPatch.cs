@@ -1,4 +1,5 @@
 using DV.Logic.Job;
+using DV.ThingTypes;
 using GRDNInterchange.Data;
 using GRDNInterchange.Jobs;
 using HarmonyLib;
