@@ -28,13 +28,21 @@ namespace GRDNInterchange.Patches
         {
             if (!GRDNInterchange.Main.IsHostOrSingleplayer()) return;
 
-            var job = __instance.currentJobInChain;
+            // currentJobInChain may be null after the last job completes — fall back to
+            // the final entry in the chain so we can still read origin/dest.
+            var job = __instance.currentJobInChain
+                      ?? __instance.jobChain?.LastOrDefault();
             if (job == null) return;
 
             var jobId = job.ID ?? "";
 
-            // Only process jobs we generated
-            if (!Jobs.JobUtils.ManagedJobIds.Contains(jobId)) return;
+            // NOTE: ManagedJobIds guard has been intentionally removed.
+            // ManagedJobIds is empty after every save/load (it is not persisted), so
+            // checking it here would cause the pipeline to silently die after any reload.
+            // Downstream spawners guard themselves: SortJobSpawner checks CarDestinationStore,
+            // FinalMileSpawner checks phase == BreakAtHub, BlockTransportSpawner checks
+            // IsInterchangeCar. Vanilla job completions are no-ops because none of those
+            // phase/store guards match.
 
             var registry = HubRegistry.Instance;
             var store    = CarDestinationStore.Instance;

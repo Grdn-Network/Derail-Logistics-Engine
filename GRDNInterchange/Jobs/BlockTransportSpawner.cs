@@ -8,64 +8,82 @@ using UnityEngine;
 namespace GRDNInterchange.Jobs
 {
     /// <summary>
-    /// Spawns a hub-to-hub block transport job once enough cross-hub cars have
-    /// accumulated on an outbound track at the origin hub.
+    /// Spawns a single hub-to-hub block transport job once enough cross-hub cars have
+    /// accumulated at the origin hub.
     ///
-    /// Called either:
-    ///   (a) When a sort job completes and the outbound track now meets threshold, or
-    ///   (b) From the world-load scan to recover any orphaned outbound-ready cars.
+    /// Fixes vs the original version:
+    ///   - One block per hub, not one per outbound track. Aggregates all SortAtHub cars
+    ///     and picks the track with the most ready cars.
+    ///   - In-transit guard: if a BlockHaul-phase car already exists from this hub,
+    ///     no new block is spawned until the current one completes.
     /// </summary>
     public static class BlockTransportSpawner
     {
-        /// <summary>
-        /// Check the outbound track(s) at fromHub. If any has >= threshold cars,
-        /// spawn a block transport to the opposite hub.
-        /// </summary>
         public static void TrySpawnBlock(StationController fromHub, Settings settings)
         {
-            var registry = HubRegistry.Instance;
-            if (registry == null) return;
+            var registry   = HubRegistry.Instance;
+            var store      = CarDestinationStore.Instance;
+            if (registry == null || store == null) return;
 
-            var fromYardId   = fromHub.stationInfo.YardID;
-            var toYardId     = registry.GetOppositeHubId(fromYardId);
-            var toHub        = registry.GetHub(toYardId);
+            var fromYardId = fromHub.stationInfo.YardID;
+            var toYardId   = registry.GetOppositeHubId(fromYardId);
+            var toHub      = registry.GetHub(toYardId);
             if (toHub == null)
             {
                 Main.Log($"[BlockTransportSpawner] No opposite hub found from {fromYardId}");
                 return;
             }
 
-            var store         = CarDestinationStore.Instance;
-            var outboundTracks = TrackClassifier.GetOutboundTracks(fromHub);
-            foreach (var track in outboundTracks)
+            // In-transit guard: don't spawn a second block while one is already running
+            bool blockInTransit = store.GetAll().Values
+                .Any(r => r.AssignedHubYardId == fromYardId && r.Phase == InterchangePhase.BlockHaul);
+            if (blockInTransit)
             {
-                // Only count interchange cars that have finished sorting (SortAtHub phase).
-                // Ignores any non-GRDN cars and cars whose sort job is still running.
+                Main.Log($"[BlockTransportSpawner] Block already in transit from {fromYardId} — skipping");
+                return;
+            }
+
+            // Find the outbound track with the most SortAtHub-phase interchange cars
+            Track bestTrack = null;
+            List<Car> bestCars = null;
+
+            foreach (var track in TrackClassifier.GetOutboundTracks(fromHub))
+            {
                 var carsOnTrack = track.GetCarsFullyOnTrack()
                     ?.Where(c => store.IsInterchangeCar(c.carGuid) &&
                                  store.Get(c.carGuid)?.Phase == InterchangePhase.SortAtHub)
                     .ToList();
-                if (carsOnTrack == null || carsOnTrack.Count < settings.BlockThresholdCars)
-                    continue;
 
-                // Resolve TrainCar objects
-                var trainCars = ResolveTrainCars(carsOnTrack);
-                if (trainCars.Count == 0) continue;
-
-                var destTrack = JobUtils.BestInboundTrack(toHub);
-                if (destTrack == null)
+                if (carsOnTrack != null && (bestCars == null || carsOnTrack.Count > bestCars.Count))
                 {
-                    Main.Log($"[BlockTransportSpawner] No inbound track at {toYardId} — block not spawned");
-                    continue;
+                    bestTrack = track;
+                    bestCars  = carsOnTrack;
                 }
-
-                SpawnBlockJob(trainCars, track, destTrack, fromHub, fromYardId, toYardId);
-
-                foreach (var c in trainCars)
-                    store.SetPhase(c.CarGUID, InterchangePhase.BlockHaul);
-
-                Main.Log($"[BlockTransportSpawner] Block {fromYardId}→{toYardId}: {trainCars.Count} cars");
             }
+
+            if (bestCars == null || bestCars.Count < settings.BlockThresholdCars)
+            {
+                Main.Log($"[BlockTransportSpawner] Outbound cars at {fromYardId}: " +
+                         $"{bestCars?.Count ?? 0} < threshold {settings.BlockThresholdCars}");
+                return;
+            }
+
+            var trainCars = ResolveTrainCars(bestCars);
+            if (trainCars.Count == 0) return;
+
+            var destTrack = JobUtils.BestInboundTrack(toHub);
+            if (destTrack == null)
+            {
+                Main.Log($"[BlockTransportSpawner] No inbound track at {toYardId} — block not spawned");
+                return;
+            }
+
+            SpawnBlockJob(trainCars, bestTrack, destTrack, fromHub, fromYardId, toYardId);
+
+            foreach (var c in trainCars)
+                store.SetPhase(c.CarGUID, InterchangePhase.BlockHaul);
+
+            Main.Log($"[BlockTransportSpawner] Block {fromYardId}→{toYardId}: {trainCars.Count} cars");
         }
 
         private static void SpawnBlockJob(
@@ -101,15 +119,14 @@ namespace GRDNInterchange.Jobs
 
         private static List<TrainCar> ResolveTrainCars(IEnumerable<Car> logicCars)
         {
-            var result = new List<TrainCar>();
+            var result   = new List<TrainCar>();
             var registry = TrainCarRegistry.Instance;
             if (registry == null) return result;
 
             foreach (var lc in logicCars)
-            {
                 if (registry.logicCarToTrainCar.TryGetValue(lc, out var tc))
                     result.Add(tc);
-            }
+
             return result;
         }
     }

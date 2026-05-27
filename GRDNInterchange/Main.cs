@@ -4,8 +4,10 @@ using DV.ThingTypes;
 using GRDNInterchange.Data;
 using GRDNInterchange.Jobs;
 using HarmonyLib;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using UnityModManagerNet;
 
@@ -15,8 +17,15 @@ namespace GRDNInterchange
     {
         public static UnityModManager.ModEntry ModEntry { get; private set; }
         public static Settings Settings { get; private set; }
+        public static InterchangeConfig Config { get; private set; }
 
         private static Harmony _harmony;
+
+        // ── DVMP API reflection handles ────────────────────────────────────────────
+        private static PropertyInfo _isHostProp;
+        private static PropertyInfo _isSinglePlayerProp;
+        private static object       _mpApiInstance;
+        private static bool         _dvmpResolved;
 
         // ── UMM entry point ────────────────────────────────────────────────────────
 
@@ -25,6 +34,8 @@ namespace GRDNInterchange
             ModEntry = modEntry;
 
             Settings = UnityModManager.ModSettings.Load<Settings>(modEntry);
+            Config   = InterchangeConfig.Load(modEntry.Path);
+
             modEntry.OnSaveGUI = OnSaveGUI;
             modEntry.OnGUI     = OnGUI;
 
@@ -34,6 +45,10 @@ namespace GRDNInterchange
             // Hook world-ready event so HubRegistry and CarDestinationStore can init
             // after all stations are loaded.
             WorldStreamingInit.LoadingFinished += OnWorldLoaded;
+
+            // Resolve DVMP API at load time (LoadAfter: ["Multiplayer"] guarantees
+            // DVMultiplayerAPI.dll is already in the AppDomain when we run).
+            ResolveDvmpApi();
 
             Log("[Main] GRDN Interchange loaded.");
             return true;
@@ -45,7 +60,7 @@ namespace GRDNInterchange
         {
             Log("[Main] World loaded — initialising interchange systems.");
 
-            HubRegistry.Initialize(Settings);
+            HubRegistry.Initialize(Config, Settings);
 
             // Load car store from save data (instance field on SaveGameManager singleton)
             try
@@ -54,7 +69,7 @@ namespace GRDNInterchange
                 if (saveData != null)
                     CarDestinationStore.Instance.LoadFromSave(saveData);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Log($"[Main] Could not load CarDestinationStore from save: {ex.Message}");
             }
@@ -84,7 +99,7 @@ namespace GRDNInterchange
                     Log("[Main] CarDestinationStore saved.");
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 Log($"[Main] Error saving CarDestinationStore: {ex.Message}");
             }
@@ -98,17 +113,17 @@ namespace GRDNInterchange
         /// </summary>
         private static void InterceptSavedVanillaJobs()
         {
-            var registry  = HubRegistry.Instance;
-            var store     = CarDestinationStore.Instance;
-            var tcReg     = TrainCarRegistry.Instance;
+            var registry = HubRegistry.Instance;
+            var store    = CarDestinationStore.Instance;
+            var tcReg    = TrainCarRegistry.Instance;
             if (registry == null || !registry.IsReady || tcReg == null) return;
 
-            var excluded = Settings.ExcludedYardIds;
+            var excluded = Config.ExcludedYardIds;
 
             // jobChainControllers is private — reflect it once
             var jccField = typeof(StationProceduralJobsController).GetField(
                 "jobChainControllers",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                BindingFlags.NonPublic | BindingFlags.Instance);
 
             int intercepted = 0;
 
@@ -165,9 +180,11 @@ namespace GRDNInterchange
                     int max = Mathf.Max(1, Settings.MaxCarsPerFeeder);
                     for (int i = 0; i < cars.Count; i += max)
                     {
-                        int take  = System.Math.Min(max, cars.Count - i);
+                        int take  = Math.Min(max, cars.Count - i);
                         var batch = cars.GetRange(i, take);
-                        var jobId = Jobs.JobUtils.NextId(originYardId, destYardId);
+
+                        // ID uses hub as destination — route-consistent with feeder chain data
+                        var jobId = Jobs.JobUtils.NextId(originYardId, assignedHubId);
 
                         foreach (var car in batch)
                             if (!store.IsInterchangeCar(car.CarGUID))
@@ -187,13 +204,13 @@ namespace GRDNInterchange
             var registry = HubRegistry.Instance;
             if (registry == null || !registry.IsReady) return;
 
-            var excluded = Settings.ExcludedYardIds;
+            var excluded = Config.ExcludedYardIds;
 
             foreach (var sc in StationController.allStations)
             {
                 var yardId = sc.stationInfo.YardID;
                 if (registry.IsHub(yardId)) continue;
-                if (excluded.Contains(yardId)) continue;   // never touch military/excluded yards
+                if (excluded.Contains(yardId)) continue;
                 FeederJobSpawner.ScanAndSpawnMissingFeeders(sc);
             }
         }
@@ -205,6 +222,14 @@ namespace GRDNInterchange
             Settings.Draw(entry);
 
             UnityEngine.GUILayout.Space(8);
+            if (UnityEngine.GUILayout.Button("Reload config.json", UnityEngine.GUILayout.Width(200)))
+            {
+                Config = InterchangeConfig.Load(ModEntry.Path);
+                if (HubRegistry.Instance != null)
+                    HubRegistry.Initialize(Config, Settings);
+                Log("[Main] config.json reloaded and HubRegistry reinitialised.");
+            }
+            UnityEngine.GUILayout.Space(4);
             if (UnityEngine.GUILayout.Button("Dump Interchange State to Log", UnityEngine.GUILayout.Width(280)))
                 DumpState();
         }
@@ -217,14 +242,12 @@ namespace GRDNInterchange
             var all = store.GetAll();
             Log($"[Debug] ── Interchange State ── ({all.Count} tracked cars)");
 
-            // Group by phase for readability
             var byPhase = all.Values
                 .GroupBy(r => r.Phase)
                 .OrderBy(g => (int)g.Key);
             foreach (var g in byPhase)
                 Log($"[Debug]   {g.Key}: {g.Count()} car(s)");
 
-            // Per-car detail
             foreach (var kv in all)
             {
                 var r = kv.Value;
@@ -232,7 +255,6 @@ namespace GRDNInterchange
                     $"{r.TrueOriginYardId}→{r.TrueDestYardId} via {r.AssignedHubYardId} [{r.Phase}]");
             }
 
-            // Hub registry summary
             var reg = HubRegistry.Instance;
             if (reg != null)
             {
@@ -252,14 +274,82 @@ namespace GRDNInterchange
         public static void Log(string message) => ModEntry?.Logger?.Log(message);
 
         /// <summary>
-        /// Returns true when we should be running server-side logic.
+        /// Returns true when we should run server-side logic.
         /// In single-player this is always true; in multiplayer only the host.
+        /// Uses reflection against the public DVMP MultiplayerAPI so there is no
+        /// hard compile-time dependency on DVMultiplayerAPI.dll.
         /// </summary>
         public static bool IsHostOrSingleplayer()
         {
-            // Multiplayer check — expand when DV's networking API is confirmed.
-            // For now, always act as host (safe for single-player development).
-            return true;
+            ResolveDvmpApi(); // idempotent — resolves once then returns immediately
+            if (_mpApiInstance == null) return true; // no DVMP present → single-player
+            try
+            {
+                bool isHost = (bool)(_isHostProp?.GetValue(_mpApiInstance) ?? true);
+                bool isSP   = (bool)(_isSinglePlayerProp?.GetValue(_mpApiInstance) ?? true);
+                return isHost || isSP;
+            }
+            catch { return true; }
+        }
+
+        /// <summary>
+        /// Locate DVMP's MultiplayerAPI assembly in the AppDomain and cache reflection
+        /// handles for IsHost and IsSinglePlayer. Also registers this mod as Host-only
+        /// so clients can join a GRDN-hosted server without installing the mod themselves.
+        /// Safe to call multiple times — resolves only on the first call.
+        /// </summary>
+        private static void ResolveDvmpApi()
+        {
+            if (_dvmpResolved) return;
+            _dvmpResolved = true;
+
+            try
+            {
+                // MultiplayerAPI.dll is loaded by DVMP before GRDNInterchange (LoadAfter: ["Multiplayer"])
+                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                    ?.GetType("MPAPI.MultiplayerAPI");
+
+                if (mpApiType == null)
+                {
+                    Log("[Main] DVMP MultiplayerAPI not found — assuming single-player");
+                    return;
+                }
+
+                var isLoaded = (bool)(mpApiType.GetProperty("IsMultiplayerLoaded")?.GetValue(null) ?? false);
+                if (!isLoaded)
+                {
+                    Log("[Main] DVMP present but multiplayer not loaded");
+                    return;
+                }
+
+                _mpApiInstance = mpApiType.GetProperty("Instance")?.GetValue(null);
+                if (_mpApiInstance == null)
+                {
+                    Log("[Main] DVMP Instance is null");
+                    return;
+                }
+
+                var instanceType = _mpApiInstance.GetType();
+                _isHostProp        = instanceType.GetProperty("IsHost");
+                _isSinglePlayerProp = instanceType.GetProperty("IsSinglePlayer");
+
+                // Register as Host-only: clients don't need this mod installed
+                // MultiplayerCompatibility.Host = byte value 3
+                var compatType = mpApiType.Assembly.GetType("MPAPI.Types.MultiplayerCompatibility");
+                if (compatType != null)
+                {
+                    var hostCompat = Enum.ToObject(compatType, (byte)3);
+                    instanceType.GetMethod("SetModCompatibility")
+                        ?.Invoke(_mpApiInstance, new[] { ModEntry.Info.Id, hostCompat });
+                }
+
+                Log("[Main] DVMP API hooked — registered as Host-only mod");
+            }
+            catch (Exception ex)
+            {
+                Log($"[Main] DVMP API hook failed: {ex.Message}");
+            }
         }
     }
 }

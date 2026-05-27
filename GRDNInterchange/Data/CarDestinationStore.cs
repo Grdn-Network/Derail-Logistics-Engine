@@ -79,6 +79,19 @@ namespace GRDNInterchange.Data
         /// <summary>Returns a snapshot of all tracked car records (for debug output).</summary>
         public IReadOnlyDictionary<string, CarDestRecord> GetAll() => _store;
 
+        /// <summary>
+        /// Count how many cars from a given origin station are currently in the given phase.
+        /// Used to enforce per-station car caps before intercepting new jobs.
+        /// </summary>
+        public int CountByOriginAndPhase(string originYardId, InterchangePhase phase)
+        {
+            int count = 0;
+            foreach (var r in _store.Values)
+                if (r.TrueOriginYardId == originYardId && r.Phase == phase)
+                    count++;
+            return count;
+        }
+
         // ── Persistence ────────────────────────────────────────────────────────────
 
         public void SaveTo(SaveGameData data)

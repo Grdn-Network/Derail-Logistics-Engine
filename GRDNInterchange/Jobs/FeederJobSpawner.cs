@@ -77,7 +77,7 @@ namespace GRDNInterchange.Jobs
 
             var originYardId = originStation.stationInfo.YardID;
             if (HubRegistry.Instance.IsHub(originYardId)) return;
-            if (GRDNInterchange.Main.Settings.ExcludedYardIds.Contains(originYardId)) return;
+            if (GRDNInterchange.Main.Config.ExcludedYardIds.Contains(originYardId)) return;
 
             var hubYardId   = HubRegistry.Instance.GetAssignedHubId(originYardId);
             var hubStation  = HubRegistry.Instance.GetHub(hubYardId);
@@ -113,6 +113,22 @@ namespace GRDNInterchange.Jobs
                 .ToList();
 
             if (unregistered.Count == 0) return;
+
+            // Per-station cap: don't let the scan flood a station already at its limit
+            int maxPerStation = GRDNInterchange.Main.Settings.MaxCarsPerStation;
+            if (maxPerStation > 0)
+            {
+                int active = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
+                if (active >= maxPerStation)
+                {
+                    GRDNInterchange.Main.Log($"[FeederJobSpawner] {originYardId} at cap ({active}/{maxPerStation}) — scan skipped");
+                    return;
+                }
+                // Only register up to the remaining cap
+                int remaining = maxPerStation - active;
+                if (unregistered.Count > remaining)
+                    unregistered = unregistered.GetRange(0, remaining);
+            }
 
             // Group by track, then batch within each group by MaxCarsPerFeeder
             int max    = Mathf.Max(1, GRDNInterchange.Main.Settings.MaxCarsPerFeeder);

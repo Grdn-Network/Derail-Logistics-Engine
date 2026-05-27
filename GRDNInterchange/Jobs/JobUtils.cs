@@ -38,6 +38,22 @@ namespace GRDNInterchange.Jobs
             return id;
         }
 
+        /// <summary>
+        /// Generate the next sort job ID for a hub in the format "{hub}-SO-{NN}".
+        /// e.g. "HB-SO-01". The "SO" segment signals a Shunting Operation (sort job)
+        /// and is not a real yard ID — chain data for sort jobs stays hub→hub.
+        /// </summary>
+        public static string NextSortId(string hubYardId)
+        {
+            var key = $"{hubYardId}-SO";
+            _routeCounters.TryGetValue(key, out var count);
+            count = (count % 99) + 1;
+            _routeCounters[key] = count;
+            var id = $"{hubYardId}-SO-{count:D2}";
+            ManagedJobIds.Add(id);
+            return id;
+        }
+
         public static StationsChainData Chain(string originYardId, string destYardId) =>
             new StationsChainData(originYardId, destYardId);
 

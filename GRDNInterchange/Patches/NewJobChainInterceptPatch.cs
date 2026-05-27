@@ -55,8 +55,8 @@ namespace GRDNInterchange.Patches
             if (string.IsNullOrEmpty(originYardId) || string.IsNullOrEmpty(destYardId))
                 return;
 
-            // Skip excluded yards (military chain, etc.) — configurable in UMM settings
-            var excluded = GRDNInterchange.Main.Settings.ExcludedYardIds;
+            // Skip excluded yards (military chain, etc.) — configurable in config.json
+            var excluded = GRDNInterchange.Main.Config.ExcludedYardIds;
             if (excluded.Contains(originYardId) || excluded.Contains(destYardId))
             {
                 Main.Log($"[Intercept] Skipping excluded route {originYardId}→{destYardId}");
@@ -99,24 +99,33 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
+            // Per-station cap: skip if origin already has too many feeder-phase cars
+            var store = CarDestinationStore.Instance;
+            if (Main.Settings.MaxCarsPerStation > 0)
+            {
+                int active = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
+                if (active >= Main.Settings.MaxCarsPerStation)
+                {
+                    Main.Log($"[Intercept] {originYardId} at cap ({active}/{Main.Settings.MaxCarsPerStation}) — skipping {job.ID}");
+                    return;
+                }
+            }
+
             // All checks passed — safe to replace
             Main.Log($"[Intercept] Replacing vanilla job {job.ID} ({originYardId}→{destYardId}) with feeder to {assignedHubId}");
             __instance.DestroyChain();
 
-            var store = CarDestinationStore.Instance;
-
             // Spawn feeder job(s), capped at MaxCarsPerFeeder per job.
-            // Each batch gets its own job ID based on true origin/destination (e.g. "SM-GF-77").
-            // This ID will be reused for the final-mile leg so the player sees the same number
-            // on pick-up (at origin) and on delivery (from hub to true destination).
+            // Job ID uses the hub as destination — consistent with feeder chain data (origin→hub).
+            // The true destination is stored in CarDestinationStore and used on the final-mile leg.
             int max = Mathf.Max(1, Main.Settings.MaxCarsPerFeeder);
             for (int i = 0; i < cars.Count; i += max)
             {
                 int take  = System.Math.Min(max, cars.Count - i);
                 var batch = cars.GetRange(i, take);
 
-                // Job ID encodes the true journey, not the intermediate hub leg
-                var jobId = JobUtils.NextId(originYardId, destYardId);
+                // ID: {origin}-{hub}-{NN} e.g. "SM-HB-01" — not "SM-MF-01"
+                var jobId = JobUtils.NextId(originYardId, assignedHubId);
 
                 foreach (var car in batch)
                     if (!store.IsInterchangeCar(car.CarGUID))

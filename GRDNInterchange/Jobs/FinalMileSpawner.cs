@@ -57,18 +57,15 @@ namespace GRDNInterchange.Jobs
                 return;
             }
 
-            // Group by (true destination, job ID) so each original contract gets its own job.
-            // e.g. SM-GF-77 and CW-GF-12 both go to GF but remain separate player jobs.
-            var byDestAndJob = readyCars.GroupBy(tc =>
-            {
-                var rec = store.Get(tc.CarGUID);
-                return (dest: rec?.TrueDestYardId ?? "", jobId: rec?.JobId ?? "");
-            });
+            // Group by true destination so each final destination gets its own job.
+            // Job IDs are always freshly generated here — never reused from the feeder leg.
+            // (Reusing feeder IDs caused DV to see a duplicate completed ID and not spawn the booklet.)
+            var byDest = readyCars.GroupBy(tc =>
+                store.Get(tc.CarGUID)?.TrueDestYardId ?? "");
 
-            foreach (var group in byDestAndJob)
+            foreach (var group in byDest)
             {
-                var destYardId = group.Key.dest;
-                var jobId      = group.Key.jobId;
+                var destYardId = group.Key;
                 if (string.IsNullOrEmpty(destYardId)) continue;
 
                 var cars = group.ToList();
@@ -82,7 +79,7 @@ namespace GRDNInterchange.Jobs
                     continue;
                 }
 
-                // Pick the loading track at destination (or fallback to any inbound)
+                // Pick the delivery track at destination
                 var destTrack = BestFinalMileDestTrack(destStation);
                 if (destTrack == null)
                 {
@@ -98,13 +95,12 @@ namespace GRDNInterchange.Jobs
                     continue;
                 }
 
-                // Reuse the same job ID that was on the feeder leg (e.g. "SM-GF-77")
-                SpawnFinalMileJob(cars, fromTrack, destTrack, hub, hubYardId, destYardId, destStation, jobId);
+                SpawnFinalMileJob(cars, fromTrack, destTrack, hub, hubYardId, destYardId, destStation);
 
                 foreach (var c in cars)
                     store.SetPhase(c.CarGUID, InterchangePhase.FinalMile);
 
-                Main.Log($"[FinalMileSpawner] Final-mile {hubYardId}→{destYardId}: {cars.Count} cars [{jobId}]");
+                Main.Log($"[FinalMileSpawner] Final-mile {hubYardId}→{destYardId}: {cars.Count} cars");
             }
         }
 
@@ -136,8 +132,7 @@ namespace GRDNInterchange.Jobs
             StationController hub,
             string hubYardId,
             string destYardId,
-            StationController destStation,
-            string jobId)
+            StationController destStation)
         {
             _ = destStation; // reserved for future ShuntingUnload variant
 
@@ -159,13 +154,10 @@ namespace GRDNInterchange.Jobs
                 JobLicenses.Basic | JobLicenses.FreightHaul
             );
 
-            // Reuse the same job ID that was on the feeder leg so the player sees the
-            // same number (e.g. "SM-GF-77") from pick-up at origin to drop-off at destination.
-            // The previously-completed feeder is gone so DV won't see a duplicate active ID.
-            if (!string.IsNullOrEmpty(jobId))
-                def.ForceJobId(jobId);
-            else
-                def.ForceJobId(JobUtils.NextId(hubYardId, destYardId));
+            // Always generate a fresh ID for the final-mile leg — "HB-FF-01" etc.
+            // Never reuse the feeder job ID: DV tracks completed IDs and won't spawn
+            // a new booklet if the same ID string was already completed on a prior leg.
+            def.ForceJobId(JobUtils.NextId(hubYardId, destYardId));
 
             JobUtils.ActivateJobChain(def, hub);
             Main.Log($"[FinalMileSpawner] Spawned {def.job?.ID}: {hubYardId}→{destYardId} ({cars.Count} cars)");

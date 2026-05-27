@@ -114,8 +114,9 @@ namespace GRDNInterchange.Jobs
         }
 
         /// <summary>
-        /// Spawn a sort/shunt move job within the hub. Both origin and destination
-        /// are the same yard (hubYardId), so the job ID is e.g. "HB-HB-01".
+        /// Spawn a sort/shunt move job within the hub.
+        /// Chain data is hub→hub (valid DV yards). The job ID is overridden to
+        /// "HB-SO-01" format so the player sees a Shunting Operation code, not "HB-HB-01".
         /// </summary>
         private static void SpawnMoveJob(
             List<TrainCar> cars,
@@ -141,7 +142,8 @@ namespace GRDNInterchange.Jobs
                 JobUtils.Chain(hubYardId, hubYardId),
                 JobLicenses.Basic | JobLicenses.Shunting
             );
-            def.ForceJobId(JobUtils.NextId(hubYardId, hubYardId));
+            // Chain data stays hub→hub (both valid DV yards); only the displayed ID uses "SO"
+            def.ForceJobId(JobUtils.NextSortId(hubYardId));
 
             JobUtils.ActivateJobChain(def, hub);
             Main.Log($"[SortJobSpawner] Spawned sort job {def.job?.ID} ({cars.Count} cars, {fromTrack?.ID?.FullID}→{toTrack?.ID?.FullID})");
