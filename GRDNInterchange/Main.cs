@@ -335,6 +335,16 @@ namespace GRDNInterchange
             {
                 bool isHost = (bool)(_isHostProp?.GetValue(_mpApiInstance) ?? true);
                 bool isSP   = (bool)(_isSinglePlayerProp?.GetValue(_mpApiInstance) ?? true);
+
+                if (!isHost && !isSP)
+                {
+                    // Both false in single-player DVMP mode is a known edge case — the server
+                    // may not have propagated IsHost/IsSinglePlayer yet at job-generation time.
+                    // Log every call that hits this path so we can see how often it fires.
+                    Log($"[Main] IsHost={isHost} IsSinglePlayer={isSP} — both false; defaulting to HOST");
+                    return true;
+                }
+
                 return isHost || isSP;
             }
             catch { return true; }

@@ -25,6 +25,14 @@ namespace GRDNInterchange.Patches
         [HarmonyPostfix]
         public static void Postfix(JobChainController __instance)
         {
+            // Diagnostic: always log so we can confirm the hook fires at all.
+            // If this line never appears for dynamic jobs, the hook itself isn't reaching us
+            // (DVMP client-side JCC creation bypasses FinalizeSetupAndGenerateFirstJob).
+            var _earlyJob = __instance?.currentJobInChain;
+            Main.Log($"[Intercept] Postfix entered: id={_earlyJob?.ID ?? "null"} " +
+                     $"type={_earlyJob?.jobType.ToString() ?? "null"} " +
+                     $"origin={_earlyJob?.chainData?.chainOriginYardId ?? "null"}");
+
             if (!GRDNInterchange.Main.IsHostOrSingleplayer()) return;
 
             var registry = HubRegistry.Instance;
