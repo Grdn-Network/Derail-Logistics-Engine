@@ -10,21 +10,14 @@ using UnityEngine;
 namespace GRDNInterchange.Patches
 {
     /// <summary>
-    /// Intercepts vanilla job chain creation.
+    /// Intercepts every job chain created at a spoke station destined somewhere
+    /// other than its assigned hub.
     ///
-    /// When a vanilla FreightHaul/Transport job is generated for an origin station
-    /// (not a hub) destined for a non-hub station, we:
-    ///   1. Extract the true destination from the job's chain data.
-    ///   2. Register each car in CarDestinationStore with its true destination.
-    ///   3. Destroy the vanilla job chain.
-    ///   4. Spawn a feeder job from the origin to the assigned hub.
+    /// Transport (FH) jobs → destroy vanilla chain, spawn GRDN feeder to hub.
+    /// Any other type (LH, SL, SU, …) → destroy. No vanilla non-hub routing survives.
     ///
-    /// We only intercept Transport (FH) jobs. ShuntingLoad (SL) jobs are skipped
-    /// because those cars are not yet loaded (CargoType.None), and DV generates a
-    /// Transport job naturally when the SL completes — we intercept that one instead.
-    ///
-    /// We only intercept on the host player; clients see the GRDN jobs
-    /// replicated normally by DV's own networking.
+    /// If a feeder cannot be built (hub full, station at cap) → destroy anyway.
+    /// Dead cars on track are preferable to confusing vanilla job noise on the board.
     /// </summary>
     [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.FinalizeSetupAndGenerateFirstJob))]
     public static class NewJobChainInterceptPatch
@@ -32,7 +25,6 @@ namespace GRDNInterchange.Patches
         [HarmonyPostfix]
         public static void Postfix(JobChainController __instance)
         {
-            // Only run on host
             if (!GRDNInterchange.Main.IsHostOrSingleplayer()) return;
 
             var registry = HubRegistry.Instance;
@@ -41,90 +33,119 @@ namespace GRDNInterchange.Patches
             var job = __instance.currentJobInChain;
             if (job == null) return;
 
-            // Skip jobs we spawned ourselves (tracked by ID in JobUtils.ManagedJobIds)
+            // Skip jobs we spawned — they're already routed correctly
             if (job.ID != null && Jobs.JobUtils.ManagedJobIds.Contains(job.ID)) return;
 
-            // Only intercept Transport (FH) jobs — not ShuntingLoad, EmptyHaul, etc.
-            if (job.jobType != JobType.Transport)
-                return;
-
-            // Extract origin and destination yard IDs from the job's chain data
             var originYardId = job.chainData?.chainOriginYardId;
             var destYardId   = job.chainData?.chainDestinationYardId;
 
             if (string.IsNullOrEmpty(originYardId) || string.IsNullOrEmpty(destYardId))
                 return;
 
-            // Skip excluded yards (military chain, etc.) — configurable in config.json
+            // Hub-originated jobs (sort, block, final-mile) are ours — leave them
+            if (registry.IsHub(originYardId)) return;
+
+            // Excluded yards (military, etc.) — never touch
             var excluded = GRDNInterchange.Main.Config.ExcludedYardIds;
             if (excluded.Contains(originYardId) || excluded.Contains(destYardId))
             {
-                Main.Log($"[Intercept] Skipping excluded route {originYardId}→{destYardId}");
+                Main.Log($"[Intercept] Excluded route {originYardId}→{destYardId} — leaving {job.ID}");
                 return;
             }
 
-            // If origin is a hub — let it pass (sort/block/final-mile jobs can target hubs)
-            if (registry.IsHub(originYardId)) return;
+            // ── We are at a spoke station. Log everything from here for diagnosis. ──
 
-            // If destination is already the assigned hub — also let it pass
             var assignedHubId = registry.GetAssignedHubId(originYardId);
-            if (destYardId == assignedHubId) return;
 
-            // Find the hub station
+            Main.Log($"[Intercept] Hook: {job.ID} type={job.jobType}({(int)job.jobType}) " +
+                     $"{originYardId}→{destYardId} assignedHub={assignedHubId}");
+
+            // Job already going to the assigned hub — pass it through (player can take it directly)
+            if (destYardId == assignedHubId)
+            {
+                Main.Log($"[Intercept] {job.ID} already routes to hub {assignedHubId} — leaving");
+                return;
+            }
+
+            // ── Job is at a spoke and NOT going to the hub. It must be intercepted or killed. ──
+
             var hubStation = registry.GetHub(assignedHubId);
-            if (hubStation == null) return;
+            if (hubStation == null)
+            {
+                Main.Log($"[Intercept] Hub station {assignedHubId} not found — destroying {job.ID}");
+                __instance.DestroyChain();
+                return;
+            }
 
-            // Find the origin StationController
             var originStation = StationController.allStations
                 .FirstOrDefault(sc => sc.stationInfo.YardID == originYardId);
-            if (originStation == null) return;
+            if (originStation == null)
+            {
+                Main.Log($"[Intercept] Origin station {originYardId} not found — destroying {job.ID}");
+                __instance.DestroyChain();
+                return;
+            }
 
-            // Collect the cars from this job (logic Cars → resolve TrainCar objects)
+            // Non-Transport job types (LH, SU, SL…) cannot be converted to feeders.
+            // Log the int value so we can identify LH's enum entry from the log.
+            if (job.jobType != JobType.Transport)
+            {
+                Main.Log($"[Intercept] Non-transport type {job.jobType}({(int)job.jobType}) " +
+                         $"at spoke {originYardId} — destroying {job.ID}");
+                __instance.DestroyChain();
+                return;
+            }
+
+            // ── Transport job at a spoke going to wrong destination. Try feeder. ──
+
             var cars = GetJobTrainCars(__instance);
-            if (cars == null || cars.Count == 0) return;
-
-            // ── Pre-flight: verify the replacement can actually be built ──────────
-            // Do NOT destroy the vanilla job until we are certain a feeder can replace it.
+            if (cars == null || cars.Count == 0)
+            {
+                Main.Log($"[Intercept] {job.ID} — no cars resolved, destroying");
+                __instance.DestroyChain();
+                return;
+            }
 
             var startingTrack = JobUtils.FindCommonTrack(cars);
             if (startingTrack == null)
             {
-                Main.Log($"[Intercept] Skipping {job.ID} — could not determine starting track");
+                Main.Log($"[Intercept] {job.ID} — FindCommonTrack returned null (cars: {cars.Count}) — destroying");
+                __instance.DestroyChain();
                 return;
             }
 
+            // Hub inbound full → destroy, don't let the vanilla job through
             if (JobUtils.BestInboundTrack(hubStation) == null)
             {
-                Main.Log($"[Intercept] Skipping {job.ID} — no inbound space at {assignedHubId}");
+                Main.Log($"[Intercept] {assignedHubId} inbound full — destroying {job.ID} at {originYardId}");
+                __instance.DestroyChain();
                 return;
             }
 
-            // Per-station cap: skip if origin already has too many feeder-phase cars
+            // Station car cap → destroy, don't let the vanilla job through
             var store = CarDestinationStore.Instance;
             if (Main.Settings.MaxCarsPerStation > 0)
             {
                 int active = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
                 if (active >= Main.Settings.MaxCarsPerStation)
                 {
-                    Main.Log($"[Intercept] {originYardId} at cap ({active}/{Main.Settings.MaxCarsPerStation}) — skipping {job.ID}");
+                    Main.Log($"[Intercept] {originYardId} at cap ({active}/{Main.Settings.MaxCarsPerStation}) " +
+                             $"— destroying {job.ID}");
+                    __instance.DestroyChain();
                     return;
                 }
             }
 
-            // All checks passed — safe to replace
-            Main.Log($"[Intercept] Replacing vanilla job {job.ID} ({originYardId}→{destYardId}) with feeder to {assignedHubId}");
+            // ── All checks passed — replace with GRDN feeder ──────────────────────
+
+            Main.Log($"[Intercept] Converting {job.ID} ({originYardId}→{destYardId}) → feeder to {assignedHubId}");
             __instance.DestroyChain();
 
-            // Spawn feeder job(s), capped at MaxCarsPerFeeder per job.
-            // Job ID uses the hub as destination — consistent with feeder chain data (origin→hub).
-            // The true destination is stored in CarDestinationStore and used on the final-mile leg.
             int max = Mathf.Max(1, Main.Settings.MaxCarsPerFeeder);
             for (int i = 0; i < cars.Count; i += max)
             {
                 int take  = System.Math.Min(max, cars.Count - i);
                 var batch = cars.GetRange(i, take);
-
-                // ID: {origin}-{hub}-{NN} e.g. "SM-HB-01" — not "SM-MF-01"
                 var jobId = JobUtils.NextId(originYardId, assignedHubId);
 
                 foreach (var car in batch)
@@ -137,19 +158,16 @@ namespace GRDNInterchange.Patches
 
         private static List<TrainCar> GetJobTrainCars(JobChainController jcc)
         {
-            // JCC is NOT a MonoBehaviour — use its jobChainGO reference.
             var go = jcc.jobChainGO;
             if (go == null) return null;
 
             var tcRegistry = TrainCarRegistry.Instance;
             if (tcRegistry == null) return null;
 
-            // StaticTransportJobDefinition
             var transport = go.GetComponent<StaticTransportJobDefinition>();
             if (transport?.carsToTransport != null)
                 return ResolveTrainCars(transport.carsToTransport, tcRegistry);
 
-            // StaticShuntingLoadJobDefinition — grab from carsPerStartingTrack
             var load = go.GetComponent<StaticShuntingLoadJobDefinition>();
             if (load?.carsPerStartingTrack != null)
             {

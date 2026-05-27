@@ -125,6 +125,9 @@ namespace GRDNInterchange
                 "jobChainControllers",
                 BindingFlags.NonPublic | BindingFlags.Instance);
 
+            if (jccField == null)
+                Log("[Main] WARNING: jobChainControllers field not found via reflection — InterceptSavedVanillaJobs will miss all jobs");
+
             int intercepted = 0;
 
             foreach (var sc in StationController.allStations)
@@ -139,38 +142,83 @@ namespace GRDNInterchange
 
                 var chains = jccField?.GetValue(sc.ProceduralJobsController)
                              as List<JobChainController>;
-                if (chains == null) continue;
+
+                Log($"[Main] Sweep {originYardId}: {chains?.Count ?? -1} chain(s) found (jccField={(jccField != null ? "ok" : "null")})");
+
+                if (chains == null || chains.Count == 0) continue;
 
                 foreach (var jcc in chains.ToList()) // ToList — DestroyChain modifies the list
                 {
                     var job = jcc.currentJobInChain;
-                    if (job == null) continue;
-                    if (job.jobType != JobType.Transport) continue;
+                    if (job == null)
+                    {
+                        Log($"[Main] {originYardId}: JCC has null currentJobInChain — skipping");
+                        continue;
+                    }
+
+                    Log($"[Main] {originYardId}: found {job.ID} type={job.jobType}({(int)job.jobType}) managed={Jobs.JobUtils.ManagedJobIds.Contains(job.ID)}");
+
                     if (Jobs.JobUtils.ManagedJobIds.Contains(job.ID)) continue;
 
                     var destYardId = job.chainData?.chainDestinationYardId;
-                    if (string.IsNullOrEmpty(destYardId)) continue;
-                    if (excluded.Contains(destYardId)) continue;
-                    if (destYardId == assignedHubId) continue; // already going to the right hub
+                    if (string.IsNullOrEmpty(destYardId))
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} has no dest in chainData — skip");
+                        continue;
+                    }
+                    if (excluded.Contains(destYardId))
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} dest {destYardId} is excluded — skip");
+                        continue;
+                    }
+                    if (destYardId == assignedHubId)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} already going to hub {assignedHubId} — leave");
+                        continue;
+                    }
+
+                    // Non-Transport types get killed — same policy as NewJobChainInterceptPatch
+                    if (job.jobType != JobType.Transport)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} type={job.jobType}({(int)job.jobType}) non-transport at spoke — destroying");
+                        jcc.DestroyChain();
+                        continue;
+                    }
 
                     // Collect cars
                     var go        = jcc.jobChainGO;
                     var transport = go?.GetComponent<StaticTransportJobDefinition>();
-                    if (transport?.carsToTransport == null) continue;
+                    if (transport?.carsToTransport == null)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} no StaticTransportJobDefinition or carsToTransport null — destroying");
+                        jcc.DestroyChain();
+                        continue;
+                    }
 
                     var cars = new List<TrainCar>();
                     foreach (var lc in transport.carsToTransport)
                         if (tcReg.logicCarToTrainCar.TryGetValue(lc, out var tc))
                             cars.Add(tc);
-                    if (cars.Count == 0) continue;
+                    if (cars.Count == 0)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} zero cars resolved from {transport.carsToTransport.Count} logic cars — destroying");
+                        jcc.DestroyChain();
+                        continue;
+                    }
 
                     var startTrack = Jobs.JobUtils.FindCommonTrack(cars);
-                    if (startTrack == null) continue;
+                    if (startTrack == null)
+                    {
+                        Log($"[Main] {originYardId}: {job.ID} FindCommonTrack null ({cars.Count} cars) — destroying");
+                        jcc.DestroyChain();
+                        continue;
+                    }
 
-                    // Only destroy if hub has inbound space to accept the feeder
+                    // Hub inbound full → destroy anyway (no vanilla routing allowed)
                     if (Jobs.JobUtils.BestInboundTrack(hubStation) == null)
                     {
-                        Log($"[Main] Skipping late-intercept of {job.ID} — no inbound space at {assignedHubId}");
+                        Log($"[Main] {assignedHubId} inbound full — destroying {job.ID} at {originYardId}");
+                        jcc.DestroyChain();
                         continue;
                     }
 
