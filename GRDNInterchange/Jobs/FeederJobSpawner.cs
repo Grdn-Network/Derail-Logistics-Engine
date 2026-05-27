@@ -14,14 +14,11 @@ namespace GRDNInterchange.Jobs
     public static class FeederJobSpawner
     {
         /// <summary>
-        /// Replace a vanilla origin→destination transport job with a feeder origin→hub job.
-        /// Cars and their true destinations are registered in CarDestinationStore.
-        /// </summary>
-        /// <summary>
         /// Spawn a feeder job from <paramref name="originStation"/> to
-        /// <paramref name="hubStation"/>. The <paramref name="jobId"/> is the
-        /// true-origin→true-destination ID (e.g. "SM-GF-77") that the player sees
-        /// and that will be reused on the final-mile leg.
+        /// <paramref name="hubStation"/>. The <paramref name="jobId"/> must be
+        /// pre-generated in "{origin}-{hub}-{NN}" format (e.g. "SM-HB-01") and
+        /// registered in <see cref="CarDestinationStore"/> before calling this method.
+        /// The final-mile leg generates its own separate ID.
         /// </summary>
         public static void SpawnFeeder(
             List<TrainCar> cars,

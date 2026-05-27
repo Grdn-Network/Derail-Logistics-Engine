@@ -26,6 +26,11 @@ namespace GRDNInterchange.Jobs
             var hubYardId    = hub.stationInfo.YardID;
             var store        = CarDestinationStore.Instance;
             var registry     = HubRegistry.Instance;
+            if (store == null || registry == null)
+            {
+                Main.Log("[SortJobSpawner] Store or registry not ready — skipping sort");
+                return;
+            }
 
             // Partition cars: same-hub-side vs cross-hub vs hub-local
             var crossHubCars    = new List<TrainCar>();

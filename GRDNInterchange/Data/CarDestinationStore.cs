@@ -14,9 +14,9 @@ namespace GRDNInterchange.Data
         public string AssignedHubYardId { get; set; }
 
         /// <summary>
-        /// The player-visible job ID for this car's journey, e.g. "SM-GF-77".
-        /// Format is {trueOrigin}-{trueDest}-{NN} and is reused for every
-        /// player-facing leg (feeder and final mile).
+        /// The feeder job ID assigned when this car was registered, e.g. "SM-HB-01".
+        /// Format is {trueOrigin}-{assignedHub}-{NN}. Stored for diagnostics only;
+        /// each subsequent leg (sort, block, final-mile) generates its own fresh ID.
         /// </summary>
         public string JobId { get; set; }
 

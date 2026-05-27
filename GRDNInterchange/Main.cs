@@ -74,7 +74,11 @@ namespace GRDNInterchange
                 Log($"[Main] Could not load CarDestinationStore from save: {ex.Message}");
             }
 
-            // Subscribe to save event so we persist before the game writes to disk
+            // Subscribe to save event so we persist before the game writes to disk.
+            // Unsubscribe first — OnWorldLoaded fires on every save/load within a session;
+            // without the unsub, each reload would add another handler and OnAboutToSave
+            // would be called N times per save after N reloads.
+            SaveGameManager.AboutToSave -= OnAboutToSave;
             SaveGameManager.AboutToSave += OnAboutToSave;
 
             if (IsHostOrSingleplayer())
