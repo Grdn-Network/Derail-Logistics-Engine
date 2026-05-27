@@ -171,19 +171,19 @@ namespace GRDNInterchange
                         Log($"[Main] {originYardId}: {job.ID} dest {destYardId} is excluded — skip");
                         continue;
                     }
-                    if (destYardId == assignedHubId)
-                    {
-                        Log($"[Main] {originYardId}: {job.ID} already going to hub {assignedHubId} — leave");
-                        continue;
-                    }
 
-                    // Non-Transport types get killed — same policy as NewJobChainInterceptPatch
+                    // Non-Transport types at spokes are always killed, regardless of destination.
+                    // Check before the hub-dest check so SL/SU going to hub are also caught.
                     if (job.jobType != JobType.Transport)
                     {
                         Log($"[Main] {originYardId}: {job.ID} type={job.jobType}({(int)job.jobType}) non-transport at spoke — destroying");
                         jcc.DestroyChain();
                         continue;
                     }
+
+                    // Transport going to hub: still convert to a GRDN feeder.
+                    // Cars must be in CarDestinationStore so sort/final-mile can fire after delivery.
+                    // (SortJobSpawner treats hub-local cars — trueDest==hub — as immediately Delivered.)
 
                     // Collect cars
                     var go        = jcc.jobChainGO;

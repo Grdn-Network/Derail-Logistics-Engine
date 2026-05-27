@@ -68,14 +68,9 @@ namespace GRDNInterchange.Patches
             Main.Log($"[Intercept] Hook: {job.ID} type={job.jobType}({(int)job.jobType}) " +
                      $"{originYardId}→{destYardId} assignedHub={assignedHubId}");
 
-            // Job already going to the assigned hub — pass it through (player can take it directly)
-            if (destYardId == assignedHubId)
-            {
-                Main.Log($"[Intercept] {job.ID} already routes to hub {assignedHubId} — leaving");
-                return;
-            }
-
-            // ── Job is at a spoke and NOT going to the hub. It must be intercepted or killed. ──
+            // ── Job is at a spoke. It must be intercepted (Transport) or killed (everything else). ──
+            // Even Transport jobs already routed to the hub are replaced with GRDN feeders so
+            // the cars are registered in CarDestinationStore and the sort/final-mile pipeline fires.
 
             var hubStation = registry.GetHub(assignedHubId);
             if (hubStation == null)
