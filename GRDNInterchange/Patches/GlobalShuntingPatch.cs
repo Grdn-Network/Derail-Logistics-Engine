@@ -22,6 +22,12 @@ namespace GRDNInterchange.Patches
     [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.FinalizeSetupAndGenerateFirstJob))]
     public static class GlobalShuntingPatch
     {
+        // Same reasoning as NewJobChainInterceptPatch: use responsible station, not chainOriginYardId.
+        private static readonly System.Reflection.FieldInfo _responsibleStationField =
+            typeof(JobChainController).GetField(
+                "responsibleStationForJobChain",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
         [HarmonyPostfix]
         public static void Postfix(JobChainController __instance)
         {
@@ -41,7 +47,11 @@ namespace GRDNInterchange.Patches
             // Skip jobs we spawned
             if (job.ID != null && JobUtils.ManagedJobIds.Contains(job.ID)) return;
 
-            var originYardId = job.chainData?.chainOriginYardId;
+            // Physical station from the JCC's responsible station field, not chainOriginYardId.
+            var responsibleStation =
+                _responsibleStationField?.GetValue(__instance) as StationController;
+            var originYardId = responsibleStation?.stationInfo.YardID
+                               ?? job.chainData?.chainOriginYardId;
             if (string.IsNullOrEmpty(originYardId)) return;
 
             // Excluded yards (military chain etc.) are never touched

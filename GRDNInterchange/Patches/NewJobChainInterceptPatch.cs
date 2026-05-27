@@ -22,17 +22,17 @@ namespace GRDNInterchange.Patches
     [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.FinalizeSetupAndGenerateFirstJob))]
     public static class NewJobChainInterceptPatch
     {
+        // Reflects the private field that tells us which StationController OWNS this JCC.
+        // chainOriginYardId is the chain-start yard, not the physical station — they differ
+        // for multi-step vanilla chains (e.g. a SU job at SM whose chain started at HB).
+        private static readonly System.Reflection.FieldInfo _responsibleStationField =
+            typeof(JobChainController).GetField(
+                "responsibleStationForJobChain",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
         [HarmonyPostfix]
         public static void Postfix(JobChainController __instance)
         {
-            // Diagnostic: always log so we can confirm the hook fires at all.
-            // If this line never appears for dynamic jobs, the hook itself isn't reaching us
-            // (DVMP client-side JCC creation bypasses FinalizeSetupAndGenerateFirstJob).
-            var _earlyJob = __instance?.currentJobInChain;
-            Main.Log($"[Intercept] Postfix entered: id={_earlyJob?.ID ?? "null"} " +
-                     $"type={_earlyJob?.jobType.ToString() ?? "null"} " +
-                     $"origin={_earlyJob?.chainData?.chainOriginYardId ?? "null"}");
-
             if (!GRDNInterchange.Main.IsHostOrSingleplayer()) return;
 
             var registry = HubRegistry.Instance;
@@ -44,8 +44,16 @@ namespace GRDNInterchange.Patches
             // Skip jobs we spawned — they're already routed correctly
             if (job.ID != null && Jobs.JobUtils.ManagedJobIds.Contains(job.ID)) return;
 
-            var originYardId = job.chainData?.chainOriginYardId;
-            var destYardId   = job.chainData?.chainDestinationYardId;
+            // Use the JCC's responsible station (physical location) not chainOriginYardId.
+            // chainOriginYardId is the chain-start yard and differs from the physical station
+            // for multi-step vanilla job chains (e.g. SM-SU-25 whose chainOriginYardId = "HB"
+            // because the chain started at HB, but the shunting work physically happens at SM).
+            var responsibleStation =
+                _responsibleStationField?.GetValue(__instance) as StationController;
+            var originYardId = responsibleStation?.stationInfo.YardID
+                               ?? job.chainData?.chainOriginYardId;
+
+            var destYardId = job.chainData?.chainDestinationYardId;
 
             if (string.IsNullOrEmpty(originYardId) || string.IsNullOrEmpty(destYardId))
                 return;

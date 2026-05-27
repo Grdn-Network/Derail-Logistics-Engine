@@ -65,13 +65,19 @@ namespace GRDNInterchange.Jobs
                 }
             }
 
+            // Opposite hub ID — used as the chain destination for cross-hub sort jobs
+            // so the booklet shows the actual next stop (e.g. "Harbor → Machine Factory").
+            var oppositeHubId = registry?.GetOppositeHubId(hubYardId) ?? hubYardId;
+
             // ── Cross-hub cars → outbound track ───────────────────────────────────
             if (crossHubCars.Count > 0)
             {
                 var outboundTrack = JobUtils.BestOutboundTrack(hub);
                 if (outboundTrack != null)
                 {
-                    SpawnMoveJob(crossHubCars, inboundTrack, outboundTrack, hub, hubYardId);
+                    // Chain data: hub → opposite hub so booklet reads "Harbor → Machine Factory".
+                    // The sort never physically leaves the hub; completion is detected via "-SO-" ID.
+                    SpawnMoveJob(crossHubCars, inboundTrack, outboundTrack, hub, hubYardId, oppositeHubId);
                     foreach (var c in crossHubCars)
                         store.SetPhase(c.CarGUID, InterchangePhase.SortAtHub);
                     Main.Log($"[SortJobSpawner] {crossHubCars.Count} cross-hub cars → outbound at {hubYardId}");
@@ -93,20 +99,21 @@ namespace GRDNInterchange.Jobs
                     Main.Log($"[SortJobSpawner] No storage track at {hubYardId} for dest {destYardId}");
                     continue;
                 }
-                SpawnMoveJob(cars, inboundTrack, storageTrack, hub, hubYardId);
+                // Chain data: hub → hub (intra-hub shunt, destination is same hub).
+                SpawnMoveJob(cars, inboundTrack, storageTrack, hub, hubYardId, hubYardId);
                 // Mark BreakAtHub so FinalMileSpawner picks these up once the sort job completes
                 foreach (var c in cars)
                     store.SetPhase(c.CarGUID, InterchangePhase.BreakAtHub);
                 Main.Log($"[SortJobSpawner] {cars.Count} same-side cars for {destYardId} → storage at {hubYardId}");
             }
 
-            // ── Hub-local cars → storage (they'll get a final-mile job immediately) ─
+            // ── Hub-local cars → storage (destination IS this hub; no final-mile needed) ─
             if (hubLocalCars.Count > 0)
             {
                 var storageTrack = JobUtils.BestStorageTrack(hub, hubYardId);
                 if (storageTrack != null)
                 {
-                    SpawnMoveJob(hubLocalCars, inboundTrack, storageTrack, hub, hubYardId);
+                    SpawnMoveJob(hubLocalCars, inboundTrack, storageTrack, hub, hubYardId, hubYardId);
                     foreach (var c in hubLocalCars)
                         store.SetPhase(c.CarGUID, InterchangePhase.Delivered);
                 }
@@ -118,12 +125,19 @@ namespace GRDNInterchange.Jobs
         /// Chain data is hub→hub (valid DV yards). The job ID is overridden to
         /// "HB-SO-01" format so the player sees a Shunting Operation code, not "HB-HB-01".
         /// </summary>
+        /// <param name="chainDestYardId">
+        /// The yard ID to put in chainData as the destination. For cross-hub sort this is the
+        /// opposite hub (so the booklet reads "Harbor → Machine Factory"). For intra-hub sort
+        /// pass the same hub. The job ID always contains "-SO-" and is used by JobCompletionPatch
+        /// to identify sort completions regardless of chain data.
+        /// </param>
         private static void SpawnMoveJob(
             List<TrainCar> cars,
             Track fromTrack,
             Track toTrack,
             StationController hub,
-            string hubYardId)
+            string hubYardId,
+            string chainDestYardId)
         {
             var go  = new GameObject($"GRDN-Sort-{hubYardId}");
             var def = go.AddComponent<StaticTransportJobDefinition>();
@@ -139,14 +153,17 @@ namespace GRDNInterchange.Jobs
                 hub.logicStation,
                 JobUtils.EstimateTimeLimit(cars.Count, distanceFactor: 0.3f),
                 JobUtils.EstimateWage(cars.Count, distanceFactor: 0.3f),
-                JobUtils.Chain(hubYardId, hubYardId),
+                JobUtils.Chain(hubYardId, chainDestYardId),
                 JobLicenses.Basic | JobLicenses.Shunting
             );
-            // Chain data stays hub→hub (both valid DV yards); only the displayed ID uses "SO"
+            // ID always contains "-SO-" so JobCompletionPatch can identify sort completions
+            // by pattern rather than by origin==dest (which no longer holds for cross-hub sorts).
             def.ForceJobId(JobUtils.NextSortId(hubYardId));
 
             JobUtils.ActivateJobChain(def, hub);
-            Main.Log($"[SortJobSpawner] Spawned sort job {def.job?.ID} ({cars.Count} cars, {fromTrack?.ID?.FullID}→{toTrack?.ID?.FullID})");
+            Main.Log($"[SortJobSpawner] Spawned sort job {def.job?.ID} " +
+                     $"({hubYardId}→{chainDestYardId}, {cars.Count} cars, " +
+                     $"{fromTrack?.ID?.FullID}→{toTrack?.ID?.FullID})");
         }
     }
 }

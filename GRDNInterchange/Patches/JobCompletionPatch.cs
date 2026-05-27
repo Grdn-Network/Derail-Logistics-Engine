@@ -54,6 +54,11 @@ namespace GRDNInterchange.Patches
             bool originIsHub = registry.IsHub(originYardId);
             bool destIsHub   = registry.IsHub(destYardId);
 
+            // Sort jobs carry "-SO-" in their ID regardless of chain data destination.
+            // Cross-hub sort jobs have chain data hub→OTHER_HUB so origin!=dest; we must
+            // detect them by ID pattern before the block-haul branch matches them.
+            bool isSortJob = jobId.Contains("-SO-");
+
             // ── Feeder: spoke → hub ────────────────────────────────────────────────
             if (!originIsHub && destIsHub)
             {
@@ -68,8 +73,10 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // ── Sort (intra-hub shunt): hub → same hub ─────────────────────────────
-            if (originIsHub && destIsHub && originYardId == destYardId)
+            // ── Sort (intra-hub shunt): identified by "-SO-" in job ID ─────────────
+            // Chain data may be hub→hub (same-hub sort) or hub→other_hub (cross-hub sort
+            // booklet shows next stop). In both cases completion logic is the same.
+            if (originIsHub && isSortJob)
             {
                 var hub = registry.GetHub(originYardId);
                 if (hub == null) return;
@@ -82,7 +89,7 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // ── Block haul: hub → different hub ───────────────────────────────────
+            // ── Block haul: hub → different hub (not a sort job) ──────────────────
             if (originIsHub && destIsHub && originYardId != destYardId)
             {
                 var cars = GetTrainCarsFromChain(__instance);
