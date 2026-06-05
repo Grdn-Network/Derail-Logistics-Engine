@@ -226,17 +226,22 @@ namespace GRDNInterchange
                         continue;
                     }
 
-                    // Per-station cap — mirrors the check in NewJobChainInterceptPatch.
-                    // Without this, a save with many vanilla FH jobs at SM would register
-                    // all 20+ cars as feeders simultaneously, flooding the hub inbound.
+                    // Per-station cap — trim cars to remaining slot count so a single
+                    // large job never pushes the total past the cap.
                     if (Settings.MaxCarsPerStation > 0)
                     {
-                        int active = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
-                        if (active >= Settings.MaxCarsPerStation)
+                        int active    = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
+                        int remaining = Settings.MaxCarsPerStation - active;
+                        if (remaining <= 0)
                         {
                             Log($"[Main] {originYardId} at cap ({active}/{Settings.MaxCarsPerStation}) — skipping {job.ID}");
                             jcc.DestroyChain();
                             continue;
+                        }
+                        if (cars.Count > remaining)
+                        {
+                            Log($"[Main] {originYardId} trimming {job.ID} from {cars.Count} to {remaining} cars (cap={Settings.MaxCarsPerStation}, active={active})");
+                            cars = cars.GetRange(0, remaining);
                         }
                     }
 

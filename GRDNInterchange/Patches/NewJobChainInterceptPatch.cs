@@ -133,17 +133,25 @@ namespace GRDNInterchange.Patches
                 return;
             }
 
-            // Station car cap → destroy, don't let the vanilla job through
+            // Station car cap — trim to remaining slots so a large job never pushes
+            // the total past MaxCarsPerStation.
             var store = CarDestinationStore.Instance;
             if (Main.Settings.MaxCarsPerStation > 0)
             {
-                int active = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
-                if (active >= Main.Settings.MaxCarsPerStation)
+                int active    = store.CountByOriginAndPhase(originYardId, InterchangePhase.Feeder);
+                int remaining = Main.Settings.MaxCarsPerStation - active;
+                if (remaining <= 0)
                 {
                     Main.Log($"[Intercept] {originYardId} at cap ({active}/{Main.Settings.MaxCarsPerStation}) " +
                              $"— destroying {job.ID}");
                     __instance.DestroyChain();
                     return;
+                }
+                if (cars.Count > remaining)
+                {
+                    Main.Log($"[Intercept] {originYardId} trimming {job.ID} from {cars.Count} to {remaining} cars " +
+                             $"(cap={Main.Settings.MaxCarsPerStation}, active={active})");
+                    cars = cars.GetRange(0, remaining);
                 }
             }
 
