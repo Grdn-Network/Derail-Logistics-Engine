@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <AssemblyName>GRDNInterchange</AssemblyName>
+    <AssemblyName>DerailLogisticsEngine</AssemblyName>
+    <RootNamespace>DLE</RootNamespace>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>9.0</LangVersion>
@@ -17,6 +18,14 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>compile</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Krafs.Publicizer" Version="2.2.1">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Private DV members surfaced at compile time; extend as phases need them -->
+    <Publicize Include="Assembly-CSharp:JobChainController.responsibleStationForJobChain" />
   </ItemGroup>
 
   <ItemGroup>

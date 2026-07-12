@@ -2,7 +2,7 @@ using DV.Logic.Job;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace GRDNInterchange.Data
+namespace DLE.Data
 {
     public enum TrackRole
     {
@@ -10,7 +10,7 @@ namespace GRDNInterchange.Data
         Inbound,           // -I  (REGULAR_IN_TYPE)
         Outbound,          // -O  (REGULAR_OUT_TYPE)
         Storage,           // -S  (STORAGE_TYPE)
-        StoragePassenger,  // -SP (STORAGE_PASSENGER_TYPE) — pax overflow candidate
+        StoragePassenger,  // -SP (STORAGE_PASSENGER_TYPE), pax overflow candidate
         Loading,           // -L  (LOADING_TYPE)
         MainLine,          // -M  (MAIN_LINE_TYPE)
         Parking,           // -P  (PARKING_TYPE)
@@ -83,7 +83,7 @@ namespace GRDNInterchange.Data
             if (station?.logicStation?.yard == null) return new List<Track>();
             var yard = station.logicStation.yard;
 
-            // Yard exposes tracks grouped by function — use those directly.
+            // Yard exposes tracks grouped by function; use those directly.
             // StoragePassenger (-SP) tracks are a sub-set of StorageTracks identified
             // by their type-code suffix; filter within that list.
             switch (role)
