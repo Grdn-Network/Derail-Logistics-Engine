@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-namespace GRDNInterchange.Data
+namespace DLE.Data
 {
     /// <summary>
     /// Per-car metadata stamped at feeder job creation time.
@@ -31,7 +31,7 @@ namespace GRDNInterchange.Data
         BlockHaul,   // hub → hub (mainline block train)
         BreakAtHub,  // waiting for / in breakdown shunt at receiving hub
         FinalMile,   // hub → true final destination
-        Delivered,   // complete — entry can be pruned on next save
+        Delivered,   // complete; entry can be pruned on next save
     }
 
     public class CarDestinationStore

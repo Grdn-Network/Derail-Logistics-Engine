@@ -3,8 +3,8 @@ build/
 bin/
 obj/
 
-## Lib stubs (copied from local DV install — not redistributable)
-GRDNInterchange/lib/
+## Lib stubs (copied from local DV install, not redistributable)
+DLE/lib/
 
 ## IDE / OS
 .vs/
@@ -15,4 +15,4 @@ GRDNInterchange/lib/
 Thumbs.db
 
 ## UMM settings written at runtime
-GRDNInterchange/Settings.xml
+DLE/Settings.xml
