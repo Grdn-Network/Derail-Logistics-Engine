@@ -161,6 +161,7 @@ namespace DLE.Jobs
                 includeLoadTask: true, displayCarsOverride: displayCars, plannedCarCount: carCount);
             if (!ok) return null;
 
+            Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), carCount, jobId);
             Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +
                      $"for {cargo} to {producer.stationInfo.YardID}.");
             return jobId;
