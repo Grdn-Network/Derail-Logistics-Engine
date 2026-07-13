@@ -64,21 +64,22 @@ namespace DLE.Economy
                     var consumerSc = StationController.GetStationByYardID(consumer.YardId);
                     if (producerSc == null || consumerSc == null) continue;
 
-                    if (Main.Settings?.FiniteCars == true)
+                    // Finite world: build on existing empties when a full cut stands in the
+                    // yard, otherwise post a carless haul (players bring the cars; stock
+                    // debits when they attach at the warehouse).
+                    int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount, out _);
+                    if (spawned > 0)
                     {
-                        if (DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount) == null)
-                            continue;
-                        Main.Log($"[Director] carless haul {producer.YardId}->{consumer.YardId}: {carCount} {cargo} " +
-                                 "(stock debits when cars attach).");
+                        econ.Debit(producer.YardId, cargo, spawned);
+                        Main.Log($"[Director] haul {producer.YardId}->{consumer.YardId}: {spawned} {cargo} " +
+                                 $"(producer now {econ.GetStock(producer.YardId, cargo):0.#}).");
                         return true;
                     }
 
-                    int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount, out _);
-                    if (spawned <= 0) continue;
-
-                    econ.Debit(producer.YardId, cargo, spawned);
-                    Main.Log($"[Director] haul {producer.YardId}->{consumer.YardId}: {spawned} {cargo} " +
-                             $"(producer now {econ.GetStock(producer.YardId, cargo):0.#}).");
+                    if (DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount) == null)
+                        continue;
+                    Main.Log($"[Director] carless haul {producer.YardId}->{consumer.YardId}: {carCount} {cargo} " +
+                             "(bring empties; stock debits when cars attach).");
                     return true;
                 }
             }
@@ -149,13 +150,14 @@ namespace DLE.Economy
                 return null;
             }
 
-            if (Main.Settings?.FiniteCars == true)
-                return DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount);
-
+            // Same finite-world rule as the auto path: existing empties first, carless else.
             int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount, out var jobId);
-            if (spawned <= 0) return null;
-            econ.Debit(originYard, cargo, spawned);
-            return jobId;
+            if (spawned > 0)
+            {
+                econ.Debit(originYard, cargo, spawned);
+                return jobId;
+            }
+            return DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount);
         }
 
         private static readonly Random _rng = new Random();

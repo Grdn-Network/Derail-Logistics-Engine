@@ -83,6 +83,10 @@
       <HintPath>lib\DV.RailTrack.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="CommandTerminal">
+      <HintPath>lib\CommandTerminal.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(OS)' == 'Windows_NT'">
