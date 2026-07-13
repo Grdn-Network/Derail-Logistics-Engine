@@ -156,6 +156,8 @@ namespace DLE
                 DebugEconomy.SimulateDelivery();
             if (UnityEngine.GUILayout.Button("Generate a haul from stock", UnityEngine.GUILayout.Width(240)))
                 DLE.Economy.EconomyDirector.GenerateOne();
+            if (UnityEngine.GUILayout.Button("Seed initial stock now", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.SeedInitialStock(Settings?.InitialStock ?? 6);
         }
 
         private static void DumpState()
