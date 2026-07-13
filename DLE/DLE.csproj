@@ -28,6 +28,10 @@
     <Publicize Include="Assembly-CSharp:JobChainController.responsibleStationForJobChain" />
     <Publicize Include="Assembly-CSharp:StaticJobDefinition.initialWage" />
     <Publicize Include="Assembly-CSharp:StaticJobDefinition.timeLimitForJob" />
+    <Publicize Include="Assembly-CSharp:DV.Logic.Job.WarehouseMachine.currentTasks" />
+    <Publicize Include="Assembly-CSharp:DV.Logic.Job.Task.taskFinishTime" />
+    <Publicize Include="Assembly-CSharp:DV.Logic.Job.JobsManager.jobToJobCars" />
+    <Publicize Include="Assembly-CSharp:DV.ServicePenalty.JobDebtController.OnJobTaken" />
   </ItemGroup>
 
   <ItemGroup>

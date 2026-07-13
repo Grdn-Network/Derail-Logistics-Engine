@@ -43,7 +43,16 @@ namespace DLE.Economy
                     var consumerSc = StationController.GetStationByYardID(consumer.YardId);
                     if (producerSc == null || consumerSc == null) continue;
 
-                    int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount);
+                    if (Main.Settings?.FiniteCars == true)
+                    {
+                        if (DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount) == null)
+                            continue;
+                        Main.Log($"[Director] carless haul {producer.YardId}->{consumer.YardId}: {carCount} {cargo} " +
+                                 "(stock debits when cars attach).");
+                        return true;
+                    }
+
+                    int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount, out _);
                     if (spawned <= 0) continue;
 
                     econ.Debit(producer.YardId, cargo, spawned);
@@ -55,6 +64,77 @@ namespace DLE.Economy
 
             Main.Log("[Director] nothing to haul (no producer with enough stock plus a consumer).");
             return false;
+        }
+
+        /// <summary>
+        /// Everything a dispatcher could order right now: per producer output with stock,
+        /// every consumer that could take it. Read-only; the API serves this.
+        /// </summary>
+        public static List<HaulOption> GetOptions()
+        {
+            var econ = EconomyState.Instance;
+            var options = new List<HaulOption>();
+            foreach (var producer in econ.Facilities.Values)
+                foreach (var cargo in producer.Outputs)
+                {
+                    float stock = econ.GetStock(producer.YardId, cargo);
+                    if (stock < 1f) continue;
+                    var consumers = econ.Facilities.Values
+                        .Where(f => f.YardId != producer.YardId && f.Consumes(cargo))
+                        .Select(f => f.YardId)
+                        .ToList();
+                    if (consumers.Count == 0) continue;
+                    options.Add(new HaulOption
+                    {
+                        Origin = producer.YardId,
+                        Cargo = cargo,
+                        Stock = stock,
+                        Consumers = consumers,
+                    });
+                }
+            return options;
+        }
+
+        public class HaulOption
+        {
+            public string Origin;
+            public CargoType Cargo;
+            public float Stock;
+            public List<string> Consumers;
+        }
+
+        /// <summary>
+        /// Dispatcher-picked haul. Non-finite mode spawns a pre-loaded consist and debits
+        /// stock now; finite mode creates a carless job (players bring empties; stock is
+        /// debited when the cars attach at the warehouse). Returns the job id or null.
+        /// </summary>
+        public static string CreateSpecific(string originYard, string destYard, CargoType cargo, int carCount)
+        {
+            if (!Main.IsHostOrSingleplayer()) return null;
+
+            var econ = EconomyState.Instance;
+            float stock = econ.GetStock(originYard, cargo);
+            if (stock < carCount)
+            {
+                Main.Log($"[Director] {originYard} has {stock:0.#} {cargo}, cannot ship {carCount}.");
+                return null;
+            }
+
+            var producerSc = StationController.GetStationByYardID(originYard);
+            var consumerSc = StationController.GetStationByYardID(destYard);
+            if (producerSc == null || consumerSc == null)
+            {
+                Main.Log($"[Director] unknown yard ({originYard} or {destYard}).");
+                return null;
+            }
+
+            if (Main.Settings?.FiniteCars == true)
+                return DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount);
+
+            int spawned = DirectHaulGenerator.TryCreatePreloaded(producerSc, consumerSc, cargo, carCount, out var jobId);
+            if (spawned <= 0) return null;
+            econ.Debit(originYard, cargo, spawned);
+            return jobId;
         }
 
         private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, string excludeYard)

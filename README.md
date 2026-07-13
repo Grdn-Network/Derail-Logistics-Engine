@@ -32,8 +32,17 @@ players load cars themselves (0.5 era).
 - Dispatch: a local HTTP API on `127.0.0.1:7246` exposes the economy, the job
   board and assignments for RemoteDispatch integration:
   `GET /api/v1/state`, `GET /api/v1/economy`, `GET /api/v1/jobs`,
+  `GET /api/v1/options` (what could be shipped right now),
+  `POST /api/v1/hauls` (dispatcher-picked priority haul),
+  `POST /api/v1/empties` (spawn empty pool cars, finite mode),
+  `GET/POST /api/v1/logistics` and `PUT/DELETE /api/v1/logistics/{id}`
+  (unpaid, bookletless coordination runs),
   `PUT/DELETE /api/v1/assignments/{jobId}`, `PUT /api/v1/lock`.
   With the lock enabled, unassigned DLE jobs cannot be accepted.
+- Finite cars mode (experimental, off by default): jobs spawn carless and show
+  what to bring; players deliver empty pool cars to the producer warehouse and
+  the load sequence attaches and loads them, debiting stock at that moment.
+  Pool cars never despawn. Warehouse servicing is scoped strictly to DLE jobs.
 
 ## Building
 

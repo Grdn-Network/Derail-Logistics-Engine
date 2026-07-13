@@ -103,8 +103,10 @@ namespace DLE
                     var data = SaveGameManager.Instance?.data;
                     if (data != null)
                     {
+                        DleCarPool.Instance.LoadFrom(data);
                         DleJobStore.RestoreFrom(data);
                         AssignmentStore.Instance.LoadFrom(data);
+                        LogisticsBoard.Instance.LoadFrom(data);
                     }
                 }
                 catch (Exception ex)
@@ -133,6 +135,8 @@ namespace DLE
                     EconomyState.Instance.SaveTo(data);
                     DleJobStore.SaveTo(data);
                     AssignmentStore.Instance.SaveTo(data);
+                    DleCarPool.Instance.SaveTo(data);
+                    LogisticsBoard.Instance.SaveTo(data);
                 }
             }
             catch (Exception ex)
