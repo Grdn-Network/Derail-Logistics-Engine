@@ -38,6 +38,19 @@ namespace DLE
             _harmony = new Harmony(modEntry.Info.Id);
             _harmony.PatchAll();
 
+            // First run: give the player an editable economy.json based on the shipped example.
+            try
+            {
+                var target = System.IO.Path.Combine(modEntry.Path, "economy.json");
+                var example = System.IO.Path.Combine(modEntry.Path, "economy.default.json");
+                if (!System.IO.File.Exists(target) && System.IO.File.Exists(example))
+                    System.IO.File.Copy(example, target);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Main] economy.json first-run copy failed: {ex.Message}");
+            }
+
             // World-ready hook: persistence and (in later phases) economy init run
             // after all stations are loaded.
             WorldStreamingInit.LoadingFinished += OnWorldLoaded;
