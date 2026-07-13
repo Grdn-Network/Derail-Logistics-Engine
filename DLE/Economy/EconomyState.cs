@@ -88,7 +88,7 @@ namespace DLE.Economy
             Credit(yardId, cargo, carloads);
             EconomyHistory.Record("delivered", yardId, cargo.ToString(), carloads);
             Main.Log($"[Economy] {yardId} received {carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
-            Convert(yardId);
+            Conversion.Current.OnDelivered(this, yardId);
         }
 
         public void Credit(string yardId, CargoType cargo, float amount)

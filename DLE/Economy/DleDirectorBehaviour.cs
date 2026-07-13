@@ -1,3 +1,4 @@
+using DLE.Dispatch;
 using System.Collections;
 using UnityEngine;
 
@@ -24,12 +25,16 @@ namespace DLE.Economy
 
         private IEnumerator TickLoop()
         {
-            // Let world streaming settle, then fill the board.
+            // Let world streaming settle before the initial fill. Previously a slow load
+            // could skip the fill entirely; now we wait for the stations (up to a minute).
             yield return new WaitForSeconds(15f);
+            for (int i = 0; i < 45 && !WorldReady(); i++)
+                yield return new WaitForSeconds(1f);
+
             Main.Log("[Director] initial fill starting.");
             int safety = 0;
             while (Main.IsHostOrSingleplayer() && WorldReady() &&
-                   EconomyDirector.GenerateOne() && safety++ < 40)
+                   DispatcherBrain.Current.TickOnce() && safety++ < 40)
                 yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
 
             Main.Log("[Director] initial fill done; ticking.");
@@ -49,7 +54,7 @@ namespace DLE.Economy
                     productionAccumulator %= interval;
                 }
 
-                EconomyDirector.GenerateOne();
+                DispatcherBrain.Current.TickOnce();
             }
         }
 

@@ -14,13 +14,19 @@ namespace DLE.Economy
     /// </summary>
     public static class EconomyDirector
     {
-        private static int ActiveHauls(string originYardId = null)
+        /// <summary>Count live hauls once per sweep: total plus per-origin, one pass.</summary>
+        private static int CountActiveHauls(Dictionary<string, int> perOrigin)
         {
-            int n = 0;
+            int total = 0;
             foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
-                if (originYardId == null || kv.Value.chainData?.chainOriginYardId == originYardId)
-                    n++;
-            return n;
+            {
+                total++;
+                var origin = kv.Value.chainData?.chainOriginYardId;
+                if (origin == null) continue;
+                perOrigin.TryGetValue(origin, out var n);
+                perOrigin[origin] = n + 1;
+            }
+            return total;
         }
 
         public static bool GenerateOne()
@@ -34,14 +40,15 @@ namespace DLE.Economy
             var econ = EconomyState.Instance;
             int min = Math.Max(1, Main.Settings?.MinShipCarloads ?? 3);
             int max = Math.Max(min, Main.Settings?.MaxCarsPerHaul ?? 6);
-            int perStation = Math.Max(1, Main.Settings?.MaxHaulsPerStation ?? 2);
-            int total = Math.Max(1, Main.Settings?.MaxHaulsTotal ?? 12);
+            int perStation = Math.Max(1, Main.Settings?.MaxHaulsPerStation ?? 4);
+            int total = Math.Max(1, Main.Settings?.MaxHaulsTotal ?? 40);
 
-            if (ActiveHauls() >= total) return false;
+            var perOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (CountActiveHauls(perOrigin) >= total) return false;
 
             foreach (var producer in econ.Facilities.Values)
             {
-                if (ActiveHauls(producer.YardId) >= perStation) continue;
+                if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;
                 foreach (var cargo in producer.Outputs)
                 {
                     float stock = econ.GetStock(producer.YardId, cargo);

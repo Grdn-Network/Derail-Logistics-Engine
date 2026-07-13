@@ -1,4 +1,3 @@
-using DLE.Data;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using System.Collections.Generic;
@@ -63,56 +62,6 @@ namespace DLE.Jobs
 
         public static float EstimateTimeLimit(int carCount, float distanceFactor = 1f) =>
             Mathf.Max(600f, carCount * 120f * distanceFactor + 600f);
-
-        // Track finders
-
-        /// <summary>
-        /// Pick the inbound track at the station that has the most free length.
-        /// Returns null if no inbound track has space; callers must not spawn
-        /// a job when this returns null, so cars are never sent to a full yard.
-        /// </summary>
-        public static Track BestInboundTrack(StationController station)
-        {
-            return TrackClassifier.GetInboundTracks(station)
-                .Where(t => t.length - t.OccupiedLength > 1f)
-                .OrderByDescending(t => t.length - t.OccupiedLength)
-                .FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Pick a storage track at the station most suited to the given destination,
-        /// preferring tracks that already hold cars going the same way.
-        /// Falls back to the track with most free length.
-        /// </summary>
-        public static Track BestStorageTrack(StationController station, string forDestYardId)
-        {
-            var candidates = TrackClassifier.GetStorageTracks(station, allowPaxOverflow: true);
-            if (candidates.Count == 0) return null;
-
-            // Prefer a track that already has cars tagged for the same destination
-            var store = CarDestinationStore.Instance;
-            foreach (var t in candidates)
-            {
-                var carsOnTrack = t.GetCarsFullyOnTrack();
-                if (carsOnTrack == null || carsOnTrack.Count == 0) continue;
-                if (carsOnTrack.Any(c => store.Get(c.carGuid)?.TrueDestYardId == forDestYardId))
-                    return t;
-            }
-
-            // No matching track; pick roomiest
-            return candidates.OrderByDescending(t => t.length - t.OccupiedLength).First();
-        }
-
-        /// <summary>
-        /// Pick the outbound track with the most cars already on it,
-        /// or any outbound track if all are empty.
-        /// </summary>
-        public static Track BestOutboundTrack(StationController station)
-        {
-            var candidates = TrackClassifier.GetOutboundTracks(station);
-            if (candidates.Count == 0) return null;
-            return candidates.OrderByDescending(t => t.GetCarsFullyOnTrack()?.Count ?? 0).First();
-        }
 
         // JobChainController builder
 

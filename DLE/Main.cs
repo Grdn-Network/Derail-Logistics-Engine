@@ -69,18 +69,6 @@ namespace DLE
         {
             Log("[Main] World loaded; initialising DLE systems.");
 
-            // Load car store from save data (instance field on SaveGameManager singleton)
-            try
-            {
-                var saveData = SaveGameManager.Instance?.data;
-                if (saveData != null)
-                    CarDestinationStore.Instance.LoadFromSave(saveData);
-            }
-            catch (Exception ex)
-            {
-                Log($"[Main] Could not load CarDestinationStore from save: {ex.Message}");
-            }
-
             // Build the economy for this world (recipes from stations, overlay, saved stock).
             try
             {
@@ -132,7 +120,6 @@ namespace DLE
                 var data = SaveGameManager.Instance?.data;
                 if (data != null)
                 {
-                    CarDestinationStore.Instance.SaveTo(data);
                     EconomyState.Instance.SaveTo(data);
                     DleJobStore.SaveTo(data);
                     AssignmentStore.Instance.SaveTo(data);
@@ -142,7 +129,7 @@ namespace DLE
             }
             catch (Exception ex)
             {
-                Log($"[Main] Error saving CarDestinationStore: {ex.Message}");
+                Log($"[Main] Error saving DLE state: {ex.Message}");
             }
         }
 
