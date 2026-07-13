@@ -71,7 +71,7 @@ namespace DLE.Data
         {
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
-            catch (Exception ex) { Main.Log($"[JobStore] job save unreadable, skipping: {ex.Message}"); }
+            catch (Exception ex) { Main.LogAlways($"[JobStore] job save unreadable, skipping: {ex.Message}"); }
             if (payload?.Jobs == null || payload.Jobs.Count == 0) return;
             if (payload.SchemaVersion != SchemaVersion)
             {
@@ -94,7 +94,7 @@ namespace DLE.Data
                 }
                 catch (Exception ex)
                 {
-                    Main.Log($"[JobStore] {snap.JobId}: restore failed ({ex.GetType().Name}: {ex.Message}); skipped.");
+                    Main.LogAlways($"[JobStore] {snap.JobId}: restore failed ({ex.GetType().Name}: {ex.Message}); skipped.");
                 }
             }
             Main.Log($"[JobStore] restored {restored}/{payload.Jobs.Count} Direct Haul job(s). " +
@@ -110,7 +110,7 @@ namespace DLE.Data
             var dest = StationController.GetStationByYardID(snap.DestYardId);
             if (origin == null || dest == null || !Enum.TryParse<CargoType>(snap.Cargo, out var cargo))
             {
-                Main.Log($"[JobStore] {snap.JobId}: station or cargo no longer resolves; skipped.");
+                Main.LogAlways($"[JobStore] {snap.JobId}: station or cargo no longer resolves; skipped.");
                 return false;
             }
 

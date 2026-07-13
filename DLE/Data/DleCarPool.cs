@@ -59,7 +59,7 @@ namespace DLE.Data
                 .SpawnCarTypesOnTrackRandomOrientation(liveries, railTrack, true, applyHandbrakeOnLastCars: true);
             if (spawned == null || spawned.Count == 0)
             {
-                Main.Log($"[CarPool] spawn failed at {station.stationInfo.YardID}.");
+                Main.LogAlways($"[CarPool] spawn failed at {station.stationInfo.YardID}.");
                 return 0;
             }
 
@@ -165,7 +165,7 @@ namespace DLE.Data
             _guids = new HashSet<string>(StringComparer.Ordinal);
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
-            catch (Exception ex) { Main.Log($"[CarPool] save unreadable, starting empty: {ex.Message}"); }
+            catch (Exception ex) { Main.LogAlways($"[CarPool] save unreadable, starting empty: {ex.Message}"); }
             if (payload?.Guids != null && payload.SchemaVersion == SchemaVersion)
                 _guids = new HashSet<string>(payload.Guids, StringComparer.Ordinal);
         }

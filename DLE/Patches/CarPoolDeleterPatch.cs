@@ -15,7 +15,7 @@ namespace DLE.Patches
         public static bool Prepare()
         {
             var found = AccessTools.Method(typeof(UnusedTrainCarDeleter), "AreDeleteConditionsFulfilled") != null;
-            if (!found) Main.Log("[CarPool] deleter method not found; pool cars are NOT protected.");
+            if (!found) Main.LogAlways("[CarPool] deleter method not found; pool cars are NOT protected.");
             return found;
         }
 

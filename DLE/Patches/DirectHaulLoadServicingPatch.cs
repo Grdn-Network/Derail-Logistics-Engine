@@ -76,7 +76,7 @@ namespace DLE.Patches
             }
             catch (Exception ex)
             {
-                Main.Log($"[LoadServicing] attach failed: {ex.GetType().Name}: {ex.Message}");
+                Main.LogAlways($"[LoadServicing] attach failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

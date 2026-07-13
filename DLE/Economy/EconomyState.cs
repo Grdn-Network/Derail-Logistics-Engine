@@ -203,7 +203,7 @@ namespace DLE.Economy
             _stock = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
-            catch (Exception ex) { Main.Log($"[Economy] stock save unreadable, starting empty: {ex.Message}"); }
+            catch (Exception ex) { Main.LogAlways($"[Economy] stock save unreadable, starting empty: {ex.Message}"); }
 
             if (payload?.Stock == null) return;
             if (payload.SchemaVersion != SchemaVersion)
