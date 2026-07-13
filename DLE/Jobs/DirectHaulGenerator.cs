@@ -179,7 +179,7 @@ namespace DLE.Jobs
             }
             catch (System.Exception ex)
             {
-                Main.Log($"[DirectHaul] generation failed: {ex.GetType().Name}: {ex.Message}");
+                Main.LogAlways($"[DirectHaul] generation failed: {ex.GetType().Name}: {ex.Message}");
                 try { jcc.DestroyChain(); } catch { }
                 Object.Destroy(go);
                 return false;

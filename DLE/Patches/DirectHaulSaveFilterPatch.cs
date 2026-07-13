@@ -38,7 +38,7 @@ namespace DLE.Patches
             if (__exception != null && __exception.Message != null &&
                 __exception.Message.Contains("Uninitialized"))
             {
-                Main.Log($"[DirectHaul] Suppressed save exception for ghost chain: {__exception.Message}");
+                Main.LogAlways($"[DirectHaul] Suppressed save exception for ghost chain: {__exception.Message}");
                 __result = null;
                 return null;
             }

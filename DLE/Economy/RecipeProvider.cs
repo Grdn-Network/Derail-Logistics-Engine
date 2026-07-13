@@ -79,7 +79,7 @@ namespace DLE.Economy
             }
             catch (Exception ex)
             {
-                Main.Log($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
+                Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
                 return;
             }
             if (overlay?.stations == null) return;

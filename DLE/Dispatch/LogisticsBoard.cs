@@ -87,7 +87,7 @@ namespace DLE.Dispatch
             _nextId = 1;
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
-            catch (Exception ex) { Main.Log($"[Logistics] save unreadable, starting empty: {ex.Message}"); }
+            catch (Exception ex) { Main.LogAlways($"[Logistics] save unreadable, starting empty: {ex.Message}"); }
             if (payload?.Orders == null || payload.SchemaVersion != SchemaVersion) return;
             foreach (var o in payload.Orders) _orders[o.Id] = o;
             _nextId = Math.Max(1, payload.NextId);

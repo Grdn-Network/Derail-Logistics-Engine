@@ -48,7 +48,7 @@ namespace DLE
             }
             catch (Exception ex)
             {
-                Log($"[Main] economy.json first-run copy failed: {ex.Message}");
+                LogAlways($"[Main] economy.json first-run copy failed: {ex.Message}");
             }
 
             // World-ready hook: persistence and (in later phases) economy init run
@@ -59,7 +59,7 @@ namespace DLE
             // MultiplayerAPI.dll is already in the AppDomain when we run).
             ResolveDvmpApi();
 
-            Log("[Main] Derail Logistics Engine loaded.");
+            LogAlways("[Main] Derail Logistics Engine loaded.");
             return true;
         }
 
@@ -79,7 +79,7 @@ namespace DLE
             }
             catch (Exception ex)
             {
-                Log($"[Main] Economy init failed: {ex.Message}");
+                LogAlways($"[Main] Economy init failed: {ex.Message}");
             }
 
             // Rebuild live Direct Haul jobs from our own save (they are filtered out of the
@@ -100,7 +100,7 @@ namespace DLE
                 }
                 catch (Exception ex)
                 {
-                    Log($"[Main] Job restore failed: {ex.Message}");
+                    LogAlways($"[Main] Job restore failed: {ex.Message}");
                 }
                 DleHttpServer.StartOnHost();
                 DleDirectorBehaviour.StartOnHost();
@@ -136,7 +136,7 @@ namespace DLE
             }
             catch (Exception ex)
             {
-                Log($"[Main] Error saving DLE state: {ex.Message}");
+                LogAlways($"[Main] Error saving DLE state: {ex.Message}");
             }
         }
 
@@ -170,7 +170,19 @@ namespace DLE
 
         // Helpers
 
-        public static void Log(string message) => ModEntry?.Logger?.Log(message);
+        /// <summary>
+        /// Routine logging, gated behind the verbose setting: UMM writes every line to
+        /// disk on the main thread, so the steady-state chatter (generation, economy,
+        /// http) stays silent unless someone is actually debugging.
+        /// </summary>
+        public static void Log(string message)
+        {
+            if (Settings?.VerboseLogging == true)
+                ModEntry?.Logger?.Log(message);
+        }
+
+        /// <summary>Errors and rare lifecycle milestones: always written.</summary>
+        public static void LogAlways(string message) => ModEntry?.Logger?.Log(message);
 
         /// <summary>
         /// Returns true when we should run server-side logic.

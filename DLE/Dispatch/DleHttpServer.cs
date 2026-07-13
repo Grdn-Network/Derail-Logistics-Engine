@@ -60,7 +60,7 @@ namespace DLE.Dispatch
             }
             catch (Exception ex)
             {
-                Main.Log($"[Http] failed to start on port {Port}: {ex.Message}");
+                Main.LogAlways($"[Http] failed to start on port {Port}: {ex.Message}");
                 _listener = null;
             }
         }
@@ -216,7 +216,7 @@ namespace DLE.Dispatch
             }
             catch (Exception ex)
             {
-                Main.Log($"[Http] {method} {path} failed: {ex.Message}");
+                Main.LogAlways($"[Http] {method} {path} failed: {ex.Message}");
                 try { Json(ctx, 500, new { error = ex.Message }); } catch { }
             }
         }

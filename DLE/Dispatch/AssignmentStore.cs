@@ -76,7 +76,7 @@ namespace DLE.Dispatch
             LockEnabled = false;
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
-            catch (Exception ex) { Main.Log($"[Dispatch] assignment save unreadable, starting empty: {ex.Message}"); }
+            catch (Exception ex) { Main.LogAlways($"[Dispatch] assignment save unreadable, starting empty: {ex.Message}"); }
             if (payload?.Assignments == null || payload.SchemaVersion != SchemaVersion) return;
             _assignments = payload.Assignments;
             LockEnabled = payload.LockEnabled;
