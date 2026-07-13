@@ -8,106 +8,20 @@ using UnityEngine;
 namespace DLE.Jobs
 {
     /// <summary>
-    /// Builds a pre-loaded Direct Haul (0.1, non-finite mode): spawn a consist of the cargo
-    /// at the producer, load it, and create a haul + unload job to the consumer. Host or
-    /// singleplayer only; the EconomyDirector gates this on real stock. Returns the number
-    /// of cars spawned (0 on failure) so the caller can debit the producer stockpile.
+    /// Builds Company Hauls. Every haul is carless: it carries a load task and synthetic
+    /// booklet cars; crews bring cars to the producer's loading track, the servicing patch
+    /// attaches them (booklets printed after that show the real cars), and the producer's
+    /// stock debits at that moment. Host or singleplayer only; the EconomyDirector gates
+    /// creation on real stock. TryRebuild restores saved jobs, attached cars included.
     /// </summary>
     public static class DirectHaulGenerator
     {
-        public static int TryCreatePreloaded(
-            StationController producer,
-            StationController consumer,
-            CargoType cargo,
-            int carCount,
-            out string jobId)
-        {
-            jobId = null;
-            if (producer == null || consumer == null || carCount <= 0)
-                return 0;
-
-            var cargoList = new List<CargoType> { cargo };
-            var loadMachine = producer.logicStation.yard
-                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
-            var unloadMachine = consumer.logicStation.yard
-                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
-            if (loadMachine == null || unloadMachine == null)
-            {
-                Main.Log($"[DirectHaul] missing warehouse machine (load={loadMachine != null}, unload={unloadMachine != null}) for {cargo}.");
-                return 0;
-            }
-
-            // Pick a car livery that carries this cargo, one type for the whole consist.
-            if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
-                !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
-                carTypes.Count == 0)
-            {
-                Main.Log($"[DirectHaul] no loadable car type for {cargo}.");
-                return 0;
-            }
-            // Finite world: hauls are built ONLY on cars that already exist. The director
-            // decides between this path (full cut of idle empties available) and a carless
-            // job (players bring cars). No consists are conjured here.
-            var spawned = Data.DleCarPool.CollectIdleEmpties(producer, carTypes, carCount);
-            if (spawned.Count < carCount)
-            {
-                Main.Log($"[DirectHaul] {producer.stationInfo.YardID}: only {spawned.Count}/{carCount} idle empties for {cargo}; use a carless haul instead.");
-                return 0;
-            }
-            spawned = spawned.GetRange(0, carCount);
-            var common = JobUtils.FindCommonTrack(spawned);
-            string pickupDisplay = common?.ID?.FullDisplayID ?? "yard (existing cars)";
-            Main.Log($"[DirectHaul] {producer.stationInfo.YardID}: building on {spawned.Count} existing empt{(spawned.Count == 1 ? "y" : "ies")}.");
-
-            // Load each car with the cargo so it arrives ready to unload.
-            foreach (var tc in spawned)
-                tc.logicCar.LoadCargo(tc.logicCar.capacity, cargo, loadMachine);
-
-            // Pay like a vanilla haul of the same distance and consist (Transport rates;
-            // ComplexTransport has no vanilla payment config of its own).
-            float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
-            float bonusTime = JobPaymentCalculator.CalculateHaulBonusTimeLimit(distance);
-            var liveryCounts = new Dictionary<TrainCarLivery, int>();
-            foreach (var tc in spawned)
-            {
-                liveryCounts.TryGetValue(tc.carLivery, out var n);
-                liveryCounts[tc.carLivery] = n + 1;
-            }
-            var cargoCounts = new Dictionary<CargoType, int> { { cargo, spawned.Count } };
-            float wage = JobPaymentCalculator.CalculateJobPayment(
-                JobType.Transport, distance, new PaymentCalculationData(liveryCounts, cargoCounts));
-
-            jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
-            if (!BuildChain(producer, consumer, spawned, cargo, loadMachine, unloadMachine,
-                    jobId, wage, bonusTime, pickupDisplay))
-            {
-                // The cars are pre-existing world cars: dump the cargo back and leave them.
-                Main.Log("[DirectHaul] chain build failed; reverting cars.");
-                foreach (var tc in spawned)
-                    if (tc.logicCar.LoadedCargoAmount > 0f)
-                        tc.logicCar.DumpCargo();
-                jobId = null;
-                return 0;
-            }
-
-            Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), spawned.Count, jobId);
-            Main.Log($"[DirectHaul] {producer.stationInfo.YardID}->{consumer.stationInfo.YardID}: " +
-                     $"{spawned.Count} car(s) of {cargo} loaded and ready.");
-            return spawned.Count;
-        }
-
-        /// <summary>
-        /// Create a Company Haul with NO cars attached. The job
-        /// carries a load task; when players bring suitable empty cars to the producer
-        /// warehouse, DirectHaulLoadServicingPatch attaches them and loading begins (the
-        /// SelfShunter mechanic, scoped to DLE jobs). Stock is debited when cars attach,
-        /// not at spawn, so jobs never outrun real stock into conjured cargo.
-        /// </summary>
         public static string TryCreateCarless(
             StationController producer,
             StationController consumer,
             CargoType cargo,
-            int carCount)
+            int carCount,
+            List<string> reservedCarIds = null)
         {
             if (producer == null || consumer == null || carCount <= 0) return null;
 
@@ -153,6 +67,13 @@ namespace DLE.Jobs
                 spawnTrackDisplay: $"warehouse {loadMachine.WarehouseTrack?.ID?.FullDisplayID ?? producer.stationInfo.YardID}",
                 includeLoadTask: true, displayCarsOverride: displayCars, plannedCarCount: carCount);
             if (!ok) return null;
+
+            if (reservedCarIds != null && reservedCarIds.Count > 0 &&
+                StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var createdDef))
+            {
+                createdDef.reservedCarIds = new List<string>(reservedCarIds);
+                Main.Log($"[DirectHaul] {jobId}: dispatcher reserved cars {string.Join(", ", reservedCarIds)}.");
+            }
 
             Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), carCount, jobId);
             Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +

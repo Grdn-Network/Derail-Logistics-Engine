@@ -99,16 +99,20 @@ namespace DLE.Patches
                 var loadable = DV.Globals.G.Types.CargoToLoadableCarTypes[v2];
 
                 // Suitable = on the warehouse track, right car family, jobless and empty.
+                // Dispatcher-reserved cars are taken first, then anything else suitable.
                 var jobsManager = SingletonBehaviour<JobsManager>.Instance;
-                var valid = new List<Car>();
+                var candidates = new List<Car>();
                 foreach (var car in machine.WarehouseTrack.GetCarsFullyOnTrack())
                 {
-                    if (valid.Count >= wanted) break;
                     if (!loadable.Contains(car.carType.parentType)) continue;
                     if (jobsManager.GetJobOfCar(car) != null) continue;
                     if (car.LoadedCargoAmount != 0) continue;
-                    valid.Add(car);
+                    candidates.Add(car);
                 }
+                var reserved = def.reservedCarIds;
+                if (reserved != null && reserved.Count > 0)
+                    candidates.Sort((a, b) => reserved.Contains(b.ID).CompareTo(reserved.Contains(a.ID)));
+                var valid = candidates.Count > wanted ? candidates.GetRange(0, wanted) : candidates;
                 if (valid.Count != wanted) continue; // bring the full cut before it attaches
 
                 // Attach to every warehouse task of the job (load and unload).
