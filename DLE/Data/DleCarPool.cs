@@ -181,6 +181,45 @@ namespace DLE.Data
             return totalSpawned;
         }
 
+        /// <summary>
+        /// Flood recovery: delete every idle, jobless, empty, non-player car standing in
+        /// ANY station yard, with no respawn (company.clear). Loaded, player-owned and
+        /// job-assigned cars are left untouched. Cleared cars are dropped from the pool.
+        /// Host or singleplayer only. Returns how many cars were deleted.
+        /// </summary>
+        public int ClearIdleEmpties()
+        {
+            if (!Main.IsHostOrSingleplayer()) return 0;
+            if (StationController.allStations == null) return 0;
+
+            var toDelete = new List<TrainCar>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var sc in StationController.allStations)
+            {
+                if (sc == null) continue;
+                foreach (var tc in CollectIdleEmpties(sc, null, int.MaxValue))
+                {
+                    var guid = tc.logicCar?.carGuid;
+                    if (guid != null && !seen.Add(guid)) continue; // de-dupe across overlapping yards
+                    toDelete.Add(tc);
+                }
+            }
+
+            if (toDelete.Count == 0)
+            {
+                Main.LogAlways("[CarPool] company.clear: no idle jobless empties found.");
+                return 0;
+            }
+
+            foreach (var tc in toDelete)
+                if (tc.logicCar?.carGuid != null)
+                    _guids.Remove(tc.logicCar.carGuid);
+
+            CarSpawner.Instance.DeleteTrainCars(toDelete, true);
+            Main.LogAlways($"[CarPool] company.clear: deleted {toDelete.Count} idle jobless empt{(toDelete.Count == 1 ? "y" : "ies")}; no respawn.");
+            return toDelete.Count;
+        }
+
         [Serializable]
         private class SaveData
         {

@@ -21,6 +21,16 @@ namespace DLE
             Debug.Log($"company.respawn: pools rebuilt, {spawned} car(s) spawned.");
         }
 
+        [RegisterCommand("company.clear",
+            Help = "DLE: delete every idle jobless empty car in all yards with NO respawn. Flood recovery; leaves loaded, player-owned and job-assigned cars untouched. Save the game afterwards to persist.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void Clear(CommandArg[] args)
+        {
+            if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.clear: host or singleplayer only."); return; }
+            int deleted = DleCarPool.Instance.ClearIdleEmpties();
+            Debug.Log($"company.clear: deleted {deleted} idle jobless empty car(s), no respawn.");
+        }
+
         [RegisterCommand("company.resupply",
             Help = "DLE: wipe all facility stockpiles back to the starting stock values.",
             MinArgCount = 0, MaxArgCount = 0)]
