@@ -115,6 +115,8 @@ namespace DLE
                 EconomyState.Instance.DumpToLog();
             if (UnityEngine.GUILayout.Button("Reload economy.json", UnityEngine.GUILayout.Width(240)))
                 EconomyState.Instance.ReloadRecipes(ModEntry.Path);
+            if (UnityEngine.GUILayout.Button("Simulate delivery (no train)", UnityEngine.GUILayout.Width(240)))
+                DebugEconomy.SimulateDelivery();
 
             UnityEngine.GUILayout.Space(4);
             UnityEngine.GUILayout.Label("Phase 1 debug:");
