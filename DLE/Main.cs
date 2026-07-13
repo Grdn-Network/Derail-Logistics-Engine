@@ -1,4 +1,5 @@
 using DLE.Data;
+using DLE.Jobs;
 using DV.Common;
 using HarmonyLib;
 using System;
@@ -99,6 +100,11 @@ namespace DLE
             UnityEngine.GUILayout.Space(8);
             if (UnityEngine.GUILayout.Button("Dump DLE State to Log", UnityEngine.GUILayout.Width(240)))
                 DumpState();
+
+            UnityEngine.GUILayout.Space(4);
+            UnityEngine.GUILayout.Label("Phase 1 debug:");
+            if (UnityEngine.GUILayout.Button("Direct Haul from my consist", UnityEngine.GUILayout.Width(240)))
+                DebugDirectHaul.CreateFromPlayerConsist();
         }
 
         private static void DumpState()

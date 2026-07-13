@@ -69,6 +69,10 @@
       <HintPath>lib\DV.Common.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="DV.Localization">
+      <HintPath>lib\DV.Localization.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(OS)' == 'Windows_NT'">
