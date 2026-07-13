@@ -31,6 +31,10 @@ namespace DLE.Jobs
         /// <summary>Car snapshot for the booklet patches, built by the generator.</summary>
         public List<Car_data> displayCars;
 
+        /// <summary>Where the consist was spawned (e.g. "SW-B3O"), shown on the booklet so
+        /// the player knows where to pick the cars up.</summary>
+        public string spawnTrackDisplay;
+
         /// <summary>Live definitions by job ID, so the booklet patches can find display data.</summary>
         public static readonly Dictionary<string, StaticDirectHaulJobDefinition> jobDefinitions =
             new Dictionary<string, StaticDirectHaulJobDefinition>();

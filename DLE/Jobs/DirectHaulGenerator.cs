@@ -83,7 +83,20 @@ namespace DLE.Jobs
             var requiredLicenses =
                 JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(cargoList))
                 | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(spawned.Count)?.v1 ?? JobLicenses.Basic);
-            float wage = JobUtils.EstimateWage(spawned.Count);
+
+            // Pay like a vanilla haul of the same distance and consist (Transport rates;
+            // ComplexTransport has no vanilla payment config of its own).
+            float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
+            float bonusTime = JobPaymentCalculator.CalculateHaulBonusTimeLimit(distance);
+            var liveryCounts = new Dictionary<TrainCarLivery, int>();
+            foreach (var tc in spawned)
+            {
+                liveryCounts.TryGetValue(tc.carLivery, out var n);
+                liveryCounts[tc.carLivery] = n + 1;
+            }
+            var cargoCounts = new Dictionary<CargoType, int> { { cargo, spawned.Count } };
+            float wage = JobPaymentCalculator.CalculateJobPayment(
+                JobType.Transport, distance, new PaymentCalculationData(liveryCounts, cargoCounts));
 
             var go = new GameObject(
                 $"ChainJob[Direct Haul]: {chainData.chainOriginYardId} - {chainData.chainDestinationYardId}");
@@ -97,8 +110,9 @@ namespace DLE.Jobs
             def.transportedCargo  = cargo;
             def.includeLoadTask   = false; // 0.1: cars arrive pre-loaded
             def.displayCars       = logicCars.Select(c => new Car_data(c, false)).ToList();
+            def.spawnTrackDisplay = track.ID?.FullDisplayID ?? "";
             def.ForceJobId(JobUtils.NextId(chainData.chainOriginYardId, chainData.chainDestinationYardId));
-            def.PopulateBaseJobDefinition(producer.logicStation, 0f, wage, chainData, requiredLicenses);
+            def.PopulateBaseJobDefinition(producer.logicStation, bonusTime, wage, chainData, requiredLicenses);
 
             var jcc = new JobChainController(go);
             jcc.carsForJobChain = logicCars;

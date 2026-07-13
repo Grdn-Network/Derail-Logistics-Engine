@@ -116,9 +116,16 @@ namespace DLE.Patches
             var origin = job.chainOriginStationInfo;
             var destination = job.chainDestinationStationInfo;
 
+            // Tell the player where the loaded consist is sitting. Falls back silently when
+            // the definition is not registered (e.g. on a DVMP client).
+            StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var defForTrack);
+            string pickup = string.IsNullOrEmpty(defForTrack?.spawnTrackDisplay)
+                ? string.Empty
+                : $" Cars on track {defForTrack.spawnTrackDisplay}.";
+
             return new FrontPageTemplatePaperData(
                 DIRECT_HAUL_NAME, string.Empty, job.ID, DIRECT_HAUL_COLOR,
-                $"Transport {cars.Count} loads of {cargoName}",
+                $"Transport {cars.Count} loads of {cargoName}.{pickup}",
                 job.requiredLicenses,
                 cargoTypePerCar.Distinct().ToList(), cargoTypePerCar,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,

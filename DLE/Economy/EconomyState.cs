@@ -94,7 +94,18 @@ namespace DLE.Economy
         /// <summary>Run every recipe at a station while its inputs are available and outputs have room.</summary>
         public void Convert(string yardId)
         {
-            if (!_facilities.TryGetValue(yardId, out var facility)) return;
+            if (!_facilities.TryGetValue(yardId, out var facility))
+            {
+                Main.Log($"[Economy] {yardId} has no facility definition; nothing to convert.");
+                return;
+            }
+            if (facility.Recipes.Count == 0)
+            {
+                // Pure source or pure sink: stock just accumulates, by design.
+                if (Main.Settings?.VerboseLogging == true)
+                    Main.Log($"[Economy] {yardId} has no recipe (source or sink); stock holds.");
+                return;
+            }
 
             foreach (var recipe in facility.Recipes)
             {
@@ -106,6 +117,19 @@ namespace DLE.Economy
                     foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
                     foreach (var o in recipe.Outputs) Credit(yardId, o.Cargo, o.Amount);
                     Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}].");
+                }
+
+                if (guard == 0)
+                {
+                    // Say WHY the recipe did not run, so balance problems are visible.
+                    var missing = recipe.Inputs
+                        .Where(i => GetStock(yardId, i.Cargo) < i.Amount)
+                        .Select(i => $"{i.Cargo} ({GetStock(yardId, i.Cargo):0.#}/{i.Amount:0.#})")
+                        .ToList();
+                    if (missing.Count > 0)
+                        Main.Log($"[Economy] {yardId} recipe idle, missing inputs: {string.Join(", ", missing)}.");
+                    else if (!HasOutputRoom(yardId, facility, recipe))
+                        Main.Log($"[Economy] {yardId} recipe idle, output storage full.");
                 }
             }
         }
