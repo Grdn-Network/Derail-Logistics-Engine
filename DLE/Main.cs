@@ -1,4 +1,5 @@
 using DLE.Data;
+using DLE.Economy;
 using DLE.Jobs;
 using DV.Common;
 using HarmonyLib;
@@ -66,6 +67,18 @@ namespace DLE
                 Log($"[Main] Could not load CarDestinationStore from save: {ex.Message}");
             }
 
+            // Build the economy for this world (recipes from stations, overlay, saved stock).
+            try
+            {
+                var data = SaveGameManager.Instance?.data;
+                if (data != null)
+                    EconomyState.Instance.Init(data, ModEntry.Path);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Main] Economy init failed: {ex.Message}");
+            }
+
             // Subscribe to save event so we persist before the game writes to disk.
             // Unsubscribe first: OnWorldLoaded fires on every save/load within a session;
             // without the unsub, each reload would add another handler and OnAboutToSave
@@ -82,7 +95,7 @@ namespace DLE
                 if (data != null)
                 {
                     CarDestinationStore.Instance.SaveTo(data);
-                    Log("[Main] CarDestinationStore saved.");
+                    EconomyState.Instance.SaveTo(data);
                 }
             }
             catch (Exception ex)
@@ -98,8 +111,12 @@ namespace DLE
             Settings.Draw(entry);
 
             UnityEngine.GUILayout.Space(8);
-            if (UnityEngine.GUILayout.Button("Dump DLE State to Log", UnityEngine.GUILayout.Width(240)))
-                DumpState();
+            if (UnityEngine.GUILayout.Button("Dump economy to log", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.DumpToLog();
+            if (UnityEngine.GUILayout.Button("Reload economy.json", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.ReloadRecipes(ModEntry.Path);
+            if (UnityEngine.GUILayout.Button("Simulate delivery (no train)", UnityEngine.GUILayout.Width(240)))
+                DebugEconomy.SimulateDelivery();
 
             UnityEngine.GUILayout.Space(4);
             UnityEngine.GUILayout.Label("Phase 1 debug:");
