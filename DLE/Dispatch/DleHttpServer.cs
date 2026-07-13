@@ -95,6 +95,7 @@ namespace DLE.Dispatch
             string method = ctx.Request.HttpMethod;
             try
             {
+                if (method == "GET" && (path == "" || path == "/")) { Html(ctx, DashboardPage); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
@@ -259,6 +260,79 @@ namespace DLE.Dispatch
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
             }).ToList();
         }
+
+        private static void Html(HttpListenerContext ctx, string html)
+        {
+            var bytes = Encoding.UTF8.GetBytes(html);
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = "text/html; charset=utf-8";
+            ctx.Response.ContentLength64 = bytes.Length;
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            ctx.Response.OutputStream.Close();
+        }
+
+        // Minimal built-in dispatch board so the economy is fully manageable without
+        // RemoteDispatch. RD integration supersedes this later.
+        private const string DashboardPage = @"<!doctype html><html><head><meta charset='utf-8'>
+<title>DLE Dispatch</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#1b1d21;color:#ddd;margin:16px}
+h1{font-size:20px;color:#b58ee0} h2{font-size:15px;margin:18px 0 6px;color:#9fc2e8}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border:1px solid #333;padding:4px 8px;text-align:left}
+th{background:#26282e} tr:nth-child(even){background:#22242a}
+button{background:#5a3f78;color:#fff;border:0;padding:4px 10px;cursor:pointer;border-radius:3px}
+input,select{background:#26282e;color:#ddd;border:1px solid #444;padding:3px 6px}
+#msg{color:#8fd18f;min-height:18px}
+</style></head><body>
+<h1>Derail Logistics Engine: dispatch board</h1><div id='msg'></div>
+<h2>Create a haul</h2>
+<div>Origin <select id='hOrigin'></select> Cargo <select id='hCargo'></select>
+Destination <select id='hDest'></select> Cars <input id='hCars' type='number' value='4' min='1' max='20' style='width:60px'>
+<button onclick='createHaul()'>Spawn haul</button></div>
+<h2>Shippable now (options)</h2><table id='tOptions'></table>
+<h2>Active hauls</h2><table id='tJobs'></table>
+<h2>Economy</h2><table id='tEcon'></table>
+<script>
+let options=[];
+async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
+function msg(t){document.getElementById('msg').textContent=t;setTimeout(()=>msg2(t),4000)}
+function msg2(t){const m=document.getElementById('msg');if(m.textContent===t)m.textContent=''}
+async function refresh(){
+ options=await j('/api/v1/options');
+ const jobs=await j('/api/v1/jobs'); const econ=await j('/api/v1/economy');
+ const oSel=document.getElementById('hOrigin');const cur=oSel.value;
+ oSel.innerHTML=options.map(o=>`<option>${o.origin}</option>`).join('');
+ if([...oSel.options].some(x=>x.value===cur))oSel.value=cur;
+ originChanged();
+ document.getElementById('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
+  options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
+ document.getElementById('tJobs').innerHTML='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th></tr>'+
+  jobs.map(x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td></tr>`).join('');
+ document.getElementById('tEcon').innerHTML='<tr><th>Yard</th><th>Stock</th></tr>'+
+  econ.filter(e=>e.stock.length).map(e=>`<tr><td>${e.yardId}</td><td>${e.stock.map(s=>s.amount+' '+s.cargo).join(', ')}</td></tr>`).join('');
+}
+function originChanged(){
+ const o=document.getElementById('hOrigin').value;
+ const mine=options.filter(x=>x.origin===o);
+ document.getElementById('hCargo').innerHTML=mine.map(x=>`<option>${x.cargo}</option>`).join('');
+ cargoChanged();
+}
+function cargoChanged(){
+ const o=document.getElementById('hOrigin').value;const c=document.getElementById('hCargo').value;
+ const opt=options.find(x=>x.origin===o&&x.cargo===c);
+ document.getElementById('hDest').innerHTML=(opt?opt.consumers:[]).map(x=>`<option>${x}</option>`).join('');
+}
+document.getElementById('hOrigin').addEventListener('change',originChanged);
+document.getElementById('hCargo').addEventListener('change',cargoChanged);
+async function createHaul(){
+ const b={origin:hOrigin.value,destination:hDest.value,cargo:hCargo.value,cars:parseInt(hCars.value)};
+ const r=await j('/api/v1/hauls','POST',b);
+ msg(r.jobId?('Created '+r.jobId):('Failed: '+(r.error||'see game log')));
+ refresh();
+}
+refresh();setInterval(refresh,5000);
+</script></body></html>";
 
         private static string ReadBody(HttpListenerContext ctx)
         {

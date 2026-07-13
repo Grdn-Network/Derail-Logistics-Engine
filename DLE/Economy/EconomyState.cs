@@ -40,22 +40,18 @@ namespace DLE.Economy
         }
 
         /// <summary>
-        /// Session start: any output sitting at zero gets topped up to the starting stock
-        /// so every session begins shippable. Real scarcity tuning comes later.
+        /// Source industries (no inputs: mines, forests, wells) produce over time; that is
+        /// where cargo enters the world. Factories only gain stock from real deliveries.
         /// </summary>
-        public void TopUpEmptyOutputs(int amount)
+        public void TickSourceProduction(float carloads)
         {
-            if (amount <= 0) return;
-            int topped = 0;
+            if (carloads <= 0f) return;
             foreach (var f in _facilities.Values)
+            {
+                if (f.Inputs.Count > 0 || f.Outputs.Count == 0) continue;
                 foreach (var cargo in f.Outputs)
-                    if (GetStock(f.YardId, cargo) <= 0f)
-                    {
-                        Credit(f.YardId, cargo, amount);
-                        topped++;
-                    }
-            if (topped > 0)
-                Main.Log($"[Economy] topped up {topped} empty output stockpile(s) to {amount}.");
+                    Credit(f.YardId, cargo, carloads);
+            }
         }
 
         /// <summary>New game: give each facility a starting stock of its output cargo.</summary>
