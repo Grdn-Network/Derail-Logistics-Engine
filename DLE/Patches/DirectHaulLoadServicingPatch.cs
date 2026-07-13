@@ -146,6 +146,9 @@ namespace DLE.Patches
                 task.Job.JobAbandoned += DumpJobCargo;
                 task.Job.JobCompleted += DumpPlates;
 
+                // Booklets already in someone's hand redraw with the real consist.
+                RefreshInHandBooklets(task.Job);
+
                 Main.Log($"[LoadServicing] {jobData.id}: attached {valid.Count} car(s), loading {task.cargoType}. " +
                          $"{def.chainData.chainOriginYardId} stock debited.");
             }
@@ -161,6 +164,74 @@ namespace DLE.Patches
             {
                 Traverse.Create(tc).Field("playerSpawnedCar").SetValue(false);
                 tc.GetComponent<CarDebtController>()?.SetDebtTracker(tc.CarDamage, tc.CargoDamage);
+            }
+        }
+
+        /// <summary>
+        /// Redraw any printed booklet for this job in place: render a fresh hidden booklet
+        /// from the updated Job_data and swap its page textures and materials into the one
+        /// the player holds (SelfShunter's technique, used with permission). Failure just
+        /// leaves the old pages; a re-printed booklet is always correct anyway.
+        /// </summary>
+        private static void RefreshInHandBooklets(Job job)
+        {
+            try
+            {
+                foreach (var book in JobBooklet.allExistingJobBooklets.ToArray())
+                {
+                    if (book.job != job) continue;
+
+                    var pb = book.GetComponent<PageBook>();
+                    if (pb == null) continue;
+
+                    var tempBook = DV.Booklets.BookletCreator_Job.Create(
+                        new DV.Booklets.Job_data(job),
+                        book.transform.position, book.transform.rotation).gameObject;
+                    var tempPb = tempBook.GetComponent<PageBook>();
+
+                    tempPb.PageBookGenerated += () =>
+                    {
+                        try
+                        {
+                            pb.pageTextures = tempPb.pageTextures;
+                            for (int i = 0; i < tempPb.pages.Count && i < pb.pages.Count; i++)
+                            {
+                                UnityEngine.Object.Destroy(pb.pages[i].renderer.material);
+                                UnityEngine.Object.Destroy(pb.pages[i].pageMaterial);
+                                pb.pages[i].renderer.material = tempPb.pages[i].renderer.material;
+                                pb.pages[i].pageMaterial = tempPb.pages[i].pageMaterial;
+                                tempPb.pages[i].renderer.material = null;
+                                tempPb.pages[i].pageMaterial = null;
+                            }
+
+                            var texturesField = AccessTools.Field(
+                                typeof(DV.Booklets.Rendered.RenderedTexturesBooklet), "textures");
+                            var tempRendered = tempBook.GetComponent<DV.Booklets.Rendered.RenderedTexturesBooklet>();
+                            var liveRendered = book.GetComponent<DV.Booklets.Rendered.RenderedTexturesBooklet>();
+                            if (texturesField != null && tempRendered != null && liveRendered != null)
+                            {
+                                var fresh = texturesField.GetValue(tempRendered);
+                                var stale = texturesField.GetValue(liveRendered);
+                                texturesField.SetValue(liveRendered, fresh);
+                                texturesField.SetValue(tempRendered, stale);
+                            }
+
+                            UnityEngine.Object.Destroy(pb.coverMaterial);
+                            pb.coverMaterial = tempPb.coverMaterial;
+                            tempPb.coverMaterial = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            Main.LogAlways($"[LoadServicing] booklet redraw swap failed: {ex.Message}");
+                        }
+                        UnityEngine.Object.Destroy(tempBook);
+                    };
+                    Main.Log($"[LoadServicing] {job.ID}: in-hand booklet redrawn.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[LoadServicing] booklet redraw failed: {ex.Message}");
             }
         }
 
