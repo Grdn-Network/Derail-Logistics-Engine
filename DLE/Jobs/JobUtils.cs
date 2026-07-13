@@ -38,6 +38,21 @@ namespace DLE.Jobs
             return id;
         }
 
+        /// <summary>
+        /// After restoring a saved job like "SW-SM-03", make sure the route counter is past
+        /// 03 so newly generated IDs cannot collide, and re-register the ID as managed.
+        /// </summary>
+        public static void EnsureCounterPast(string jobId)
+        {
+            ManagedJobIds.Add(jobId);
+            var lastDash = jobId.LastIndexOf('-');
+            if (lastDash <= 0) return;
+            var key = jobId.Substring(0, lastDash);
+            if (!int.TryParse(jobId.Substring(lastDash + 1), out var n)) return;
+            _routeCounters.TryGetValue(key, out var cur);
+            if (n > cur) _routeCounters[key] = n;
+        }
+
         public static StationsChainData Chain(string originYardId, string destYardId) =>
             new StationsChainData(originYardId, destYardId);
 

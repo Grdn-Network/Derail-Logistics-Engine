@@ -1,16 +1,39 @@
 # Derail Logistics Engine
 
-A Derail Valley mod that gives every freight station a working supply chain:
-recipes, stockpiles, and demand. Jobs are generated from real deficits and
-surpluses as Direct Haul jobs (load at origin, haul, unload at destination,
-all in one job), and a dispatcher can monitor and assign trains through
-RemoteDispatch.
+Derail Logistics Engine (DLE) brings economy management to Derail Valley. Every
+freight station has stockpiles and recipes derived from the game's own cargo
+data: producers hold stock, consumers need it, and deliveries convert inputs
+into outputs. Jobs are generated from that economy as Direct Haul jobs: a
+loaded consist appears at the producer and the job is to deliver and unload it
+at the consumer, all in one job.
 
-Built for multiplayer (host-authoritative with the Multiplayer mod); works in
-single player too.
+Built for multiplayer (host-authoritative with the Multiplayer mod; clients do
+not need DLE installed). Works in single player too.
 
-Under heavy development toward 0.1. See the issues and the DLE 0.1 milestone
-for progress.
+## Status: 0.1
+
+The 0.1 loop: facilities seed with starting stock, hauls are generated from
+real stock (debug button for now), the producer is debited, the consumer is
+credited on unload and converts by recipe. Stockpiles, live jobs and dispatcher
+assignments all survive save and load.
+
+Planned next: an automatic generation tick, dispatcher UI in RemoteDispatch,
+dispatcher-gated acceptance (see issue #11), and the finite-car mode where
+players load cars themselves (0.5 era).
+
+## How it works
+
+- Recipes: derived per station from its input and output cargo groups, then
+  overlaid by `economy.json` (created from `economy.default.json` on first
+  run; reload in game from the mod settings). Military yards are excluded.
+- Direct Haul jobs: `JobType.ComplexTransport` with vanilla warehouse tasks, so
+  the Multiplayer mod syncs them to clients natively. Booklets show the cargo,
+  payment (vanilla Transport rates for the distance), and the pickup track.
+- Dispatch: a local HTTP API on `127.0.0.1:7246` exposes the economy, the job
+  board and assignments for RemoteDispatch integration:
+  `GET /api/v1/state`, `GET /api/v1/economy`, `GET /api/v1/jobs`,
+  `PUT/DELETE /api/v1/assignments/{jobId}`, `PUT /api/v1/lock`.
+  With the lock enabled, unassigned DLE jobs cannot be accepted.
 
 ## Building
 
@@ -24,6 +47,12 @@ dotnet build DLE/DLE.csproj
 ```
 
 The built `DerailLogisticsEngine.dll` is copied to `build/`.
+
+## Install
+
+Copy a folder named `DerailLogisticsEngine` containing
+`DerailLogisticsEngine.dll`, `Info.json` and `economy.default.json` into the
+game's `Mods` folder (UnityModManager). Only the multiplayer host needs it.
 
 ## Credits
 

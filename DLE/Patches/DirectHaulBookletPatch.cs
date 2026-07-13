@@ -116,9 +116,16 @@ namespace DLE.Patches
             var origin = job.chainOriginStationInfo;
             var destination = job.chainDestinationStationInfo;
 
+            // Tell the player where the loaded consist is sitting. Falls back silently when
+            // the definition is not registered (e.g. on a DVMP client).
+            StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var defForTrack);
+            string pickup = string.IsNullOrEmpty(defForTrack?.spawnTrackDisplay)
+                ? string.Empty
+                : $" Cars on track {defForTrack.spawnTrackDisplay}.";
+
             return new FrontPageTemplatePaperData(
                 DIRECT_HAUL_NAME, string.Empty, job.ID, DIRECT_HAUL_COLOR,
-                $"Transport {cars.Count} loads of {cargoName}",
+                $"Transport {cars.Count} loads of {cargoName}.{pickup}",
                 job.requiredLicenses,
                 cargoTypePerCar.Distinct().ToList(), cargoTypePerCar,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
@@ -170,37 +177,29 @@ namespace DLE.Patches
 
             DirectHaulBooklet.GetDisplayData(job, out var cars, out _, out _);
 
-            var origin = job.chainOriginStationInfo;
             var destination = job.chainDestinationStationInfo;
 
             var cover = new CoverPageTemplatePaperData(
-                job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", "5");
+                job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", "4");
 
-            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", "5");
+            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", "4");
 
-            var loadPage = new TaskTemplatePaperData(
-                "1",
-                LocalizationAPI.L("job/task_type_load"),
-                LocalizationAPI.L("job/task_desc_load"),
-                origin.YardID, origin.StationColor,
-                DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
-                string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                cars, null, "3", "5");
-
+            // 0.1 jobs are unload-only (cars arrive pre-loaded), so the single task page is
+            // the unload at the destination. Mode B (0.5) will add a load page.
             var unloadPage = new TaskTemplatePaperData(
-                "2",
+                "1",
                 LocalizationAPI.L("job/task_type_unload"),
                 LocalizationAPI.L("job/task_desc_unload"),
                 destination.YardID, destination.StationColor,
-                DirectHaulBooklet.GetTaskTrackDisplay(job, 1), C.TRACK_COLOR,
+                DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                cars, null, "4", "5");
+                cars, null, "3", "4");
 
-            var validatePage = new ValidateJobTaskTemplatePaperData("3", "5", "5");
+            var validatePage = new ValidateJobTaskTemplatePaperData("2", "4", "4");
 
             __result = new List<TemplatePaperData>
             {
-                cover, frontPage, loadPage, unloadPage, validatePage
+                cover, frontPage, unloadPage, validatePage
             };
             return false;
         }

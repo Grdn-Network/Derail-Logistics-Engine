@@ -26,6 +26,8 @@
   <ItemGroup>
     <!-- Private DV members surfaced at compile time; extend as phases need them -->
     <Publicize Include="Assembly-CSharp:JobChainController.responsibleStationForJobChain" />
+    <Publicize Include="Assembly-CSharp:StaticJobDefinition.initialWage" />
+    <Publicize Include="Assembly-CSharp:StaticJobDefinition.timeLimitForJob" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,6 +73,10 @@
     </Reference>
     <Reference Include="DV.Localization">
       <HintPath>lib\DV.Localization.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="DV.RailTrack">
+      <HintPath>lib\DV.RailTrack.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

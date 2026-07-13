@@ -33,8 +33,24 @@ namespace DLE.Economy
             _facilities = RecipeProvider.BuildFacilities();
             RecipeProvider.ApplyOverlay(_facilities, modPath);
             LoadFrom(saveData);
+            if (_stock.Count == 0)
+                SeedInitialStock(Main.Settings?.InitialStock ?? 6);
             Main.Log($"[Economy] initialised {_facilities.Count} facilities; " +
-                     $"{_stock.Count} have saved stock.");
+                     $"{_stock.Count} have stock.");
+        }
+
+        /// <summary>New game: give each facility a starting stock of its output cargo.</summary>
+        public void SeedInitialStock(int amount)
+        {
+            if (amount <= 0) return;
+            int seeded = 0;
+            foreach (var f in _facilities.Values)
+                foreach (var cargo in f.Outputs)
+                {
+                    Credit(f.YardId, cargo, amount);
+                    seeded++;
+                }
+            Main.Log($"[Economy] seeded {amount} carloads into {seeded} output stockpile(s).");
         }
 
         public void ReloadRecipes(string modPath)
@@ -71,10 +87,25 @@ namespace DLE.Economy
                 m[cargo] = Math.Max(0f, cur - amount);
         }
 
+        /// <summary>Remove stock (e.g. a producer loading cars for a haul).</summary>
+        public void Debit(string yardId, CargoType cargo, float amount) =>
+            Consume(yardId, cargo, amount);
+
         /// <summary>Run every recipe at a station while its inputs are available and outputs have room.</summary>
         public void Convert(string yardId)
         {
-            if (!_facilities.TryGetValue(yardId, out var facility)) return;
+            if (!_facilities.TryGetValue(yardId, out var facility))
+            {
+                Main.Log($"[Economy] {yardId} has no facility definition; nothing to convert.");
+                return;
+            }
+            if (facility.Recipes.Count == 0)
+            {
+                // Pure source or pure sink: stock just accumulates, by design.
+                if (Main.Settings?.VerboseLogging == true)
+                    Main.Log($"[Economy] {yardId} has no recipe (source or sink); stock holds.");
+                return;
+            }
 
             foreach (var recipe in facility.Recipes)
             {
@@ -86,6 +117,19 @@ namespace DLE.Economy
                     foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
                     foreach (var o in recipe.Outputs) Credit(yardId, o.Cargo, o.Amount);
                     Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}].");
+                }
+
+                if (guard == 0)
+                {
+                    // Say WHY the recipe did not run, so balance problems are visible.
+                    var missing = recipe.Inputs
+                        .Where(i => GetStock(yardId, i.Cargo) < i.Amount)
+                        .Select(i => $"{i.Cargo} ({GetStock(yardId, i.Cargo):0.#}/{i.Amount:0.#})")
+                        .ToList();
+                    if (missing.Count > 0)
+                        Main.Log($"[Economy] {yardId} recipe idle, missing inputs: {string.Join(", ", missing)}.");
+                    else if (!HasOutputRoom(yardId, facility, recipe))
+                        Main.Log($"[Economy] {yardId} recipe idle, output storage full.");
                 }
             }
         }

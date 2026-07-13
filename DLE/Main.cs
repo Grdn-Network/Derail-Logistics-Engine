@@ -1,4 +1,5 @@
 using DLE.Data;
+using DLE.Dispatch;
 using DLE.Economy;
 using DLE.Jobs;
 using DV.Common;
@@ -36,6 +37,19 @@ namespace DLE
 
             _harmony = new Harmony(modEntry.Info.Id);
             _harmony.PatchAll();
+
+            // First run: give the player an editable economy.json based on the shipped example.
+            try
+            {
+                var target = System.IO.Path.Combine(modEntry.Path, "economy.json");
+                var example = System.IO.Path.Combine(modEntry.Path, "economy.default.json");
+                if (!System.IO.File.Exists(target) && System.IO.File.Exists(example))
+                    System.IO.File.Copy(example, target);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Main] economy.json first-run copy failed: {ex.Message}");
+            }
 
             // World-ready hook: persistence and (in later phases) economy init run
             // after all stations are loaded.
@@ -79,6 +93,27 @@ namespace DLE
                 Log($"[Main] Economy init failed: {ex.Message}");
             }
 
+            // Rebuild live Direct Haul jobs from our own save (they are filtered out of the
+            // vanilla job save), restore assignments, and start the local HTTP API.
+            // Host only; clients receive jobs from the host via DVMP.
+            if (IsHostOrSingleplayer())
+            {
+                try
+                {
+                    var data = SaveGameManager.Instance?.data;
+                    if (data != null)
+                    {
+                        DleJobStore.RestoreFrom(data);
+                        AssignmentStore.Instance.LoadFrom(data);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Main] Job restore failed: {ex.Message}");
+                }
+                DleHttpServer.StartOnHost();
+            }
+
             // Subscribe to save event so we persist before the game writes to disk.
             // Unsubscribe first: OnWorldLoaded fires on every save/load within a session;
             // without the unsub, each reload would add another handler and OnAboutToSave
@@ -96,6 +131,8 @@ namespace DLE
                 {
                     CarDestinationStore.Instance.SaveTo(data);
                     EconomyState.Instance.SaveTo(data);
+                    DleJobStore.SaveTo(data);
+                    AssignmentStore.Instance.SaveTo(data);
                 }
             }
             catch (Exception ex)
@@ -117,11 +154,10 @@ namespace DLE
                 EconomyState.Instance.ReloadRecipes(ModEntry.Path);
             if (UnityEngine.GUILayout.Button("Simulate delivery (no train)", UnityEngine.GUILayout.Width(240)))
                 DebugEconomy.SimulateDelivery();
-
-            UnityEngine.GUILayout.Space(4);
-            UnityEngine.GUILayout.Label("Phase 1 debug:");
-            if (UnityEngine.GUILayout.Button("Direct Haul from my consist", UnityEngine.GUILayout.Width(240)))
-                DebugDirectHaul.CreateFromPlayerConsist();
+            if (UnityEngine.GUILayout.Button("Generate a haul from stock", UnityEngine.GUILayout.Width(240)))
+                DLE.Economy.EconomyDirector.GenerateOne();
+            if (UnityEngine.GUILayout.Button("Seed initial stock now", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.SeedInitialStock(Settings?.InitialStock ?? 6);
         }
 
         private static void DumpState()

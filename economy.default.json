@@ -1,17 +1,13 @@
 {
-  "_readme": "Copy this file to economy.json (same folder) to override the auto-derived economy. All fields are optional. Cargo names are the game's CargoType enum names. Amounts and caps are in whole carloads. Any station you do not list keeps its derived recipe (one of each input cargo makes one of each output cargo).",
-  "stations": {
+  "_readme": "This file is copied to economy.json on first run. Entries under 'stations' override the auto-derived economy. Cargo names are the game's CargoType enum names; amounts and caps are whole carloads. Any station not listed keeps its derived recipe (one of each input cargo makes one of each output cargo). The '_example_stations' block is ignored; move an entry into 'stations' to activate it.",
+  "_example_stations": {
     "SM": {
       "defaultCap": 60,
-      "caps": {
-        "SteelRolls": 40
-      },
+      "caps": { "SteelRolls": 40 },
       "recipes": [
-        {
-          "inputs": { "IronOre": 2, "CoalOre": 2 },
-          "outputs": { "SteelRolls": 2 }
-        }
+        { "inputs": { "IronOre": 2, "CoalOre": 2 }, "outputs": { "SteelRolls": 2 } }
       ]
     }
-  }
+  },
+  "stations": {}
 }
