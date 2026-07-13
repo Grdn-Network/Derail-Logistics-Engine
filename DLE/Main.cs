@@ -103,12 +103,10 @@ namespace DLE
                     LogAlways($"[Main] Job restore failed: {ex.Message}");
                 }
                 DleHttpServer.StartOnHost();
+                // The director behaviour also runs the one-time pool seeding once the
+                // world is fully live; spawning cars straight from LoadingFinished
+                // silently failed.
                 DleDirectorBehaviour.StartOnHost();
-
-                // One-time starter pools per save (new games AND saves that predate the
-                // finite world). Never an ongoing top-up: after this, car counts change
-                // only through play, company.respawn or the empties API.
-                DleCarPool.Instance.SeedOnceIfNeeded();
             }
 
             // Subscribe to save event so we persist before the game writes to disk.

@@ -54,7 +54,7 @@ namespace DLE.Data
                 !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
                 carTypes.Count == 0)
             {
-                Main.Log($"[CarPool] no car type carries {cargo}.");
+                Main.LogAlways($"[CarPool] no car type carries {cargo}.");
                 return 0;
             }
             var livery = carTypes[0].liveries[0];
@@ -67,7 +67,7 @@ namespace DLE.Data
                 .FirstOrDefault();
             if (track == null)
             {
-                Main.Log($"[CarPool] {station.stationInfo.YardID}: no free storage track for {count} empt{(count == 1 ? "y" : "ies")}.");
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no free storage track for {count} empt{(count == 1 ? "y" : "ies")}.");
                 return 0;
             }
 
@@ -163,7 +163,7 @@ namespace DLE.Data
                 foreach (var cargo in facility.Outputs)
                     totalSpawned += SpawnEmpties(sc, cargo, perOutput);
             }
-            Main.Log($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
+            Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             return totalSpawned;
         }
 
