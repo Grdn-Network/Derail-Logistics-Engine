@@ -51,7 +51,7 @@ namespace DLE.Economy
                 if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;
                 foreach (var cargo in producer.Outputs)
                 {
-                    float stock = econ.GetStock(producer.YardId, cargo);
+                    float stock = econ.GetAvailable(producer.YardId, cargo);
                     if (stock < min) continue;
 
                     var consumer = FindConsumer(econ, cargo, producer.YardId);
@@ -89,7 +89,7 @@ namespace DLE.Economy
             foreach (var producer in econ.Facilities.Values)
                 foreach (var cargo in producer.Outputs)
                 {
-                    float stock = econ.GetStock(producer.YardId, cargo);
+                    float stock = econ.GetAvailable(producer.YardId, cargo);
                     if (stock < 1f) continue;
                     var consumers = econ.Facilities.Values
                         .Where(f => f.YardId != producer.YardId && f.Consumes(cargo))
@@ -126,7 +126,7 @@ namespace DLE.Economy
             if (!Main.IsHostOrSingleplayer()) return null;
 
             var econ = EconomyState.Instance;
-            float stock = econ.GetStock(originYard, cargo);
+            float stock = econ.GetAvailable(originYard, cargo);
             if (stock < carCount)
             {
                 Main.Log($"[Director] {originYard} has {stock:0.#} {cargo}, cannot ship {carCount}.");

@@ -139,8 +139,9 @@ namespace DLE.Patches
                 JobDebtController.Instance.RegisterGeneratedJob(task.Job, valid);
                 JobDebtController.Instance.OnJobTaken(task.Job, false);
 
-                // Stock leaves the ledger the moment it is committed to cars.
-                EconomyState.Instance.Debit(def.chainData.chainOriginYardId, task.cargoType, valid.Count);
+                // The promised supply physically leaves the stockpile now.
+                EconomyState.Instance.ConsumeReservation(jobData.id,
+                    def.chainData.chainOriginYardId, task.cargoType, valid.Count);
 
                 // Cleanup guards: if the job dies with cargo aboard, dump it.
                 task.Job.JobAbandoned += DumpJobCargo;

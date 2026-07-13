@@ -97,6 +97,10 @@ namespace DLE.Data
                     Main.LogAlways($"[JobStore] {snap.JobId}: restore failed ({ex.GetType().Name}: {ex.Message}); skipped.");
                 }
             }
+            // Any supply promised to a job that did not survive the load returns.
+            Economy.EconomyState.Instance.ReleaseOrphanedReservations(
+                id => Jobs.StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(id));
+
             Main.Log($"[JobStore] restored {restored}/{payload.Jobs.Count} Direct Haul job(s). " +
                      "Previously taken jobs are available again at the origin office.");
         }

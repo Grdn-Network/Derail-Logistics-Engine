@@ -75,6 +75,10 @@ namespace DLE.Jobs
                 Main.Log($"[DirectHaul] {jobId}: dispatcher reserved cars {string.Join(", ", reservedCarIds)}.");
             }
 
+            // The job pre-allocates its supply; it comes back only if the booklet dies
+            // before cars attach.
+            Economy.EconomyState.Instance.Reserve(jobId, producer.stationInfo.YardID, cargo, carCount);
+
             Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), carCount, jobId);
             Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +
                      $"for {cargo} to {producer.stationInfo.YardID}.");

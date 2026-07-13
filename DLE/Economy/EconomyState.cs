@@ -91,6 +91,57 @@ namespace DLE.Economy
         public float GetStock(string yardId, CargoType cargo) =>
             _stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v) ? v : 0f;
 
+        // Supply reservations: a spawned job pre-allocates its supply. The reservation is
+        // consumed when cars attach (real debit) or released when the booklet dies
+        // (expire, abandon, delete), returning the supply to the available pool.
+
+        [Serializable]
+        public class Reservation
+        {
+            public string YardId;
+            public string Cargo;
+            public float Amount;
+        }
+
+        private Dictionary<string, Reservation> _reservations =
+            new Dictionary<string, Reservation>(StringComparer.Ordinal);
+
+        public float GetReserved(string yardId, CargoType cargo)
+        {
+            float total = 0f;
+            var name = cargo.ToString();
+            foreach (var r in _reservations.Values)
+                if (r.YardId == yardId && r.Cargo == name)
+                    total += r.Amount;
+            return total;
+        }
+
+        /// <summary>Stock a new job could still claim: on hand minus already promised.</summary>
+        public float GetAvailable(string yardId, CargoType cargo) =>
+            GetStock(yardId, cargo) - GetReserved(yardId, cargo);
+
+        public void Reserve(string jobId, string yardId, CargoType cargo, float amount)
+        {
+            _reservations[jobId] = new Reservation { YardId = yardId, Cargo = cargo.ToString(), Amount = amount };
+            Main.Log($"[Economy] {jobId} reserved {amount:0.#} {cargo} at {yardId} " +
+                     $"(available now {GetAvailable(yardId, cargo):0.#}).");
+        }
+
+        /// <summary>The booklet died before cars attached: the supply returns.</summary>
+        public void ReleaseReservation(string jobId)
+        {
+            if (!_reservations.TryGetValue(jobId, out var r)) return;
+            _reservations.Remove(jobId);
+            Main.Log($"[Economy] {jobId} released its reservation: {r.Amount:0.#} {r.Cargo} back at {r.YardId}.");
+        }
+
+        /// <summary>Cars attached: the promised supply physically leaves the stockpile.</summary>
+        public void ConsumeReservation(string jobId, string yardId, CargoType cargo, float actualAmount)
+        {
+            _reservations.Remove(jobId);
+            Debit(yardId, cargo, actualAmount);
+        }
+
         /// <summary>Called when a Direct Haul unloads its cars at the destination.</summary>
         public void OnDelivered(string yardId, CargoType cargo, int carloads)
         {
@@ -183,6 +234,7 @@ namespace DLE.Economy
         {
             public int SchemaVersion;
             public Dictionary<string, Dictionary<string, float>> Stock;
+            public Dictionary<string, Reservation> Reservations;
         }
 
         public void SaveTo(SaveGameData data)
@@ -193,6 +245,7 @@ namespace DLE.Economy
                 Stock = _stock.ToDictionary(
                     kv => kv.Key,
                     kv => kv.Value.ToDictionary(c => c.Key.ToString(), c => c.Value)),
+                Reservations = _reservations,
             };
             data.SetObject(SaveKey, payload);
             Main.Log($"[Economy] saved stock for {_stock.Count} station(s).");
@@ -201,6 +254,7 @@ namespace DLE.Economy
         public void LoadFrom(SaveGameData data)
         {
             _stock = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
+            _reservations = new Dictionary<string, Reservation>(StringComparer.Ordinal);
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
             catch (Exception ex) { Main.LogAlways($"[Economy] stock save unreadable, starting empty: {ex.Message}"); }
@@ -219,6 +273,20 @@ namespace DLE.Economy
                     if (Enum.TryParse<CargoType>(c.Key, out var cargo)) m[cargo] = c.Value;
                 _stock[yard.Key] = m;
             }
+
+            // Reservations for jobs that no longer exist after the load are released by
+            // the job restore pass (the surviving jobs re-register via their save entries).
+            if (payload.Reservations != null)
+                _reservations = payload.Reservations;
+        }
+
+        /// <summary>Drop reservations whose job did not survive the load; supply returns.</summary>
+        public void ReleaseOrphanedReservations(Func<string, bool> jobStillExists)
+        {
+            var dead = _reservations.Keys.Where(id => !jobStillExists(id)).ToList();
+            foreach (var id in dead) ReleaseReservation(id);
+            if (dead.Count > 0)
+                Main.LogAlways($"[Economy] released {dead.Count} orphaned supply reservation(s) after load.");
         }
 
         public void DumpToLog()
