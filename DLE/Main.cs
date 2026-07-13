@@ -151,30 +151,21 @@ namespace DLE
         {
             Settings.Draw(entry);
 
-            UnityEngine.GUILayout.Space(8);
-            if (UnityEngine.GUILayout.Button("Dump economy to log", UnityEngine.GUILayout.Width(240)))
-                EconomyState.Instance.DumpToLog();
-            if (UnityEngine.GUILayout.Button("Reload economy.json", UnityEngine.GUILayout.Width(240)))
-                EconomyState.Instance.ReloadRecipes(ModEntry.Path);
-            if (UnityEngine.GUILayout.Button("Simulate delivery (no train)", UnityEngine.GUILayout.Width(240)))
-                DebugEconomy.SimulateDelivery();
+            UnityEngine.GUILayout.Space(10);
+            UnityEngine.GUILayout.Label("Economy");
             if (UnityEngine.GUILayout.Button("Generate a haul from stock", UnityEngine.GUILayout.Width(240)))
                 DLE.Economy.EconomyDirector.GenerateOne();
-            if (UnityEngine.GUILayout.Button("Seed initial stock now", UnityEngine.GUILayout.Width(240)))
+            if (UnityEngine.GUILayout.Button("Seed starting stock now", UnityEngine.GUILayout.Width(240)))
                 EconomyState.Instance.SeedInitialStock(Settings?.InitialStock ?? 6);
-        }
+            if (UnityEngine.GUILayout.Button("Reload economy.json", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.ReloadRecipes(ModEntry.Path);
 
-        private static void DumpState()
-        {
-            var store = CarDestinationStore.Instance;
-            var all = store.GetAll();
-            Log($"[Debug] DLE state: {all.Count} tracked car(s)");
-
-            var byPhase = all.Values
-                .GroupBy(r => r.Phase)
-                .OrderBy(g => (int)g.Key);
-            foreach (var g in byPhase)
-                Log($"[Debug]   {g.Key}: {g.Count()} car(s)");
+            UnityEngine.GUILayout.Space(6);
+            UnityEngine.GUILayout.Label("Debug");
+            if (UnityEngine.GUILayout.Button("Dump economy to log", UnityEngine.GUILayout.Width(240)))
+                EconomyState.Instance.DumpToLog();
+            if (UnityEngine.GUILayout.Button("Simulate a delivery (no train)", UnityEngine.GUILayout.Width(240)))
+                DebugEconomy.SimulateDelivery();
         }
 
         private static void OnSaveGUI(UnityModManager.ModEntry entry)
