@@ -1,13 +1,31 @@
 {
-  "_readme": "This file is copied to economy.json on first run. Entries under 'stations' override the auto-derived economy. Cargo names are the game's CargoType enum names; amounts and caps are whole carloads. Any station not listed keeps its derived recipe (one of each input cargo makes one of each output cargo). The '_example_stations' block is ignored; move an entry into 'stations' to activate it.",
-  "_example_stations": {
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. Entries under 'stations' override the auto-derived economy. Cargo names are the game's CargoType enum names (verified against DV.ThingTypes). Amounts and caps are whole carloads. Stations not listed keep their derived recipe (one of each input makes one of each output). Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "stations": {
+    "SW": {
+      "recipes": [
+        { "inputs": { "Logs": 2 }, "outputs": { "Boards": 1, "Plywood": 1 } }
+      ]
+    },
     "SM": {
       "defaultCap": 60,
-      "caps": { "SteelRolls": 40 },
       "recipes": [
-        { "inputs": { "IronOre": 2, "CoalOre": 2 }, "outputs": { "SteelRolls": 2 } }
+        { "inputs": { "IronOre": 2, "Coal": 2 }, "outputs": { "SteelRolls": 2, "SteelBillets": 1 } }
+      ]
+    },
+    "GF": {
+      "recipes": [
+        { "inputs": { "Boards": 1, "SteelRolls": 1 }, "outputs": { "Furniture": 1, "ToolsIskar": 1 } }
+      ]
+    },
+    "MF": {
+      "recipes": [
+        { "inputs": { "SteelRolls": 2, "SteelBillets": 1 }, "outputs": { "Tractors": 1, "Excavators": 1 } }
+      ]
+    },
+    "FF": {
+      "recipes": [
+        { "inputs": { "Wheat": 1, "Milk": 1 }, "outputs": { "Bread": 1, "DairyProducts": 1 } }
       ]
     }
-  },
-  "stations": {}
+  }
 }
