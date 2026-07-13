@@ -50,7 +50,10 @@ namespace DLE.Economy
             {
                 if (f.Inputs.Count > 0 || f.Outputs.Count == 0) continue;
                 foreach (var cargo in f.Outputs)
+                {
                     Credit(f.YardId, cargo, carloads);
+                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), carloads);
+                }
             }
         }
 
@@ -83,6 +86,7 @@ namespace DLE.Economy
         {
             if (carloads <= 0) return;
             Credit(yardId, cargo, carloads);
+            EconomyHistory.Record("delivered", yardId, cargo.ToString(), carloads);
             Main.Log($"[Economy] {yardId} received {carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
             Convert(yardId);
         }
@@ -130,7 +134,11 @@ namespace DLE.Economy
                 while (HasInputs(yardId, recipe) && HasOutputRoom(yardId, facility, recipe) && guard++ < 1000)
                 {
                     foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
-                    foreach (var o in recipe.Outputs) Credit(yardId, o.Cargo, o.Amount);
+                    foreach (var o in recipe.Outputs)
+                    {
+                        Credit(yardId, o.Cargo, o.Amount);
+                        EconomyHistory.Record("converted", yardId, o.Cargo.ToString(), o.Amount);
+                    }
                     Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}].");
                 }
 
