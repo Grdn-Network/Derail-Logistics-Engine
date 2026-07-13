@@ -33,8 +33,24 @@ namespace DLE.Economy
             _facilities = RecipeProvider.BuildFacilities();
             RecipeProvider.ApplyOverlay(_facilities, modPath);
             LoadFrom(saveData);
+            if (_stock.Count == 0)
+                SeedInitialStock(Main.Settings?.InitialStock ?? 6);
             Main.Log($"[Economy] initialised {_facilities.Count} facilities; " +
-                     $"{_stock.Count} have saved stock.");
+                     $"{_stock.Count} have stock.");
+        }
+
+        /// <summary>New game: give each facility a starting stock of its output cargo.</summary>
+        public void SeedInitialStock(int amount)
+        {
+            if (amount <= 0) return;
+            int seeded = 0;
+            foreach (var f in _facilities.Values)
+                foreach (var cargo in f.Outputs)
+                {
+                    Credit(f.YardId, cargo, amount);
+                    seeded++;
+                }
+            Main.Log($"[Economy] seeded {amount} carloads into {seeded} output stockpile(s).");
         }
 
         public void ReloadRecipes(string modPath)
@@ -70,6 +86,10 @@ namespace DLE.Economy
             if (_stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var cur))
                 m[cargo] = Math.Max(0f, cur - amount);
         }
+
+        /// <summary>Remove stock (e.g. a producer loading cars for a haul).</summary>
+        public void Debit(string yardId, CargoType cargo, float amount) =>
+            Consume(yardId, cargo, amount);
 
         /// <summary>Run every recipe at a station while its inputs are available and outputs have room.</summary>
         public void Convert(string yardId)

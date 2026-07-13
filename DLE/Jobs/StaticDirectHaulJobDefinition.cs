@@ -6,35 +6,32 @@ using System.Collections.Generic;
 namespace DLE.Jobs
 {
     /// <summary>
-    /// A single job that loads cars at the origin warehouse and unloads them at the
-    /// destination warehouse (a "Direct Haul"), with no separate shunting jobs.
+    /// A Direct Haul job. In 0.1 (non-finite mode) the cars spawn already loaded at the
+    /// producer, so the job is a single unload at the destination warehouse (the haul is
+    /// implicit: the player moves the loaded cars there). jobType is ComplexTransport, a
+    /// value no vanilla definition claims, and the tasks are vanilla WarehouseTasks so the
+    /// Multiplayer mod syncs the job to clients with no custom packets.
     ///
-    /// The tasks are vanilla WarehouseTasks, so the Multiplayer mod serialises and syncs
-    /// the job to clients with no custom packets (its Station.AddJobToStation prefix wraps
-    /// any host-side job as a NetworkedJob). jobType is ComplexTransport, a value no
-    /// vanilla job definition claims.
+    /// Mode B (finite empty cars, player loads at the producer) will add a leading load
+    /// task in 0.5; the booklet already renders whatever tasks are present.
     ///
     /// Direct Haul concept from Chump_the_Lump's SelfShunter, used with permission.
     /// </summary>
     public class StaticDirectHaulJobDefinition : StaticJobDefinition
     {
         public List<Car> carsToTransport;
-        public WarehouseMachine loadMachine;
+        public WarehouseMachine loadMachine;   // used by Mode B (0.5); null in 0.1
         public WarehouseMachine unloadMachine;
         public CargoType transportedCargo;
         public List<float> cargoAmountPerCar;
 
-        /// <summary>
-        /// Snapshot of the cars for booklet rendering, built by the generator before
-        /// GenerateJob runs. The booklet patches read this when the task data has no cars.
-        /// </summary>
+        /// <summary>Whether to include a leading load task (Mode B). 0.1 keeps this false.</summary>
+        public bool includeLoadTask = false;
+
+        /// <summary>Car snapshot for the booklet patches, built by the generator.</summary>
         public List<Car_data> displayCars;
 
-        /// <summary>
-        /// Live definitions by job ID. The booklet patches (DirectHaulBookletPatch) look
-        /// up a job's display data here because Job_data alone does not carry the cargo
-        /// and car details a ComplexTransport booklet needs.
-        /// </summary>
+        /// <summary>Live definitions by job ID, so the booklet patches can find display data.</summary>
         public static readonly Dictionary<string, StaticDirectHaulJobDefinition> jobDefinitions =
             new Dictionary<string, StaticDirectHaulJobDefinition>();
 
@@ -46,21 +43,17 @@ namespace DLE.Jobs
         {
             if (!string.IsNullOrEmpty(forcedJobId))
             {
-                // Indexer assignment: if a recycled ID is still registered, take it over.
                 jobDefinitions[forcedJobId] = this;
                 _registeredJobId = forcedJobId;
             }
 
-            var load = new WarehouseTask(
-                carsToTransport, WarehouseTaskType.Loading,
-                loadMachine, transportedCargo, carsToTransport.Count);
+            var tasks = new List<Task>();
+            if (includeLoadTask)
+                tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Loading,
+                    loadMachine, transportedCargo, carsToTransport.Count));
 
-            var unload = new WarehouseTask(
-                carsToTransport, WarehouseTaskType.Unloading,
-                unloadMachine, transportedCargo, carsToTransport.Count,
-                (long)timeLimit, true);
-
-            var tasks = new List<Task> { load, unload };
+            tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Unloading,
+                unloadMachine, transportedCargo, carsToTransport.Count, (long)timeLimit, true));
 
             job = new Job(tasks, JobType.ComplexTransport, timeLimit, initialWage,
                 chainData, forcedJobId, requiredLicenses);
@@ -70,8 +63,6 @@ namespace DLE.Jobs
 
         private void OnDestroy()
         {
-            // Only unregister if we still own the entry; a newer definition may have
-            // taken over a recycled job ID.
             if (_registeredJobId != null &&
                 jobDefinitions.TryGetValue(_registeredJobId, out var current) &&
                 ReferenceEquals(current, this))
@@ -83,9 +74,7 @@ namespace DLE.Jobs
         public override List<TrackReservation> GetRequiredTrackReservations() =>
             new List<TrackReservation>();
 
-        // Phase 1 keeps DLE chains out of the vanilla save (see DirectHaulSaveFilterPatch);
-        // DLE owns its own job persistence in a later commit. Returning null stops the
-        // vanilla serialiser from writing a ComplexTransport chain it cannot reload.
+        // DLE keeps its chains out of the vanilla save (see DirectHaulSaveFilterPatch).
         public override JobDefinitionDataBase GetJobDefinitionSaveData() => null;
     }
 }

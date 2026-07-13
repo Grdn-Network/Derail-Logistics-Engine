@@ -32,7 +32,12 @@ namespace DLE.Economy
                 var outputs = CargoesOf(ruleset.outputCargoGroups);
                 if (inputs.Count == 0 && outputs.Count == 0) continue;
 
-                var facility = new FacilityDef { YardId = yardId };
+                var facility = new FacilityDef
+                {
+                    YardId = yardId,
+                    Inputs = inputs,
+                    Outputs = outputs,
+                };
 
                 // Default recipe: consume one of each input to make one of each output.
                 // Sources (no inputs) and sinks (no outputs) simply hold stock in 0.1.

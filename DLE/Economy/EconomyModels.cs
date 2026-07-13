@@ -28,8 +28,17 @@ namespace DLE.Economy
     {
         public string YardId;
         public List<RecipeDef> Recipes = new List<RecipeDef>();
+
+        // What this facility ships (its output cargo) and consumes (its input cargo),
+        // independent of recipes. Used by generation (ship outputs) and demand (need inputs).
+        public List<CargoType> Outputs = new List<CargoType>();
+        public List<CargoType> Inputs = new List<CargoType>();
+
         public Dictionary<CargoType, float> StorageCaps = new Dictionary<CargoType, float>();
         public float DefaultCap = 50f;
+
+        public bool Consumes(CargoType cargo) => Inputs.Contains(cargo);
+        public bool Produces(CargoType cargo) => Outputs.Contains(cargo);
 
         public float Cap(CargoType cargo) =>
             StorageCaps.TryGetValue(cargo, out var v) ? v : DefaultCap;
