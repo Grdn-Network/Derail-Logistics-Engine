@@ -28,12 +28,6 @@ namespace DLE
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
 
-        // Finite cars mode is experimental and NOT surfaced in the settings GUI on
-        // purpose (no Draw attribute): switching it mid-save strands carless jobs, and
-        // the warehouse attach mechanic is unproven in game. Dev use only: set it by
-        // editing Settings.xml while the game is closed.
-        public bool FiniteCars = false;
-
         public override void Save(UnityModManager.ModEntry modEntry) =>
             UnityModManager.ModSettings.Save<Settings>(this, modEntry);
 

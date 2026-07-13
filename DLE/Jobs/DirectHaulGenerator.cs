@@ -45,46 +45,19 @@ namespace DLE.Jobs
                 Main.Log($"[DirectHaul] no loadable car type for {cargo}.");
                 return 0;
             }
-            // Empties first: idle, jobless, empty cars already standing in this yard get
-            // reused before any new cars are conjured. This is the player loop working as
-            // intended: deliver a cut, and the return haul is built on those same cars.
-            var spawned = CollectIdleEmpties(producer, carTypes, carCount);
-            string pickupDisplay;
-            bool freshlySpawned = false;
-            if (spawned.Count >= carCount)
+            // Finite world: hauls are built ONLY on cars that already exist. The director
+            // decides between this path (full cut of idle empties available) and a carless
+            // job (players bring cars). No consists are conjured here.
+            var spawned = Data.DleCarPool.CollectIdleEmpties(producer, carTypes, carCount);
+            if (spawned.Count < carCount)
             {
-                spawned = spawned.GetRange(0, carCount);
-                var common = JobUtils.FindCommonTrack(spawned);
-                pickupDisplay = common?.ID?.FullDisplayID ?? "yard (reused cars)";
-                Main.Log($"[DirectHaul] {producer.stationInfo.YardID}: reusing {spawned.Count} idle empt{(spawned.Count == 1 ? "y" : "ies")}.");
+                Main.Log($"[DirectHaul] {producer.stationInfo.YardID}: only {spawned.Count}/{carCount} idle empties for {cargo}; use a carless haul instead.");
+                return 0;
             }
-            else
-            {
-                // Not enough standing empties; spawn a fresh consist on a free outbound track.
-                var livery = carTypes[0].liveries[0];
-                var liveries = Enumerable.Repeat(livery, carCount).ToList();
-                float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
-                var freeTracks = producer.logicStation.yard.TransferOutTracks.Where(t => t.IsFree()).ToList();
-                var track = YardTracksOrganizer.Instance
-                    .FilterOutTracksWithoutRequiredFreeSpace(freeTracks, length)
-                    .FirstOrDefault();
-                if (track == null)
-                {
-                    Main.Log($"[DirectHaul] {producer.stationInfo.YardID} has no free outbound track for {carCount} cars.");
-                    return 0;
-                }
-
-                var railTrack = RailTrackRegistry.LogicToRailTrack[track];
-                spawned = CarSpawner.Instance
-                    .SpawnCarTypesOnTrackRandomOrientation(liveries, railTrack, true, applyHandbrakeOnLastCars: true);
-                if (spawned == null || spawned.Count == 0)
-                {
-                    Main.Log($"[DirectHaul] failed to spawn cars at {producer.stationInfo.YardID}.");
-                    return 0;
-                }
-                pickupDisplay = track.ID?.FullDisplayID ?? "";
-                freshlySpawned = true;
-            }
+            spawned = spawned.GetRange(0, carCount);
+            var common = JobUtils.FindCommonTrack(spawned);
+            string pickupDisplay = common?.ID?.FullDisplayID ?? "yard (existing cars)";
+            Main.Log($"[DirectHaul] {producer.stationInfo.YardID}: building on {spawned.Count} existing empt{(spawned.Count == 1 ? "y" : "ies")}.");
 
             // Load each car with the cargo so it arrives ready to unload.
             foreach (var tc in spawned)
@@ -108,14 +81,11 @@ namespace DLE.Jobs
             if (!BuildChain(producer, consumer, spawned, cargo, loadMachine, unloadMachine,
                     jobId, wage, bonusTime, pickupDisplay))
             {
-                // Only freshly spawned cars are cleaned up; reused cars dump the cargo
-                // back and stay where they were.
+                // The cars are pre-existing world cars: dump the cargo back and leave them.
                 Main.Log("[DirectHaul] chain build failed; reverting cars.");
                 foreach (var tc in spawned)
                     if (tc.logicCar.LoadedCargoAmount > 0f)
                         tc.logicCar.DumpCargo();
-                if (freshlySpawned)
-                    CarSpawner.Instance.DeleteTrainCars(spawned, true);
                 jobId = null;
                 return 0;
             }
@@ -127,47 +97,7 @@ namespace DLE.Jobs
         }
 
         /// <summary>
-        /// Idle empties standing anywhere in the producer's yard that can carry the cargo:
-        /// jobless, empty, not player-owned. Delivered cuts from earlier hauls are exactly
-        /// this, so the economy naturally recycles them into the next outbound job.
-        /// </summary>
-        private static List<TrainCar> CollectIdleEmpties(
-            StationController producer,
-            List<DV.ThingTypes.TrainCarType_v2> loadableTypes,
-            int wanted)
-        {
-            var result = new List<TrainCar>();
-            var yard = producer.logicStation?.yard;
-            if (yard == null) return result;
-
-            var jobsManager = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
-            var tracks = new List<Track>();
-            if (yard.TransferOutTracks != null) tracks.AddRange(yard.TransferOutTracks);
-            if (yard.TransferInTracks != null) tracks.AddRange(yard.TransferInTracks);
-            if (yard.StorageTracks != null) tracks.AddRange(yard.StorageTracks);
-
-            foreach (var track in tracks)
-            {
-                var cars = track.GetCarsFullyOnTrack();
-                if (cars == null) continue;
-                foreach (var car in cars)
-                {
-                    if (result.Count >= wanted) return result;
-                    if (car.playerSpawnedCar) continue;
-                    if (car.LoadedCargoAmount > 0f) continue;
-                    if (!loadableTypes.Contains(car.carType.parentType)) continue;
-                    if (jobsManager.GetJobOfCar(car) != null) continue;
-
-                    var trainCar = car.TrainCar();
-                    if (trainCar == null) continue;
-                    result.Add(trainCar);
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Finite mode (persistence): create a Direct Haul with NO cars attached. The job
+        /// Create a Company Haul with NO cars attached. The job
         /// carries a load task; when players bring suitable empty cars to the producer
         /// warehouse, DirectHaulLoadServicingPatch attaches them and loading begins (the
         /// SelfShunter mechanic, scoped to DLE jobs). Stock is debited when cars attach,

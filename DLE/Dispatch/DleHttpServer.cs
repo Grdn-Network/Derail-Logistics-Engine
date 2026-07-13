@@ -120,7 +120,7 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
                     var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars);
                     if (jobId == null) { Json(ctx, 409, new { error = "could not create haul; see game log" }); return; }
-                    Json(ctx, 201, new { ok = true, jobId, finiteMode = Main.Settings?.FiniteCars == true });
+                    Json(ctx, 201, new { ok = true, jobId });
                     return;
                 }
 

@@ -28,15 +28,25 @@ namespace DLE.Economy
         public IReadOnlyDictionary<string, FacilityDef> Facilities => _facilities;
 
         // Rebuild recipes from the world, apply the overlay, then load saved stockpiles.
-        public void Init(SaveGameData saveData, string modPath)
+        // Returns true when this is a fresh economy that was just seeded (new game).
+        public bool Init(SaveGameData saveData, string modPath)
         {
             _facilities = RecipeProvider.BuildFacilities();
             RecipeProvider.ApplyOverlay(_facilities, modPath);
             LoadFrom(saveData);
-            if (_stock.Count == 0)
+            bool seeded = _stock.Count == 0;
+            if (seeded)
                 SeedInitialStock(Main.Settings?.InitialStock ?? 6);
             Main.Log($"[Economy] initialised {_facilities.Count} facilities; " +
                      $"{_stock.Count} have stock.");
+            return seeded;
+        }
+
+        /// <summary>company.resupply: wipe every stockpile back to the starting seed.</summary>
+        public void ResetToDefault(int amount)
+        {
+            _stock.Clear();
+            SeedInitialStock(amount);
         }
 
         /// <summary>
