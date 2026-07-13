@@ -14,6 +14,15 @@ namespace DLE.Economy
     /// </summary>
     public static class EconomyDirector
     {
+        private static int ActiveHauls(string originYardId = null)
+        {
+            int n = 0;
+            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                if (originYardId == null || kv.Value.chainData?.chainOriginYardId == originYardId)
+                    n++;
+            return n;
+        }
+
         public static bool GenerateOne()
         {
             if (!Main.IsHostOrSingleplayer())
@@ -25,9 +34,14 @@ namespace DLE.Economy
             var econ = EconomyState.Instance;
             int min = Math.Max(1, Main.Settings?.MinShipCarloads ?? 3);
             int max = Math.Max(min, Main.Settings?.MaxCarsPerHaul ?? 6);
+            int perStation = Math.Max(1, Main.Settings?.MaxHaulsPerStation ?? 2);
+            int total = Math.Max(1, Main.Settings?.MaxHaulsTotal ?? 12);
+
+            if (ActiveHauls() >= total) return false;
 
             foreach (var producer in econ.Facilities.Values)
             {
+                if (ActiveHauls(producer.YardId) >= perStation) continue;
                 foreach (var cargo in producer.Outputs)
                 {
                     float stock = econ.GetStock(producer.YardId, cargo);
@@ -139,6 +153,10 @@ namespace DLE.Economy
 
         private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, string excludeYard)
         {
+            // Nearest eligible consumer: keeps hauls sensible instead of first-in-the-dict.
+            var origin = StationController.GetStationByYardID(excludeYard);
+            FacilityDef best = null;
+            float bestDistance = float.MaxValue;
             foreach (var f in econ.Facilities.Values)
             {
                 if (f.YardId == excludeYard) continue;
@@ -150,9 +168,16 @@ namespace DLE.Economy
                         .GetWarehouseMachinesThatSupportCargoTypes(new List<CargoType> { cargo }).Count == 0)
                     continue;
 
-                return f;
+                float d = origin != null
+                    ? JobPaymentCalculator.GetDistanceBetweenStations(origin, sc)
+                    : 0f;
+                if (d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = f;
+                }
             }
-            return null;
+            return best;
         }
     }
 }

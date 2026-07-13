@@ -39,6 +39,25 @@ namespace DLE.Economy
                      $"{_stock.Count} have stock.");
         }
 
+        /// <summary>
+        /// Session start: any output sitting at zero gets topped up to the starting stock
+        /// so every session begins shippable. Real scarcity tuning comes later.
+        /// </summary>
+        public void TopUpEmptyOutputs(int amount)
+        {
+            if (amount <= 0) return;
+            int topped = 0;
+            foreach (var f in _facilities.Values)
+                foreach (var cargo in f.Outputs)
+                    if (GetStock(f.YardId, cargo) <= 0f)
+                    {
+                        Credit(f.YardId, cargo, amount);
+                        topped++;
+                    }
+            if (topped > 0)
+                Main.Log($"[Economy] topped up {topped} empty output stockpile(s) to {amount}.");
+        }
+
         /// <summary>New game: give each facility a starting stock of its output cargo.</summary>
         public void SeedInitialStock(int amount)
         {

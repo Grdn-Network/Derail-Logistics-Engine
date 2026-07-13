@@ -13,6 +13,15 @@ namespace DLE
         [Draw("Largest haul the economy will generate (cars)")]
         public int MaxCarsPerHaul = 6;
 
+        [Draw("Seconds between generation ticks")]
+        public int DirectorTickSeconds = 60;
+
+        [Draw("Max active hauls per origin station")]
+        public int MaxHaulsPerStation = 2;
+
+        [Draw("Max active hauls on the whole map")]
+        public int MaxHaulsTotal = 12;
+
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
 

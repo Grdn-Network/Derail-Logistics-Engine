@@ -114,6 +114,10 @@ namespace DLE
                     Log($"[Main] Job restore failed: {ex.Message}");
                 }
                 DleHttpServer.StartOnHost();
+
+                // Every session starts shippable, and the generator runs itself.
+                EconomyState.Instance.TopUpEmptyOutputs(Settings?.InitialStock ?? 6);
+                DleDirectorBehaviour.StartOnHost();
             }
 
             // Subscribe to save event so we persist before the game writes to disk.
