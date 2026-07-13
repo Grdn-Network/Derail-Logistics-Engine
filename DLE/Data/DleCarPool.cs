@@ -22,8 +22,25 @@ namespace DLE.Data
 
         private HashSet<string> _guids = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Whether this save has ever received its one-time starter pools. Old saves that
+        /// predate the finite world load as false and seed exactly once, same as a new
+        /// game; after that, car counts only change through play, company.respawn or the
+        /// empties API. Never an automatic top-up.
+        /// </summary>
+        public bool PoolsSeeded { get; private set; }
+
         public bool Contains(string carGuid) => carGuid != null && _guids.Contains(carGuid);
         public int Count => _guids.Count;
+
+        /// <summary>One-time starter seeding for a save that has never had it.</summary>
+        public void SeedOnceIfNeeded()
+        {
+            if (PoolsSeeded || !Main.IsHostOrSingleplayer()) return;
+            int spawned = RespawnStationPools(deleteFirst: false);
+            PoolsSeeded = true;
+            Main.LogAlways($"[CarPool] one-time starter pools seeded for this save ({spawned} car(s)).");
+        }
 
         /// <summary>
         /// Spawn empty cars suited to a cargo on a free storage track at the station.
@@ -154,20 +171,31 @@ namespace DLE.Data
         private class SaveData
         {
             public int SchemaVersion;
+            public bool PoolsSeeded;
             public List<string> Guids;
         }
 
         public void SaveTo(SaveGameData data) =>
-            data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Guids = _guids.ToList() });
+            data.SetObject(SaveKey, new SaveData
+            {
+                SchemaVersion = SchemaVersion,
+                PoolsSeeded = PoolsSeeded,
+                Guids = _guids.ToList(),
+            });
 
         public void LoadFrom(SaveGameData data)
         {
             _guids = new HashSet<string>(StringComparer.Ordinal);
+            PoolsSeeded = false;
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
             catch (Exception ex) { Main.LogAlways($"[CarPool] save unreadable, starting empty: {ex.Message}"); }
             if (payload?.Guids != null && payload.SchemaVersion == SchemaVersion)
+            {
                 _guids = new HashSet<string>(payload.Guids, StringComparer.Ordinal);
+                // Older saves have no flag and deserialize as false: they seed once, by design.
+                PoolsSeeded = payload.PoolsSeeded;
+            }
         }
     }
 }
