@@ -22,7 +22,9 @@ namespace DLE.Patches
     /// </summary>
     internal static class DirectHaulBooklet
     {
-        public const string DIRECT_HAUL_NAME = "Direct Haul";
+        // Player-facing job name (booklets, overview). Internal identifiers keep the
+        // Direct Haul working name.
+        public const string DIRECT_HAUL_NAME = "Company Haul";
 
         // Distinct from the vanilla job colors (haul orange, shunting yellow/green);
         // a muted violet marks Direct Haul paperwork.

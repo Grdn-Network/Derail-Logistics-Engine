@@ -303,7 +303,7 @@ namespace DLE.Jobs
                 | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(licenseCarCount)?.v1 ?? JobLicenses.Basic);
 
             var go = new GameObject(
-                $"ChainJob[Direct Haul]: {chainData.chainOriginYardId} - {chainData.chainDestinationYardId}");
+                $"ChainJob[Company Haul]: {chainData.chainOriginYardId} - {chainData.chainDestinationYardId}");
             go.transform.SetParent(producer.transform);
 
             var def = go.AddComponent<StaticDirectHaulJobDefinition>();
