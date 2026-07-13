@@ -84,6 +84,11 @@ namespace DLE.Jobs
                 ReferenceEquals(current, this))
             {
                 jobDefinitions.Remove(_registeredJobId);
+
+                // Booklet died before any cars attached (expired, abandoned, deleted):
+                // the pre-allocated supply returns. Attached jobs consumed it already.
+                if (carsToTransport == null || carsToTransport.Count == 0)
+                    Economy.EconomyState.Instance.ReleaseReservation(_registeredJobId);
             }
         }
 
