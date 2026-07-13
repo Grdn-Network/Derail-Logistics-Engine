@@ -1,17 +1,17 @@
 using DLE.Data;
 using DV.Logic.Job;
 using DV.ThingTypes;
+using HarmonyLib;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace DLE.Jobs
 {
     /// <summary>
-    /// Phase 1 test harness. Turns the consist the player is currently standing on/in into
-    /// a Direct Haul job: origin is the yard the cars sit in, cargo is what the cars carry
-    /// (or, if empty, a cargo that yard can load), and destination is the first other yard
-    /// with a warehouse machine that unloads that cargo. Not shipped logic; the economy
-    /// drives generation from Phase 3.
+    /// Phase 1 test harness. Turns the consist the player is standing on/in into a clean
+    /// Direct Haul: it empties the cars and makes them job-eligible, then generates a
+    /// load-at-origin, haul, unload-at-destination job, which is the same shape the economy
+    /// will dispatch in Phase 3 (empty cars sent to a producer to load). Not shipped logic.
     /// </summary>
     public static class DebugDirectHaul
     {
@@ -30,10 +30,13 @@ namespace DLE.Jobs
                 return;
             }
 
-            var cars = playerCar.trainset.cars.Where(c => c != null && c.logicCar != null).ToList();
+            // Freight cars only; a loco cannot carry cargo.
+            var cars = playerCar.trainset.cars
+                .Where(c => c != null && c.logicCar != null && !c.IsLoco)
+                .ToList();
             if (cars.Count == 0)
             {
-                Main.Log("[DirectHaul debug] no logic cars in the current consist.");
+                Main.Log("[DirectHaul debug] no freight cars in the current consist (locomotives are skipped).");
                 return;
             }
 
@@ -48,17 +51,12 @@ namespace DLE.Jobs
                 return;
             }
 
-            // Cargo = what the cars carry, else a cargo this yard can load.
-            var cargo = cars[0].logicCar.CurrentCargoTypeInCar;
+            // Pick a cargo this yard can load that every car in the consist can carry.
+            var cargo = FirstLoadableCompatibleCargo(origin, cars);
             if (cargo == CargoType.None)
             {
-                cargo = FirstLoadableCargo(origin);
-                if (cargo == CargoType.None)
-                {
-                    Main.Log($"[DirectHaul debug] cars are empty and {origin.stationInfo.YardID} loads nothing; load the cars first.");
-                    return;
-                }
-                Main.Log($"[DirectHaul debug] cars empty; using {cargo} which {origin.stationInfo.YardID} can load.");
+                Main.Log($"[DirectHaul debug] {origin.stationInfo.YardID} loads nothing these car types can carry.");
+                return;
             }
 
             var destination = FirstDestinationFor(cargo, origin);
@@ -68,21 +66,53 @@ namespace DLE.Jobs
                 return;
             }
 
+            // Make the cars usable in a job: DV refuses player-spawned cars, and a Direct
+            // Haul loads empties at the origin, so clear any existing cargo.
+            foreach (var car in cars)
+            {
+                MakeJobEligible(car);
+                car.logicCar.DumpCargo();
+            }
+
             var chain = DirectHaulGenerator.TryCreate(origin, destination, cars, cargo);
             if (chain == null)
                 Main.Log("[DirectHaul debug] generation returned null; see log above.");
+            else
+                Main.Log($"[DirectHaul debug] created {origin.stationInfo.YardID}->{destination.stationInfo.YardID} for {cargo}. " +
+                         "Load at origin, haul, unload at destination.");
         }
 
-        private static CargoType FirstLoadableCargo(StationController station)
+        /// <summary>
+        /// Clear the player-spawned flag DV checks before allowing a car into a job. This is
+        /// the lean version; the full PJ conversion (debt and damage trackers) is absorbed in
+        /// a later phase when the economy spawns its own cars.
+        /// </summary>
+        private static void MakeJobEligible(TrainCar car)
+        {
+            if (!car.playerSpawnedCar) return;
+            car.playerSpawnedCar = false;
+            // Car.playerSpawnedCar is readonly; set it through Traverse like PJ does.
+            Traverse.Create(car.logicCar).Field(nameof(Car.playerSpawnedCar)).SetValue(false);
+        }
+
+        private static CargoType FirstLoadableCompatibleCargo(StationController station, List<TrainCar> cars)
         {
             var groups = station.proceduralJobsRuleset?.outputCargoGroups;
             if (groups == null) return CargoType.None;
             foreach (var group in groups)
                 foreach (var c in group.cargoTypes)
                     if (station.logicStation.yard
-                            .GetWarehouseMachinesThatSupportCargoTypes(new List<CargoType> { c }).Count > 0)
+                            .GetWarehouseMachinesThatSupportCargoTypes(new List<CargoType> { c }).Count > 0
+                        && CarsCanCarry(c, cars))
                         return c;
             return CargoType.None;
+        }
+
+        private static bool CarsCanCarry(CargoType cargo, List<TrainCar> cars)
+        {
+            if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2)) return false;
+            if (!DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var loadable)) return false;
+            return cars.All(c => loadable.Contains(c.carLivery.parentType));
         }
 
         private static StationController FirstDestinationFor(CargoType cargo, StationController origin)
