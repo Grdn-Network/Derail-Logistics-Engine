@@ -79,6 +79,22 @@ namespace DLE
                 Log($"[Main] Economy init failed: {ex.Message}");
             }
 
+            // Rebuild live Direct Haul jobs from our own save (they are filtered out of the
+            // vanilla job save). Host only; clients receive jobs from the host via DVMP.
+            if (IsHostOrSingleplayer())
+            {
+                try
+                {
+                    var data = SaveGameManager.Instance?.data;
+                    if (data != null)
+                        DleJobStore.RestoreFrom(data);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Main] Job restore failed: {ex.Message}");
+                }
+            }
+
             // Subscribe to save event so we persist before the game writes to disk.
             // Unsubscribe first: OnWorldLoaded fires on every save/load within a session;
             // without the unsub, each reload would add another handler and OnAboutToSave
@@ -96,6 +112,7 @@ namespace DLE
                 {
                     CarDestinationStore.Instance.SaveTo(data);
                     EconomyState.Instance.SaveTo(data);
+                    DleJobStore.SaveTo(data);
                 }
             }
             catch (Exception ex)

@@ -68,21 +68,8 @@ namespace DLE.Jobs
             }
 
             // Load each spawned car with the cargo so it arrives ready to unload.
-            var logicCars = new List<Car>();
-            var amounts = new List<float>();
             foreach (var tc in spawned)
-            {
-                var c = tc.logicCar;
-                c.LoadCargo(c.capacity, cargo, loadMachine);
-                logicCars.Add(c);
-                amounts.Add(c.capacity);
-            }
-
-            var chainData = new StationsChainData(
-                producer.stationInfo.YardID, consumer.stationInfo.YardID);
-            var requiredLicenses =
-                JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(cargoList))
-                | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(spawned.Count)?.v1 ?? JobLicenses.Basic);
+                tc.logicCar.LoadCargo(tc.logicCar.capacity, cargo, loadMachine);
 
             // Pay like a vanilla haul of the same distance and consist (Transport rates;
             // ComplexTransport has no vanilla payment config of its own).
@@ -98,20 +85,84 @@ namespace DLE.Jobs
             float wage = JobPaymentCalculator.CalculateJobPayment(
                 JobType.Transport, distance, new PaymentCalculationData(liveryCounts, cargoCounts));
 
+            var jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            if (!BuildChain(producer, consumer, spawned, cargo, loadMachine, unloadMachine,
+                    jobId, wage, bonusTime, track.ID?.FullDisplayID ?? ""))
+            {
+                Main.Log("[DirectHaul] chain build failed; deleting spawned cars.");
+                CarSpawner.Instance.DeleteTrainCars(spawned, true);
+                return 0;
+            }
+
+            Main.Log($"[DirectHaul] {producer.stationInfo.YardID}->{consumer.stationInfo.YardID}: " +
+                     $"{spawned.Count} car(s) of {cargo} spawned and loaded.");
+            return spawned.Count;
+        }
+
+        /// <summary>
+        /// Rebuild a saved job over cars that already exist in the world (save restore).
+        /// The cars keep whatever cargo the vanilla save gave them.
+        /// </summary>
+        public static bool TryRebuild(
+            StationController producer,
+            StationController consumer,
+            List<TrainCar> cars,
+            CargoType cargo,
+            string jobId,
+            float wage,
+            float bonusTime,
+            string spawnTrackDisplay)
+        {
+            var cargoList = new List<CargoType> { cargo };
+            var loadMachine = producer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
+            var unloadMachine = consumer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
+            if (unloadMachine == null)
+            {
+                Main.Log($"[DirectHaul] rebuild {jobId}: no unload machine for {cargo}; skipped.");
+                return false;
+            }
+
+            bool ok = BuildChain(producer, consumer, cars, cargo, loadMachine, unloadMachine,
+                jobId, wage, bonusTime, spawnTrackDisplay);
+            if (ok) Main.Log($"[DirectHaul] rebuilt {jobId} over {cars.Count} existing car(s).");
+            return ok;
+        }
+
+        private static bool BuildChain(
+            StationController producer,
+            StationController consumer,
+            List<TrainCar> cars,
+            CargoType cargo,
+            WarehouseMachine loadMachine,
+            WarehouseMachine unloadMachine,
+            string jobId,
+            float wage,
+            float bonusTime,
+            string spawnTrackDisplay)
+        {
+            var logicCars = TrainCar.ExtractLogicCars(cars);
+            var chainData = new StationsChainData(
+                producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            var requiredLicenses =
+                JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(new List<CargoType> { cargo }))
+                | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(cars.Count)?.v1 ?? JobLicenses.Basic);
+
             var go = new GameObject(
                 $"ChainJob[Direct Haul]: {chainData.chainOriginYardId} - {chainData.chainDestinationYardId}");
             go.transform.SetParent(producer.transform);
 
             var def = go.AddComponent<StaticDirectHaulJobDefinition>();
             def.carsToTransport   = logicCars;
-            def.cargoAmountPerCar = amounts;
+            def.cargoAmountPerCar = logicCars.Select(c => c.capacity).ToList();
             def.loadMachine       = loadMachine;
             def.unloadMachine     = unloadMachine;
             def.transportedCargo  = cargo;
             def.includeLoadTask   = false; // 0.1: cars arrive pre-loaded
             def.displayCars       = logicCars.Select(c => new Car_data(c, false)).ToList();
-            def.spawnTrackDisplay = track.ID?.FullDisplayID ?? "";
-            def.ForceJobId(JobUtils.NextId(chainData.chainOriginYardId, chainData.chainDestinationYardId));
+            def.spawnTrackDisplay = spawnTrackDisplay;
+            def.ForceJobId(jobId);
             def.PopulateBaseJobDefinition(producer.logicStation, bonusTime, wage, chainData, requiredLicenses);
 
             var jcc = new JobChainController(go);
@@ -123,17 +174,14 @@ namespace DLE.Jobs
             }
             catch (System.Exception ex)
             {
-                Main.Log($"[DirectHaul] generation failed: {ex.GetType().Name}: {ex.Message}; deleting spawned cars.");
+                Main.Log($"[DirectHaul] generation failed: {ex.GetType().Name}: {ex.Message}");
                 try { jcc.DestroyChain(); } catch { }
-                CarSpawner.Instance.DeleteTrainCars(spawned, true);
                 Object.Destroy(go);
-                return 0;
+                return false;
             }
 
             producer.ProceduralJobsController.AddJobChainController(jcc);
-            Main.Log($"[DirectHaul] {chainData.chainOriginYardId}->{chainData.chainDestinationYardId}: " +
-                     $"{spawned.Count} car(s) of {cargo} spawned and loaded.");
-            return spawned.Count;
+            return true;
         }
     }
 }
