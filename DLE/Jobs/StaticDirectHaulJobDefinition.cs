@@ -41,6 +41,9 @@ namespace DLE.Jobs
 
         private string _registeredJobId;
 
+        /// <summary>The generated Job (base field is protected; the HTTP API reads state).</summary>
+        public Job LiveJob => job;
+
         protected override void GenerateJob(Station jobOriginStation, float timeLimit = 0f,
             float initialWage = 0f, string forcedJobId = null,
             JobLicenses requiredLicenses = JobLicenses.Basic)

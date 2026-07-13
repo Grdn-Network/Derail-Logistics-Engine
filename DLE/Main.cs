@@ -1,4 +1,5 @@
 using DLE.Data;
+using DLE.Dispatch;
 using DLE.Economy;
 using DLE.Jobs;
 using DV.Common;
@@ -80,19 +81,24 @@ namespace DLE
             }
 
             // Rebuild live Direct Haul jobs from our own save (they are filtered out of the
-            // vanilla job save). Host only; clients receive jobs from the host via DVMP.
+            // vanilla job save), restore assignments, and start the local HTTP API.
+            // Host only; clients receive jobs from the host via DVMP.
             if (IsHostOrSingleplayer())
             {
                 try
                 {
                     var data = SaveGameManager.Instance?.data;
                     if (data != null)
+                    {
                         DleJobStore.RestoreFrom(data);
+                        AssignmentStore.Instance.LoadFrom(data);
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"[Main] Job restore failed: {ex.Message}");
                 }
+                DleHttpServer.StartOnHost();
             }
 
             // Subscribe to save event so we persist before the game writes to disk.
@@ -113,6 +119,7 @@ namespace DLE
                     CarDestinationStore.Instance.SaveTo(data);
                     EconomyState.Instance.SaveTo(data);
                     DleJobStore.SaveTo(data);
+                    AssignmentStore.Instance.SaveTo(data);
                 }
             }
             catch (Exception ex)
