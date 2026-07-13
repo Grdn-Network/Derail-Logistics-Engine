@@ -61,14 +61,28 @@ namespace DLE.Data
             var liveries = Enumerable.Repeat(livery, count).ToList();
 
             float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
-            var candidates = station.logicStation.yard.StorageTracks.Where(t => t.IsFree()).ToList();
+
+            // Physical occupancy decides, not the YardTracksOrganizer reservation ledger:
+            // stale reservations from long-dead jobs make it report full tracks in an
+            // empty yard (Persistent Jobs carries the same workaround). The ledger is
+            // only used as a preference between physically fitting tracks.
+            var fitting = station.logicStation.yard.StorageTracks
+                .Where(t => t.length - t.OccupiedLength > length)
+                .ToList();
+            if (fitting.Count == 0)
+            {
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no storage track has {length:F0}m physically free for {count} empt{(count == 1 ? "y" : "ies")}.");
+                return 0;
+            }
             var track = YardTracksOrganizer.Instance
-                .FilterOutTracksWithoutRequiredFreeSpace(candidates, length)
+                .FilterOutTracksWithoutRequiredFreeSpace(fitting, length)
                 .FirstOrDefault();
             if (track == null)
             {
-                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no free storage track for {count} empt{(count == 1 ? "y" : "ies")}.");
-                return 0;
+                track = fitting
+                    .OrderByDescending(t => t.length - t.OccupiedLength)
+                    .First();
+                Main.Log($"[CarPool] {station.stationInfo.YardID}: reservation ledger claims no space; using physically free {track.ID?.FullDisplayID}.");
             }
 
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
