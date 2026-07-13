@@ -97,6 +97,7 @@ namespace DLE.Jobs
                 return 0;
             }
 
+            Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), spawned.Count, jobId);
             Main.Log($"[DirectHaul] {producer.stationInfo.YardID}->{consumer.stationInfo.YardID}: " +
                      $"{spawned.Count} car(s) of {cargo} spawned and loaded.");
             return spawned.Count;

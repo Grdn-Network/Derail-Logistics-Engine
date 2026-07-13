@@ -100,6 +100,14 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/history")
+                {
+                    int limit = 200;
+                    int.TryParse(ctx.Request.QueryString["limit"], out var q);
+                    if (q > 0) limit = Math.Min(q, 600);
+                    Json(ctx, 200, EconomyHistory.Snapshot(limit));
+                    return;
+                }
 
                 // Dispatcher-picked priority haul.
                 if (method == "POST" && path == "/api/v1/hauls")
