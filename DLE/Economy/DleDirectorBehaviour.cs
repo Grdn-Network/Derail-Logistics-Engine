@@ -30,12 +30,23 @@ namespace DLE.Economy
             yield return new WaitForSeconds(15f);
             for (int i = 0; i < 45 && !WorldReady(); i++)
                 yield return new WaitForSeconds(1f);
+            if (!WorldReady())
+            {
+                Main.LogAlways("[Director] world never became ready; no seeding or generation this session.");
+                yield break;
+            }
 
-            Main.Log("[Director] initial fill starting.");
-            int safety = 0;
+            // One-time starter pools happen here, not at LoadingFinished: car spawning
+            // needs the world fully live (the same reason this loop waits).
+            Data.DleCarPool.Instance.SeedOnceIfNeeded();
+
+            Main.LogAlways("[Director] initial fill starting.");
+            int created = 0;
             while (Main.IsHostOrSingleplayer() && WorldReady() &&
-                   DispatcherBrain.Current.TickOnce() && safety++ < 40)
+                   DispatcherBrain.Current.TickOnce() && created++ < 40)
                 yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
+            Main.LogAlways($"[Director] initial fill done: {created} haul(s) created." +
+                (created == 0 ? " Nothing shippable: check available supply at /api/v1/options (stock may be drained or fully reserved)." : ""));
 
             Main.Log("[Director] initial fill done; ticking.");
             float productionAccumulator = 0f;
