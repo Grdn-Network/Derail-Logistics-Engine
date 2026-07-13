@@ -150,6 +150,36 @@ namespace DLE.Data
             return totalSpawned;
         }
 
+        /// <summary>
+        /// Self-heal on world load: any producer whose yard holds fewer idle empties than
+        /// the minimum haul size gets its pool topped up. Covers existing saves that
+        /// predate the finite world and attrition from derailments, without touching
+        /// stations that already have cars.
+        /// </summary>
+        public int EnsureMinimumPools()
+        {
+            if (!Main.IsHostOrSingleplayer()) return 0;
+            int minIdle = Math.Max(1, Main.Settings?.MinShipCarloads ?? 3);
+            int perOutput = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
+            int totalSpawned = 0;
+
+            foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
+            {
+                if (facility.Outputs.Count == 0) continue;
+                var sc = StationController.GetStationByYardID(facility.YardId);
+                if (sc == null) continue;
+
+                var idle = CollectIdleEmpties(sc, null, minIdle);
+                if (idle.Count >= minIdle) continue;
+
+                foreach (var cargo in facility.Outputs)
+                    totalSpawned += SpawnEmpties(sc, cargo, perOutput);
+            }
+            if (totalSpawned > 0)
+                Main.LogAlways($"[CarPool] world was short on cars; topped up pools with {totalSpawned} empt{(totalSpawned == 1 ? "y" : "ies")}.");
+            return totalSpawned;
+        }
+
         [Serializable]
         private class SaveData
         {

@@ -69,13 +69,13 @@ namespace DLE
         {
             Log("[Main] World loaded; initialising DLE systems.");
 
-            // Build the economy for this world (recipes from stations, overlay, saved stock).
-            bool freshEconomy = false;
+            // Build the economy for this world (recipes from stations, overlay, saved stock;
+            // a fresh economy seeds itself inside Init).
             try
             {
                 var data = SaveGameManager.Instance?.data;
                 if (data != null)
-                    freshEconomy = EconomyState.Instance.Init(data, ModEntry.Path);
+                    EconomyState.Instance.Init(data, ModEntry.Path);
             }
             catch (Exception ex)
             {
@@ -105,11 +105,11 @@ namespace DLE
                 DleHttpServer.StartOnHost();
                 DleDirectorBehaviour.StartOnHost();
 
-                // New game: the finite world needs a starter car pool to move its
-                // starter stock. Existing saves keep whatever cars they have
-                // (company.respawn rebuilds pools on demand).
-                if (freshEconomy)
-                    DleCarPool.Instance.RespawnStationPools(deleteFirst: false);
+                // The finite world needs cars to move its stock: top up any producer
+                // whose yard is short on idle empties. Covers new games, saves that
+                // predate the finite world, and derailment attrition; stations that
+                // already have cars are untouched (company.respawn does hard resets).
+                DleCarPool.Instance.EnsureMinimumPools();
             }
 
             // Subscribe to save event so we persist before the game writes to disk.
