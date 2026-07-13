@@ -169,6 +169,20 @@ namespace DLE.Dispatch
                     }
                 }
 
+                // Where every car of a job is right now, nearest to the loading track first.
+                // This is the dispatcher's logi-coordination view until RD renders car types.
+                const string jobCarsPrefix = "/api/v1/jobs/";
+                if (method == "GET" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/cars", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/cars".Length);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+                    { Json(ctx, 404, new { error = $"unknown job '{jobId}'" }); return; }
+                    Json(ctx, 200, JobCarsPayload(def));
+                    return;
+                }
+
                 const string assignPrefix = "/api/v1/assignments/";
                 if (path.StartsWith(assignPrefix, StringComparison.Ordinal))
                 {
@@ -300,6 +314,7 @@ Destination <select id='hDest'></select> Cars <input id='hCars' type='number' va
 <button onclick='createHaul()'>Spawn haul</button></div>
 <h2>Shippable now (options)</h2><table id='tOptions'></table>
 <h2>Active hauls <button onclick='toggleLock()' id='bLock'>Lock: ?</button></h2><table id='tJobs'></table>
+<pre id='carsOut' style='background:#22242a;padding:6px;display:none'></pre>
 <h2>Logistics runs (unpaid, no booklet)</h2>
 <div>From <input id='lFrom' style='width:50px'> To <input id='lTo' style='width:50px'>
 Cars <input id='lCars' type='number' value='4' min='1' style='width:55px'>
@@ -325,7 +340,7 @@ async function refresh(){
   options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
  document.getElementById('tJobs').innerHTML='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>'+
   jobs.map(x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
-   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button></td></tr>`).join('');
+   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`).join('');
  document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
   logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
    `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
@@ -340,6 +355,12 @@ async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(
  if(!b.from||!b.to){msg('from and to required');return}
  const r=await j('/api/v1/logistics','POST',b);msg(r.Id?('Posted '+r.Id):'failed');refresh()}
 async function logStatus(id,s){await j('/api/v1/logistics/'+id,'PUT',{status:s});refresh()}
+async function showCars(id){
+ const r=await j('/api/v1/jobs/'+id+'/cars');const o=document.getElementById('carsOut');
+ o.style.display='block';
+ o.textContent=id+' loading track: '+(r.loadingTrack||'?')+'\n'+
+  (r.cars.length?r.cars.map(c=>`${c.carId}  ${c.type}  ${c.loaded?'LOADED':'empty'}  on ${c.track}`+(c.metersFromLoading!=null?`  ${c.metersFromLoading}m from loading`:''))
+   .join('\n'):'no cars attached yet (bring empties to the loading track)');}
 async function logDel(id){await j('/api/v1/logistics/'+id,'DELETE');refresh()}
 function originChanged(){
  const o=document.getElementById('hOrigin').value;
@@ -362,6 +383,45 @@ async function createHaul(){
 }
 refresh();setInterval(refresh,5000);
 </script></body></html>";
+
+        private static object JobCarsPayload(StaticDirectHaulJobDefinition def)
+        {
+            // World-space distance from each car to the loading track is a good enough
+            // sort key for coordination (not rail distance, but stable and cheap).
+            UnityEngine.Vector3? loadPos = null;
+            var loadTrack = def.loadMachine?.WarehouseTrack;
+            if (loadTrack != null && RailTrackRegistry.LogicToRailTrack.TryGetValue(loadTrack, out var loadRail))
+                loadPos = loadRail.transform.position;
+
+            var rows = new List<object>();
+            if (def.carsToTransport != null)
+            {
+                var sortable = new List<(float meters, object row)>();
+                foreach (var car in def.carsToTransport)
+                {
+                    var tc = car.TrainCar();
+                    float meters = -1f;
+                    if (loadPos.HasValue && tc != null)
+                        meters = UnityEngine.Vector3.Distance(tc.transform.position, loadPos.Value);
+                    sortable.Add((meters < 0f ? float.MaxValue : meters, new
+                    {
+                        carId = car.ID,
+                        type = tc?.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                        loaded = car.LoadedCargoAmount > 0f,
+                        track = car.CurrentTrack?.ID?.FullDisplayID ?? "in motion",
+                        metersFromLoading = meters < 0f ? (float?)null : (float)System.Math.Round(meters),
+                    }));
+                }
+                sortable.Sort((a, b) => a.meters.CompareTo(b.meters));
+                foreach (var s in sortable) rows.Add(s.row);
+            }
+            return new
+            {
+                jobId = def.LiveJob?.ID,
+                loadingTrack = loadTrack?.ID?.FullDisplayID,
+                cars = rows,
+            };
+        }
 
         private static string ReadBody(HttpListenerContext ctx)
         {
