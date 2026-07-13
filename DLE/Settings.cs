@@ -4,22 +4,23 @@ namespace DLE
 {
     public class Settings : UnityModManager.ModSettings, IDrawable
     {
-        [Draw("Initial stock per output cargo (carloads)")]
+        [Draw("Starting stock per output cargo (carloads)")]
         public int InitialStock = 6;
 
-        [Draw("Minimum carloads before a haul is generated")]
+        [Draw("Smallest haul the economy will generate (carloads)")]
         public int MinShipCarloads = 3;
 
-        [Draw("Maximum cars per haul")]
+        [Draw("Largest haul the economy will generate (cars)")]
         public int MaxCarsPerHaul = 6;
-
-        // Mode B (finite empty cars, player loads on demand) is the 0.5 target.
-        // Off for 0.1: jobs spawn pre-loaded. Structural only; not wired yet.
-        [Draw("Finite cars mode (0.5, not implemented yet)")]
-        public bool FiniteCars = false;
 
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
+
+        // Finite cars mode is experimental and NOT surfaced in the settings GUI on
+        // purpose (no Draw attribute): switching it mid-save strands carless jobs, and
+        // the warehouse attach mechanic is unproven in game. Dev use only: set it by
+        // editing Settings.xml while the game is closed.
+        public bool FiniteCars = false;
 
         public override void Save(UnityModManager.ModEntry modEntry) =>
             UnityModManager.ModSettings.Save<Settings>(this, modEntry);
