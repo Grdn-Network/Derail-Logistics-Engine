@@ -118,7 +118,7 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
-                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars);
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars);
                     if (jobId == null) { Json(ctx, 409, new { error = "could not create haul; see game log" }); return; }
                     Json(ctx, 201, new { ok = true, jobId });
                     return;
@@ -224,7 +224,7 @@ namespace DLE.Dispatch
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class LockRequest { public bool enabled = false; }
-        private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; }
+        private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
         private class StatusRequest { public string status = null; }
@@ -280,6 +280,7 @@ namespace DLE.Dispatch
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
+                reservedCars = kv.Value.reservedCarIds,
             }).ToList();
         }
 

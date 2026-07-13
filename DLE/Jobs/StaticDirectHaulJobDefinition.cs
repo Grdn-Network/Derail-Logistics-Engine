@@ -31,6 +31,12 @@ namespace DLE.Jobs
         /// <summary>How many cars this job wants (carless jobs have none attached yet).</summary>
         public int plannedCarCount;
 
+        /// <summary>
+        /// Car IDs the dispatcher reserved for this haul (plate IDs). Guidance for crews
+        /// and preferred by the warehouse attach; not enforced.
+        /// </summary>
+        public List<string> reservedCarIds = new List<string>();
+
         /// <summary>Car snapshot for the booklet patches, built by the generator.</summary>
         public List<Car_data> displayCars;
 
