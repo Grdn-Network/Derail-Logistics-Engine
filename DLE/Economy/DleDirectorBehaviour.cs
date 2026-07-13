@@ -33,11 +33,22 @@ namespace DLE.Economy
                 yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
 
             Main.Log("[Director] initial fill done; ticking.");
+            float productionAccumulator = 0f;
             while (true)
             {
                 float tick = Mathf.Max(15, Main.Settings?.DirectorTickSeconds ?? 60);
                 yield return new WaitForSeconds(tick);
                 if (!Main.IsHostOrSingleplayer() || !WorldReady()) continue;
+
+                // Cargo enters the world at the sources on a slow clock.
+                productionAccumulator += tick / 60f;
+                float interval = Mathf.Max(1, Main.Settings?.SourceProductionMinutes ?? 10);
+                if (productionAccumulator >= interval)
+                {
+                    EconomyState.Instance.TickSourceProduction((int)(productionAccumulator / interval));
+                    productionAccumulator %= interval;
+                }
+
                 EconomyDirector.GenerateOne();
             }
         }

@@ -17,10 +17,13 @@ namespace DLE
         public int DirectorTickSeconds = 60;
 
         [Draw("Max active hauls per origin station")]
-        public int MaxHaulsPerStation = 2;
+        public int MaxHaulsPerStation = 4;
 
         [Draw("Max active hauls on the whole map")]
-        public int MaxHaulsTotal = 12;
+        public int MaxHaulsTotal = 40;
+
+        [Draw("Minutes per carload produced at source industries")]
+        public int SourceProductionMinutes = 10;
 
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;

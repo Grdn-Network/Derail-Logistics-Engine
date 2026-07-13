@@ -151,12 +151,14 @@ namespace DLE.Economy
             return jobId;
         }
 
+        private static readonly Random _rng = new Random();
+
         private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, string excludeYard)
         {
-            // Nearest eligible consumer: keeps hauls sensible instead of first-in-the-dict.
-            var origin = StationController.GetStationByYardID(excludeYard);
-            FacilityDef best = null;
-            float bestDistance = float.MaxValue;
+            // The auto-director is only a baseline: it picks randomly among eligible
+            // consumers. Deliberate routing belongs to the dispatcher (POST /api/v1/hauls),
+            // and later to contracts.
+            var eligible = new List<FacilityDef>();
             foreach (var f in econ.Facilities.Values)
             {
                 if (f.YardId == excludeYard) continue;
@@ -168,16 +170,9 @@ namespace DLE.Economy
                         .GetWarehouseMachinesThatSupportCargoTypes(new List<CargoType> { cargo }).Count == 0)
                     continue;
 
-                float d = origin != null
-                    ? JobPaymentCalculator.GetDistanceBetweenStations(origin, sc)
-                    : 0f;
-                if (d < bestDistance)
-                {
-                    bestDistance = d;
-                    best = f;
-                }
+                eligible.Add(f);
             }
-            return best;
+            return eligible.Count > 0 ? eligible[_rng.Next(eligible.Count)] : null;
         }
     }
 }
