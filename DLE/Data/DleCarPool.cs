@@ -1,8 +1,11 @@
 using DV.Logic.Job;
 using DV.ThingTypes;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
+using JobTrack = DV.Logic.Job.Track;
 
 namespace DLE.Data
 {
@@ -33,20 +36,30 @@ namespace DLE.Data
         public bool Contains(string carGuid) => carGuid != null && _guids.Contains(carGuid);
         public int Count => _guids.Count;
 
-        /// <summary>One-time starter seeding for a save that has never had it.</summary>
-        public void SeedOnceIfNeeded()
+        /// <summary>
+        /// One-time starter seeding for a save that has never had it, spread across frames.
+        /// The seeded flag is set BEFORE spawning so any save that captures the new cars
+        /// also captures the flag: otherwise a load without a later save re-seeds and stacks
+        /// a second pool on top. Never an automatic top-up.
+        /// </summary>
+        public IEnumerator SeedOnceIfNeededRoutine()
         {
-            if (PoolsSeeded || !Main.IsHostOrSingleplayer()) return;
-            int spawned = RespawnStationPools(deleteFirst: false);
+            if (PoolsSeeded || !Main.IsHostOrSingleplayer()) yield break;
             PoolsSeeded = true;
+            int spawned = 0;
+            yield return RespawnStationPoolsRoutine(deleteFirst: false, n => spawned = n);
             Main.LogAlways($"[CarPool] one-time starter pools seeded for this save ({spawned} car(s)).");
         }
 
         /// <summary>
-        /// Spawn empty cars suited to a cargo on a free storage track at the station.
-        /// Returns how many were spawned.
+        /// Spawn empty cars suited to a cargo on a free storage track at the station,
+        /// varying the livery per car. Returns how many were spawned. Pass a per-sweep
+        /// claimed-length ledger so repeated calls in one sweep spread across tracks:
+        /// Track.OccupiedLength does not update within the frame, so without it consecutive
+        /// spawns re-pick the same physically-free track and stack cars into a derail.
         /// </summary>
-        public int SpawnEmpties(StationController station, CargoType cargo, int count)
+        public int SpawnEmpties(StationController station, CargoType cargo, int count,
+            IDictionary<JobTrack, float> claimed = null)
         {
             if (station == null || count <= 0) return 0;
 
@@ -57,33 +70,31 @@ namespace DLE.Data
                 Main.LogAlways($"[CarPool] no car type carries {cargo}.");
                 return 0;
             }
-            var livery = carTypes[0].liveries[0];
-            var liveries = Enumerable.Repeat(livery, count).ToList();
+
+            // Vary the livery per car instead of a wall of identical wagons.
+            var carType = carTypes[0];
+            var liverySet = carType.liveries;
+            var liveries = Enumerable.Range(0, count)
+                .Select(_ => liverySet[UnityEngine.Random.Range(0, liverySet.Count)])
+                .ToList();
 
             float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
 
-            // Physical occupancy decides, not the YardTracksOrganizer reservation ledger:
-            // stale reservations from long-dead jobs make it report full tracks in an
-            // empty yard (Persistent Jobs carries the same workaround). The ledger is
-            // only used as a preference between physically fitting tracks.
+            // Physical occupancy decides, not the YardTracksOrganizer reservation ledger
+            // (stale reservations from long-dead jobs report full tracks in an empty yard).
+            // The per-sweep claimed ledger is subtracted on top so cars spawned earlier in
+            // this same sweep, which OccupiedLength has not caught up to yet, still count.
             var fitting = station.logicStation.yard.StorageTracks
-                .Where(t => t.length - t.OccupiedLength > length)
+                .Where(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t) > length)
                 .ToList();
             if (fitting.Count == 0)
             {
                 Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no storage track has {length:F0}m physically free for {count} empt{(count == 1 ? "y" : "ies")}.");
                 return 0;
             }
-            var track = YardTracksOrganizer.Instance
-                .FilterOutTracksWithoutRequiredFreeSpace(fitting, length)
-                .FirstOrDefault();
-            if (track == null)
-            {
-                track = fitting
-                    .OrderByDescending(t => t.length - t.OccupiedLength)
-                    .First();
-                Main.Log($"[CarPool] {station.stationInfo.YardID}: reservation ledger claims no space; using physically free {track.ID?.FullDisplayID}.");
-            }
+            var track = fitting
+                .OrderByDescending(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t))
+                .First();
 
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
             var spawned = CarSpawner.Instance
@@ -98,10 +109,16 @@ namespace DLE.Data
                 if (tc.logicCar?.carGuid != null)
                     _guids.Add(tc.logicCar.carGuid);
 
-            Main.Log($"[CarPool] spawned {spawned.Count} empty {livery.name} at " +
+            if (claimed != null)
+                claimed[track] = ClaimedOn(claimed, track) + length;
+
+            Main.Log($"[CarPool] spawned {spawned.Count} empty {carType.name} at " +
                      $"{station.stationInfo.YardID} track {track.ID?.FullDisplayID} (pool now {_guids.Count}).");
             return spawned.Count;
         }
+
+        private static float ClaimedOn(IDictionary<JobTrack, float> claimed, JobTrack t) =>
+            (claimed != null && claimed.TryGetValue(t, out var v)) ? v : 0f;
 
         /// <summary>
         /// Idle empties standing anywhere in a station's yard that can carry the cargo:
@@ -145,40 +162,52 @@ namespace DLE.Data
         }
 
         /// <summary>
-        /// Give every producer a working pool: optionally clear the idle jobless empties
-        /// standing in each economy yard first (derailment recovery), then spawn a fresh
-        /// pool of empties per output cargo. Company.respawn and new-game seeding both
-        /// come through here. Host or singleplayer only.
+        /// Give every producer a working pool, spread one station per frame so a large fill
+        /// neither hitches nor stacks. When deleteFirst is set, clears the idle jobless
+        /// empties in each economy yard first (company.respawn recovery) and waits for the
+        /// deletions to settle. A per-sweep claimed-length ledger keeps consecutive spawns
+        /// off the same track. Company.respawn and new-game seeding both come through here.
+        /// Host or singleplayer only.
         /// </summary>
-        public int RespawnStationPools(bool deleteFirst)
+        public IEnumerator RespawnStationPoolsRoutine(bool deleteFirst, Action<int> onDone = null)
         {
-            if (!Main.IsHostOrSingleplayer()) return 0;
+            if (!Main.IsHostOrSingleplayer()) { onDone?.Invoke(0); yield break; }
             int totalSpawned = 0;
             int perOutput = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
+            var claimed = new Dictionary<JobTrack, float>();
+
+            if (deleteFirst)
+            {
+                foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
+                {
+                    var sc = StationController.GetStationByYardID(facility.YardId);
+                    if (sc == null) continue;
+                    var idle = CollectIdleEmpties(sc, null, int.MaxValue);
+                    if (idle.Count == 0) continue;
+                    foreach (var tc in idle)
+                        if (tc.logicCar?.carGuid != null)
+                            _guids.Remove(tc.logicCar.carGuid);
+                    CarSpawner.Instance.DeleteTrainCars(idle, true);
+                    Main.Log($"[CarPool] {facility.YardId}: cleared {idle.Count} idle empt{(idle.Count == 1 ? "y" : "ies")}.");
+                }
+                // Let the deletions settle so freed track length is visible before respawn.
+                yield return new WaitForSeconds(0.5f);
+            }
 
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
 
-                if (deleteFirst)
-                {
-                    var idle = CollectIdleEmpties(sc, null, int.MaxValue);
-                    if (idle.Count > 0)
-                    {
-                        foreach (var tc in idle)
-                            if (tc.logicCar?.carGuid != null)
-                                _guids.Remove(tc.logicCar.carGuid);
-                        CarSpawner.Instance.DeleteTrainCars(idle, true);
-                        Main.Log($"[CarPool] {facility.YardId}: cleared {idle.Count} idle empt{(idle.Count == 1 ? "y" : "ies")}.");
-                    }
-                }
-
                 foreach (var cargo in facility.Outputs)
-                    totalSpawned += SpawnEmpties(sc, cargo, perOutput);
+                    totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed);
+
+                // One station per frame-slice: spread the cost, let physics settle.
+                yield return null;
             }
+
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
-            return totalSpawned;
+            onDone?.Invoke(totalSpawned);
         }
 
         [Serializable]
