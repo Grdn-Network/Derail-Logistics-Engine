@@ -1,3 +1,4 @@
+using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using System.Collections.Generic;
@@ -23,10 +24,33 @@ namespace DLE.Jobs
         public CargoType transportedCargo;
         public List<float> cargoAmountPerCar;
 
+        /// <summary>
+        /// Snapshot of the cars for booklet rendering, built by the generator before
+        /// GenerateJob runs. The booklet patches read this when the task data has no cars.
+        /// </summary>
+        public List<Car_data> displayCars;
+
+        /// <summary>
+        /// Live definitions by job ID. The booklet patches (DirectHaulBookletPatch) look
+        /// up a job's display data here because Job_data alone does not carry the cargo
+        /// and car details a ComplexTransport booklet needs.
+        /// </summary>
+        public static readonly Dictionary<string, StaticDirectHaulJobDefinition> jobDefinitions =
+            new Dictionary<string, StaticDirectHaulJobDefinition>();
+
+        private string _registeredJobId;
+
         protected override void GenerateJob(Station jobOriginStation, float timeLimit = 0f,
             float initialWage = 0f, string forcedJobId = null,
             JobLicenses requiredLicenses = JobLicenses.Basic)
         {
+            if (!string.IsNullOrEmpty(forcedJobId))
+            {
+                // Indexer assignment: if a recycled ID is still registered, take it over.
+                jobDefinitions[forcedJobId] = this;
+                _registeredJobId = forcedJobId;
+            }
+
             var load = new WarehouseTask(
                 carsToTransport, WarehouseTaskType.Loading,
                 loadMachine, transportedCargo, carsToTransport.Count);
@@ -42,6 +66,18 @@ namespace DLE.Jobs
                 chainData, forcedJobId, requiredLicenses);
 
             jobOriginStation.AddJobToStation(job);
+        }
+
+        private void OnDestroy()
+        {
+            // Only unregister if we still own the entry; a newer definition may have
+            // taken over a recycled job ID.
+            if (_registeredJobId != null &&
+                jobDefinitions.TryGetValue(_registeredJobId, out var current) &&
+                ReferenceEquals(current, this))
+            {
+                jobDefinitions.Remove(_registeredJobId);
+            }
         }
 
         public override List<TrackReservation> GetRequiredTrackReservations() =>

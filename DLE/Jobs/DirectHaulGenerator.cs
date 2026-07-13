@@ -1,3 +1,4 @@
+using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using System.Collections.Generic;
@@ -65,6 +66,9 @@ namespace DLE.Jobs
             def.loadMachine       = loadMachine;
             def.unloadMachine     = unloadMachine;
             def.transportedCargo  = cargo;
+            // Car snapshot for the booklet patches; Car_data(Car, bool) copies the id,
+            // livery, length, mass and capacity from the real logic car.
+            def.displayCars       = logicCars.Select(c => new Car_data(c, false)).ToList();
             def.ForceJobId(JobUtils.NextId(chainData.chainOriginYardId, chainData.chainDestinationYardId));
             def.PopulateBaseJobDefinition(origin.logicStation, timeLimit, wage, chainData, requiredLicenses);
 
