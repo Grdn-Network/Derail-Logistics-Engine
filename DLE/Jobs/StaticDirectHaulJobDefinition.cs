@@ -25,8 +25,11 @@ namespace DLE.Jobs
         public CargoType transportedCargo;
         public List<float> cargoAmountPerCar;
 
-        /// <summary>Whether to include a leading load task (Mode B). 0.1 keeps this false.</summary>
+        /// <summary>Whether to include a leading load task (finite/persistence mode).</summary>
         public bool includeLoadTask = false;
+
+        /// <summary>How many cars this job wants (carless jobs have none attached yet).</summary>
+        public int plannedCarCount;
 
         /// <summary>Car snapshot for the booklet patches, built by the generator.</summary>
         public List<Car_data> displayCars;

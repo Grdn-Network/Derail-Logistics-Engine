@@ -19,8 +19,10 @@ namespace DLE.Jobs
             StationController producer,
             StationController consumer,
             CargoType cargo,
-            int carCount)
+            int carCount,
+            out string jobId)
         {
+            jobId = null;
             if (producer == null || consumer == null || carCount <= 0)
                 return 0;
 
@@ -85,18 +87,82 @@ namespace DLE.Jobs
             float wage = JobPaymentCalculator.CalculateJobPayment(
                 JobType.Transport, distance, new PaymentCalculationData(liveryCounts, cargoCounts));
 
-            var jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
             if (!BuildChain(producer, consumer, spawned, cargo, loadMachine, unloadMachine,
                     jobId, wage, bonusTime, track.ID?.FullDisplayID ?? ""))
             {
                 Main.Log("[DirectHaul] chain build failed; deleting spawned cars.");
                 CarSpawner.Instance.DeleteTrainCars(spawned, true);
+                jobId = null;
                 return 0;
             }
 
             Main.Log($"[DirectHaul] {producer.stationInfo.YardID}->{consumer.stationInfo.YardID}: " +
                      $"{spawned.Count} car(s) of {cargo} spawned and loaded.");
             return spawned.Count;
+        }
+
+        /// <summary>
+        /// Finite mode (persistence): create a Direct Haul with NO cars attached. The job
+        /// carries a load task; when players bring suitable empty cars to the producer
+        /// warehouse, DirectHaulLoadServicingPatch attaches them and loading begins (the
+        /// SelfShunter mechanic, scoped to DLE jobs). Stock is debited when cars attach,
+        /// not at spawn, so jobs never outrun real stock into conjured cargo.
+        /// </summary>
+        public static string TryCreateCarless(
+            StationController producer,
+            StationController consumer,
+            CargoType cargo,
+            int carCount)
+        {
+            if (producer == null || consumer == null || carCount <= 0) return null;
+
+            var cargoList = new List<CargoType> { cargo };
+            var loadMachine = producer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
+            var unloadMachine = consumer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
+            if (loadMachine == null || unloadMachine == null)
+            {
+                Main.Log($"[DirectHaul] carless: missing warehouse machine for {cargo}.");
+                return null;
+            }
+            if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
+                !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
+                carTypes.Count == 0)
+            {
+                Main.Log($"[DirectHaul] carless: no loadable car type for {cargo}.");
+                return null;
+            }
+
+            // Synthetic display cars: the booklet shows what to bring before cars attach.
+            var displayCars = new List<Car_data>();
+            var liveryCounts = new Dictionary<TrainCarLivery, int>();
+            for (int i = 0; i < carCount; i++)
+            {
+                var shownType = carTypes[i % carTypes.Count];
+                var livery = shownType.liveries[i % shownType.liveries.Count];
+                displayCars.Add(new Car_data("?", livery, false, false, 0f, 0f, 0f));
+                liveryCounts.TryGetValue(livery, out var n);
+                liveryCounts[livery] = n + 1;
+            }
+
+            float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
+            float bonusTime = JobPaymentCalculator.CalculateHaulBonusTimeLimit(distance);
+            float wage = JobPaymentCalculator.CalculateJobPayment(
+                JobType.Transport, distance,
+                new PaymentCalculationData(liveryCounts, new Dictionary<CargoType, int> { { cargo, carCount } }));
+
+            var jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            bool ok = BuildChain(producer, consumer, new List<TrainCar>(), cargo,
+                loadMachine, unloadMachine, jobId, wage, bonusTime,
+                spawnTrackDisplay: $"warehouse {loadMachine.WarehouseTrack?.ID?.FullDisplayID ?? producer.stationInfo.YardID}",
+                includeLoadTask: true, displayCarsOverride: displayCars, plannedCarCount: carCount);
+            if (!ok) return null;
+
+            Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +
+                     $"for {cargo} to {producer.stationInfo.YardID}.");
+            return jobId;
         }
 
         /// <summary>
@@ -111,7 +177,9 @@ namespace DLE.Jobs
             string jobId,
             float wage,
             float bonusTime,
-            string spawnTrackDisplay)
+            string spawnTrackDisplay,
+            bool includeLoadTask = false,
+            int plannedCars = 0)
         {
             var cargoList = new List<CargoType> { cargo };
             var loadMachine = producer.logicStation.yard
@@ -124,9 +192,25 @@ namespace DLE.Jobs
                 return false;
             }
 
+            List<Car_data> displayOverride = null;
+            if (includeLoadTask && cars.Count == 0 && plannedCars > 0 &&
+                DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) &&
+                DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) &&
+                carTypes.Count > 0)
+            {
+                displayOverride = new List<Car_data>();
+                for (int i = 0; i < plannedCars; i++)
+                {
+                    var shownType = carTypes[i % carTypes.Count];
+                    displayOverride.Add(new Car_data("?",
+                        shownType.liveries[i % shownType.liveries.Count], false, false, 0f, 0f, 0f));
+                }
+            }
+
             bool ok = BuildChain(producer, consumer, cars, cargo, loadMachine, unloadMachine,
-                jobId, wage, bonusTime, spawnTrackDisplay);
-            if (ok) Main.Log($"[DirectHaul] rebuilt {jobId} over {cars.Count} existing car(s).");
+                jobId, wage, bonusTime, spawnTrackDisplay, includeLoadTask, displayOverride, plannedCars);
+            if (ok) Main.Log($"[DirectHaul] rebuilt {jobId} over {cars.Count} existing car(s)" +
+                             (includeLoadTask && cars.Count == 0 ? " (carless, awaiting empties)" : "") + ".");
             return ok;
         }
 
@@ -140,14 +224,18 @@ namespace DLE.Jobs
             string jobId,
             float wage,
             float bonusTime,
-            string spawnTrackDisplay)
+            string spawnTrackDisplay,
+            bool includeLoadTask = false,
+            List<Car_data> displayCarsOverride = null,
+            int plannedCarCount = 0)
         {
             var logicCars = TrainCar.ExtractLogicCars(cars);
+            int licenseCarCount = logicCars.Count > 0 ? logicCars.Count : plannedCarCount;
             var chainData = new StationsChainData(
                 producer.stationInfo.YardID, consumer.stationInfo.YardID);
             var requiredLicenses =
                 JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(new List<CargoType> { cargo }))
-                | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(cars.Count)?.v1 ?? JobLicenses.Basic);
+                | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(licenseCarCount)?.v1 ?? JobLicenses.Basic);
 
             var go = new GameObject(
                 $"ChainJob[Direct Haul]: {chainData.chainOriginYardId} - {chainData.chainDestinationYardId}");
@@ -159,8 +247,9 @@ namespace DLE.Jobs
             def.loadMachine       = loadMachine;
             def.unloadMachine     = unloadMachine;
             def.transportedCargo  = cargo;
-            def.includeLoadTask   = false; // 0.1: cars arrive pre-loaded
-            def.displayCars       = logicCars.Select(c => new Car_data(c, false)).ToList();
+            def.includeLoadTask   = includeLoadTask;
+            def.plannedCarCount   = plannedCarCount > 0 ? plannedCarCount : logicCars.Count;
+            def.displayCars       = displayCarsOverride ?? logicCars.Select(c => new Car_data(c, false)).ToList();
             def.spawnTrackDisplay = spawnTrackDisplay;
             def.ForceJobId(jobId);
             def.PopulateBaseJobDefinition(producer.logicStation, bonusTime, wage, chainData, requiredLicenses);

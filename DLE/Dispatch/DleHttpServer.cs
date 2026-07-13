@@ -98,6 +98,67 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+
+                // Dispatcher-picked priority haul.
+                if (method == "POST" && path == "/api/v1/hauls")
+                {
+                    var req = JsonConvert.DeserializeObject<HaulRequest>(ReadBody(ctx) ?? "");
+                    if (req == null || string.IsNullOrEmpty(req.origin) || string.IsNullOrEmpty(req.destination) ||
+                        string.IsNullOrEmpty(req.cargo) || req.cars <= 0)
+                    { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
+                    if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
+                    { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars);
+                    if (jobId == null) { Json(ctx, 409, new { error = "could not create haul; see game log" }); return; }
+                    Json(ctx, 201, new { ok = true, jobId, finiteMode = Main.Settings?.FiniteCars == true });
+                    return;
+                }
+
+                // Spawn empty pool cars (finite mode fleet management).
+                if (method == "POST" && path == "/api/v1/empties")
+                {
+                    var req = JsonConvert.DeserializeObject<EmptiesRequest>(ReadBody(ctx) ?? "");
+                    if (req == null || string.IsNullOrEmpty(req.yardId) || string.IsNullOrEmpty(req.cargo) || req.count <= 0)
+                    { Json(ctx, 400, new { error = "yardId, cargo, count required" }); return; }
+                    if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
+                    { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
+                    var sc = StationController.GetStationByYardID(req.yardId);
+                    if (sc == null) { Json(ctx, 404, new { error = $"unknown yard '{req.yardId}'" }); return; }
+                    int spawned = Data.DleCarPool.Instance.SpawnEmpties(sc, cargoType, req.count);
+                    Json(ctx, spawned > 0 ? 201 : 409, new { ok = spawned > 0, spawned, poolSize = Data.DleCarPool.Instance.Count });
+                    return;
+                }
+
+                // Logistics board: unpaid, bookletless coordination runs.
+                if (path == "/api/v1/logistics" && method == "GET")
+                { Json(ctx, 200, LogisticsBoard.Instance.All); return; }
+                if (path == "/api/v1/logistics" && method == "POST")
+                {
+                    var req = JsonConvert.DeserializeObject<LogisticsRequest>(ReadBody(ctx) ?? "");
+                    if (req == null || string.IsNullOrEmpty(req.from) || string.IsNullOrEmpty(req.to) || req.cars <= 0)
+                    { Json(ctx, 400, new { error = "from, to, cars required" }); return; }
+                    var order = LogisticsBoard.Instance.Create(req.from, req.to, req.cars, req.cargo, req.note);
+                    Json(ctx, 201, order);
+                    return;
+                }
+                const string logisticsPrefix = "/api/v1/logistics/";
+                if (path.StartsWith(logisticsPrefix, StringComparison.Ordinal))
+                {
+                    var id = path.Substring(logisticsPrefix.Length);
+                    if (method == "PUT")
+                    {
+                        var req = JsonConvert.DeserializeObject<StatusRequest>(ReadBody(ctx) ?? "");
+                        if (string.IsNullOrEmpty(req?.status)) { Json(ctx, 400, new { error = "status required" }); return; }
+                        Json(ctx, LogisticsBoard.Instance.SetStatus(id, req.status) ? 200 : 404, new { ok = true });
+                        return;
+                    }
+                    if (method == "DELETE")
+                    {
+                        Json(ctx, LogisticsBoard.Instance.Delete(id) ? 200 : 404, new { ok = true });
+                        return;
+                    }
+                }
 
                 const string assignPrefix = "/api/v1/assignments/";
                 if (path.StartsWith(assignPrefix, StringComparison.Ordinal))
@@ -140,6 +201,19 @@ namespace DLE.Dispatch
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class LockRequest { public bool enabled = false; }
+        private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; }
+        private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
+        private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
+        private class StatusRequest { public string status = null; }
+
+        private static object OptionsPayload() =>
+            EconomyDirector.GetOptions().Select(o => new
+            {
+                origin = o.Origin,
+                cargo = o.Cargo.ToString(),
+                stock = o.Stock,
+                consumers = o.Consumers,
+            }).ToList();
 
         private static object StatePayload() => new
         {
@@ -177,6 +251,8 @@ namespace DLE.Dispatch
                 destination = kv.Value.chainData?.chainDestinationYardId,
                 cargo = kv.Value.transportedCargo.ToString(),
                 cars = kv.Value.carsToTransport?.Count ?? 0,
+                plannedCars = kv.Value.plannedCarCount,
+                awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.initialWage,
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",

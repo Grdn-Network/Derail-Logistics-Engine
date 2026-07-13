@@ -30,6 +30,8 @@ namespace DLE.Data
             public float Wage;
             public float BonusTime;
             public string SpawnTrackDisplay;
+            public bool IncludeLoadTask;
+            public int PlannedCars;
         }
 
         [Serializable]
@@ -57,6 +59,8 @@ namespace DLE.Data
                     Wage = def.initialWage,
                     BonusTime = def.timeLimitForJob,
                     SpawnTrackDisplay = def.spawnTrackDisplay,
+                    IncludeLoadTask = def.includeLoadTask,
+                    PlannedCars = def.plannedCarCount,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -115,12 +119,18 @@ namespace DLE.Data
                 if (byGuid.TryGetValue(guid, out var tc)) cars.Add(tc);
             if (cars.Count != snap.CarGuids.Count)
             {
-                Main.Log($"[JobStore] {snap.JobId}: only {cars.Count}/{snap.CarGuids.Count} cars found; skipped.");
-                return false;
+                // A carless (finite mode) job legitimately has zero cars until players
+                // bring empties; anything else with missing cars is unrecoverable.
+                if (!(snap.IncludeLoadTask && snap.CarGuids.Count == 0))
+                {
+                    Main.Log($"[JobStore] {snap.JobId}: only {cars.Count}/{snap.CarGuids.Count} cars found; skipped.");
+                    return false;
+                }
             }
 
             bool ok = DirectHaulGenerator.TryRebuild(origin, dest, cars, cargo,
-                snap.JobId, snap.Wage, snap.BonusTime, snap.SpawnTrackDisplay);
+                snap.JobId, snap.Wage, snap.BonusTime, snap.SpawnTrackDisplay,
+                snap.IncludeLoadTask, snap.PlannedCars);
             if (ok) JobUtils.EnsureCounterPast(snap.JobId);
             return ok;
         }
