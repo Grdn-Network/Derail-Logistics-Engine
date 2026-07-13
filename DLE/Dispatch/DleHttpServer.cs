@@ -291,27 +291,48 @@ input,select{background:#26282e;color:#ddd;border:1px solid #444;padding:3px 6px
 Destination <select id='hDest'></select> Cars <input id='hCars' type='number' value='4' min='1' max='20' style='width:60px'>
 <button onclick='createHaul()'>Spawn haul</button></div>
 <h2>Shippable now (options)</h2><table id='tOptions'></table>
-<h2>Active hauls</h2><table id='tJobs'></table>
+<h2>Active hauls <button onclick='toggleLock()' id='bLock'>Lock: ?</button></h2><table id='tJobs'></table>
+<h2>Logistics runs (unpaid, no booklet)</h2>
+<div>From <input id='lFrom' style='width:50px'> To <input id='lTo' style='width:50px'>
+Cars <input id='lCars' type='number' value='4' min='1' style='width:55px'>
+For cargo <input id='lCargo' style='width:110px'> Note <input id='lNote' style='width:220px'>
+<button onclick='createLog()'>Post run</button></div>
+<table id='tLog'></table>
 <h2>Economy</h2><table id='tEcon'></table>
 <script>
-let options=[];
+let options=[];let lockOn=false;
 async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
 function msg(t){document.getElementById('msg').textContent=t;setTimeout(()=>msg2(t),4000)}
 function msg2(t){const m=document.getElementById('msg');if(m.textContent===t)m.textContent=''}
 async function refresh(){
+ const state=await j('/api/v1/state');lockOn=state.lockEnabled;
+ document.getElementById('bLock').textContent='Lock: '+(lockOn?'ON':'off');
  options=await j('/api/v1/options');
- const jobs=await j('/api/v1/jobs'); const econ=await j('/api/v1/economy');
+ const jobs=await j('/api/v1/jobs'); const econ=await j('/api/v1/economy'); const logs=await j('/api/v1/logistics');
  const oSel=document.getElementById('hOrigin');const cur=oSel.value;
  oSel.innerHTML=options.map(o=>`<option>${o.origin}</option>`).join('');
  if([...oSel.options].some(x=>x.value===cur))oSel.value=cur;
  originChanged();
  document.getElementById('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
   options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
- document.getElementById('tJobs').innerHTML='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th></tr>'+
-  jobs.map(x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td></tr>`).join('');
+ document.getElementById('tJobs').innerHTML='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>'+
+  jobs.map(x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
+   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button></td></tr>`).join('');
+ document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
+  logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
+   `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
  document.getElementById('tEcon').innerHTML='<tr><th>Yard</th><th>Stock</th></tr>'+
   econ.filter(e=>e.stock.length).map(e=>`<tr><td>${e.yardId}</td><td>${e.stock.map(s=>s.amount+' '+s.cargo).join(', ')}</td></tr>`).join('');
 }
+async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){msg('enter a player name');return}
+ const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});msg(r.ok?('Assigned '+id+' to '+p):'assign failed');refresh()}
+async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
+async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Lock now '+(r.lockEnabled?'ON':'off'));refresh()}
+async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
+ if(!b.from||!b.to){msg('from and to required');return}
+ const r=await j('/api/v1/logistics','POST',b);msg(r.Id?('Posted '+r.Id):'failed');refresh()}
+async function logStatus(id,s){await j('/api/v1/logistics/'+id,'PUT',{status:s});refresh()}
+async function logDel(id){await j('/api/v1/logistics/'+id,'DELETE');refresh()}
 function originChanged(){
  const o=document.getElementById('hOrigin').value;
  const mine=options.filter(x=>x.origin===o);
