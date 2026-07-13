@@ -3,7 +3,7 @@
 Derail Logistics Engine (DLE) brings economy management to Derail Valley. Every
 freight station has stockpiles and recipes derived from the game's own cargo
 data: producers hold stock, consumers need it, and deliveries convert inputs
-into outputs. Jobs are generated from that economy as Direct Haul jobs: a
+into outputs. Jobs are generated from that economy as Company Haul jobs: a
 loaded consist appears at the producer and the job is to deliver and unload it
 at the consumer, all in one job.
 
