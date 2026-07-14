@@ -76,7 +76,7 @@ namespace DLE.Patches
             }
             catch (Exception ex)
             {
-                Main.LogAlways($"[LoadServicing] attach failed: {ex.GetType().Name}: {ex.Message}");
+                Main.LogAlways($"[LoadServicing] attach failed: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -144,18 +144,32 @@ namespace DLE.Patches
 
                 def.carsToTransport = new List<Car>(valid);
                 def.cargoAmountPerCar = valid.Select(c => c.capacity).ToList();
-
                 jobsManager.jobToJobCars[task.Job] = new HashSet<Car>(valid);
-                JobDebtController.Instance.RegisterGeneratedJob(task.Job, valid);
-                JobDebtController.Instance.OnJobTaken(task.Job, false);
 
-                // The promised supply physically leaves the stockpile now.
+                // The economics commit the moment the cars do: the machine will load this
+                // cut, so the promised supply leaves the stockpile NOW. Nothing below may
+                // stand between the attach and the debit (a debt-registration throw used
+                // to abort right here, loading the cargo without ever debiting the yard).
                 EconomyState.Instance.ConsumeReservation(jobData.id,
                     def.chainData.chainOriginYardId, task.cargoType, valid.Count);
 
                 // Cleanup guards: if the job dies with cargo aboard, dump it.
                 task.Job.JobAbandoned += DumpJobCargo;
                 task.Job.JobCompleted += DumpPlates;
+
+                // Insurance debt is bookkeeping, not economics: register it only if
+                // something (job restore, a future game path) has not already, and never
+                // let it break the attach.
+                try
+                {
+                    if (JobDebtController.Instance.GetExistingJobDebtForJob(task.Job) == null)
+                        JobDebtController.Instance.RegisterGeneratedJob(task.Job, valid);
+                    JobDebtController.Instance.OnJobTaken(task.Job, false);
+                }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[LoadServicing] {jobData.id}: debt registration failed ({ex.GetType().Name}: {ex.Message}); attach continues.");
+                }
 
                 // Booklets already in someone's hand redraw with the real consist.
                 RefreshInHandBooklets(task.Job);
