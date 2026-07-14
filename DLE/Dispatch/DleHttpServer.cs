@@ -188,6 +188,17 @@ namespace DLE.Dispatch
                     return;
                 }
 
+                // Dispatch-triggered load servicing (station staff or terminal).
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/load", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/load".Length);
+                    var r = DispatchServicing.LoadJob(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+
                 const string assignPrefix = "/api/v1/assignments/";
                 if (path.StartsWith(assignPrefix, StringComparison.Ordinal))
                 {
@@ -346,7 +357,7 @@ async function refresh(){
   options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
  document.getElementById('tJobs').innerHTML='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>'+
   jobs.map(x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
-   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`).join('');
+   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button><button onclick=""loadJob('${x.id}')"">Load</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`).join('');
  document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
   logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
    `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
@@ -356,6 +367,7 @@ async function refresh(){
 async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){msg('enter a player name');return}
  const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});msg(r.ok?('Assigned '+id+' to '+p):'assign failed');refresh()}
 async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
+async function loadJob(id){const r=await j('/api/v1/jobs/'+id+'/load','POST');msg(r.message||(r.ok?'loading':'failed'));setTimeout(refresh,1200)}
 async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Lock now '+(r.lockEnabled?'ON':'off'));refresh()}
 async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
  if(!b.from||!b.to){msg('from and to required');return}

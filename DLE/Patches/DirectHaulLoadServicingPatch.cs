@@ -125,44 +125,55 @@ namespace DLE.Patches
                 var valid = candidates.Count > wanted ? candidates.GetRange(0, wanted) : candidates;
                 if (valid.Count != wanted) continue; // bring the full cut before it attaches
 
-                // Attach to every warehouse task of the job (load and unload).
-                foreach (var t in task.Job.tasks)
-                {
-                    if (!(t is WarehouseTask wt)) continue;
-                    wt.cars.Clear();
-                    float totalCapacity = 0f;
-                    foreach (var car in valid)
-                    {
-                        MakeJobEligible(car);
-                        wt.cars.Add(car);
-                        totalCapacity += car.capacity;
-                        car.TrainCar().UpdateJobIdOnCarPlates(wt.Job.ID);
-                    }
-                    // cargoAmount is public but readonly; set it the way SelfShunter does.
-                    Traverse.Create(wt).Field(nameof(WarehouseTask.cargoAmount)).SetValue(totalCapacity);
-                }
-
-                def.carsToTransport = new List<Car>(valid);
-                def.cargoAmountPerCar = valid.Select(c => c.capacity).ToList();
-
-                jobsManager.jobToJobCars[task.Job] = new HashSet<Car>(valid);
-                JobDebtController.Instance.RegisterGeneratedJob(task.Job, valid);
-                JobDebtController.Instance.OnJobTaken(task.Job, false);
-
-                // The promised supply physically leaves the stockpile now.
-                EconomyState.Instance.ConsumeReservation(jobData.id,
-                    def.chainData.chainOriginYardId, task.cargoType, valid.Count);
-
-                // Cleanup guards: if the job dies with cargo aboard, dump it.
-                task.Job.JobAbandoned += DumpJobCargo;
-                task.Job.JobCompleted += DumpPlates;
-
-                // Booklets already in someone's hand redraw with the real consist.
-                RefreshInHandBooklets(task.Job);
+                CommitAttach(def, task.Job, valid);
 
                 Main.Log($"[LoadServicing] {jobData.id}: attached {valid.Count} car(s), loading {task.cargoType}. " +
                          $"{def.chainData.chainOriginYardId} stock debited.");
             }
+        }
+
+        /// <summary>
+        /// Attach a chosen set of cars to a Direct Haul: fill its warehouse tasks, take the
+        /// cars out of the free pool, register debt, consume the reserved supply, wire the
+        /// cleanup guards, and redraw any in-hand booklet. Shared by the player-triggered
+        /// warehouse attach and by dispatch servicing.
+        /// </summary>
+        internal static void CommitAttach(StaticDirectHaulJobDefinition def, Job job, List<Car> valid)
+        {
+            var jobsManager = SingletonBehaviour<JobsManager>.Instance;
+            foreach (var t in job.tasks)
+            {
+                if (!(t is WarehouseTask wt)) continue;
+                wt.cars.Clear();
+                float totalCapacity = 0f;
+                foreach (var car in valid)
+                {
+                    MakeJobEligible(car);
+                    wt.cars.Add(car);
+                    totalCapacity += car.capacity;
+                    car.TrainCar().UpdateJobIdOnCarPlates(wt.Job.ID);
+                }
+                // cargoAmount is public but readonly; set it the way SelfShunter does.
+                Traverse.Create(wt).Field(nameof(WarehouseTask.cargoAmount)).SetValue(totalCapacity);
+            }
+
+            def.carsToTransport = new List<Car>(valid);
+            def.cargoAmountPerCar = valid.Select(c => c.capacity).ToList();
+
+            jobsManager.jobToJobCars[job] = new HashSet<Car>(valid);
+            JobDebtController.Instance.RegisterGeneratedJob(job, valid);
+            JobDebtController.Instance.OnJobTaken(job, false);
+
+            // The promised supply physically leaves the stockpile now.
+            EconomyState.Instance.ConsumeReservation(job.ID,
+                def.chainData.chainOriginYardId, def.transportedCargo, valid.Count);
+
+            // Cleanup guards: if the job dies with cargo aboard, dump it.
+            job.JobAbandoned += DumpJobCargo;
+            job.JobCompleted += DumpPlates;
+
+            // Booklets already in someone's hand redraw with the real consist.
+            RefreshInHandBooklets(job);
         }
 
         private static void MakeJobEligible(Car car)
