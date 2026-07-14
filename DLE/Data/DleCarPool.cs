@@ -258,6 +258,68 @@ namespace DLE.Data
         }
 
         /// <summary>
+        /// Recovery bulldozer for company.respawn: idle empties in every economy yard PLUS
+        /// any derailed, jobless, empty, non-player freight car anywhere in the world.
+        /// Flood wreckage flies off its track when overlap physics resolves, so the yard
+        /// sweep alone cannot see it. Deletion is one car at a time inside try/catch: a
+        /// consist the game itself cannot split (the Trainset.Split
+        /// ArgumentOutOfRangeException that bricked a save and previously killed this whole
+        /// routine mid-delete) now costs that single car, and the recovery carries on.
+        /// </summary>
+        private void DeleteRecoverableCars()
+        {
+            var targets = new List<TrainCar>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
+            {
+                var sc = StationController.GetStationByYardID(facility.YardId);
+                if (sc == null) continue;
+                foreach (var tc in CollectIdleEmpties(sc, null, int.MaxValue))
+                {
+                    var guid = tc.logicCar?.carGuid;
+                    if (guid == null || seen.Add(guid)) targets.Add(tc);
+                }
+            }
+
+            var jobsManager = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
+            foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
+            {
+                var car = kv.Key;
+                var tc = kv.Value;
+                if (car == null || tc == null || !tc.derailed) continue;
+                if (tc.IsLoco || car.playerSpawnedCar) continue;
+                if (car.LoadedCargoAmount > 0f) continue;
+                if (jobsManager.GetJobOfCar(car) != null) continue;
+                var guid = car.carGuid;
+                if (guid == null || seen.Add(guid)) targets.Add(tc);
+            }
+
+            int deleted = 0, stubborn = 0;
+            var single = new List<TrainCar>(1);
+            foreach (var tc in targets)
+            {
+                if (tc == null) continue;
+                try
+                {
+                    var guid = tc.logicCar?.carGuid;
+                    if (guid != null) _guids.Remove(guid);
+                    single.Clear();
+                    single.Add(tc);
+                    CarSpawner.Instance.DeleteTrainCars(single, true);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    stubborn++;
+                    Main.LogAlways($"[CarPool] could not delete {tc.ID}: {ex.GetType().Name}: {ex.Message}. Rerail or remove it by hand.");
+                }
+            }
+            Main.LogAlways($"[CarPool] recovery cleared {deleted} car(s)" +
+                (stubborn > 0 ? $"; {stubborn} refused to delete (broken consists, see log)." : "."));
+        }
+
+        /// <summary>
         /// Give every producer a working pool, spread one station per frame so a large fill
         /// neither hitches nor stacks. When deleteFirst is set, clears the idle jobless
         /// empties in each economy yard first (company.respawn recovery) and waits for the
@@ -274,18 +336,7 @@ namespace DLE.Data
 
             if (deleteFirst)
             {
-                foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
-                {
-                    var sc = StationController.GetStationByYardID(facility.YardId);
-                    if (sc == null) continue;
-                    var idle = CollectIdleEmpties(sc, null, int.MaxValue);
-                    if (idle.Count == 0) continue;
-                    foreach (var tc in idle)
-                        if (tc.logicCar?.carGuid != null)
-                            _guids.Remove(tc.logicCar.carGuid);
-                    CarSpawner.Instance.DeleteTrainCars(idle, true);
-                    Main.Log($"[CarPool] {facility.YardId}: cleared {idle.Count} idle empt{(idle.Count == 1 ? "y" : "ies")}.");
-                }
+                DeleteRecoverableCars();
                 // Let the deletions settle so freed track length is visible before respawn.
                 yield return new WaitForSeconds(0.5f);
             }
