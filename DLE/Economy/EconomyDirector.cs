@@ -46,12 +46,7 @@ namespace DLE.Economy
             var perOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
             if (CountActiveHauls(perOrigin) >= total) return false;
 
-            // Backhaul preference: yards that just received a delivery come up first as
-            // origins, so the crew standing there finds a return haul waiting.
-            var producers = econ.Facilities.Values
-                .OrderByDescending(p => econ.DeliveryRecency(p.YardId));
-
-            foreach (var producer in producers)
+            foreach (var producer in econ.Facilities.Values)
             {
                 if (!producer.CanLoad) continue; // unload-only station is never an origin
                 if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;

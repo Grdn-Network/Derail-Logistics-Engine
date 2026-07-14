@@ -162,16 +162,6 @@ namespace DLE.Economy
         /// pays nothing); returns the accepted carloads so the payment gate pays for exactly
         /// what was delivered.
         /// </summary>
-        // Backhaul preference (owner, 2026-07-14): the director favors freshly delivered
-        // yards as its next origins, so return trips naturally have work before contracts
-        // exist. Session-scoped by design; a reload starts neutral.
-        private static long _deliverySeq;
-        private readonly Dictionary<string, long> _lastDelivery =
-            new Dictionary<string, long>(StringComparer.Ordinal);
-
-        public long DeliveryRecency(string yardId) =>
-            _lastDelivery.TryGetValue(yardId, out var seq) ? seq : 0L;
-
         public int OnDelivered(string yardId, CargoType cargo, int carloads)
         {
             if (carloads <= 0) return 0;
@@ -184,7 +174,6 @@ namespace DLE.Economy
                 return 0;
             }
             Credit(yardId, cargo, accepted);
-            _lastDelivery[yardId] = ++_deliverySeq;
             EconomyHistory.Record("delivered", yardId, cargo.ToString(), accepted);
             Main.Log($"[Economy] {yardId} received {accepted}/{carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
             Conversion.Current.OnDelivered(this, yardId);

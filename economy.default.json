@@ -1,22 +1,21 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'defaults' sets baseline servicing for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Example: \"HB\": { \"role\": \"unload\", \"remoteUnload\": false } makes harbor a sink you must service at the quay. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
   "defaults": {
     "role": "both",
     "remoteLoad": true,
     "remoteUnload": true,
-    "remoteSecondsPerCar": 45
+    "remoteSecondsPerCar": 45,
+    "defaultCap": 50
   },
   "stations": {
     "HB": {
-      "defaultCap": 150
+      "defaultCap": 200
     },
-    "SW": {
-      "recipes": [
-        { "inputs": { "Logs": 2 }, "outputs": { "Boards": 1, "Plywood": 1 } }
-      ]
+    "CW": {
+      "defaultCap": 100
     },
     "SM": {
-      "defaultCap": 60,
+      "defaultCap": 100,
       "recipes": [
         { "inputs": { "IronOre": 2, "Coal": 2 }, "outputs": { "SteelRolls": 2, "SteelBillets": 1 } }
       ]
@@ -27,15 +26,31 @@
         { "inputs": { "Boards": 1, "SteelRolls": 1 }, "outputs": { "Furniture": 1, "ToolsIskar": 1 } }
       ]
     },
+    "FF": {
+      "defaultCap": 100,
+      "recipes": [
+        { "inputs": { "Wheat": 1, "Milk": 1 }, "outputs": { "Bread": 1, "DairyProducts": 1 } }
+      ]
+    },
     "MF": {
       "recipes": [
         { "inputs": { "SteelRolls": 2, "SteelBillets": 1 }, "outputs": { "Tractors": 1, "Excavators": 1 } }
       ]
     },
-    "FF": {
+    "SW": {
+      "defaultCap": 25,
       "recipes": [
-        { "inputs": { "Wheat": 1, "Milk": 1 }, "outputs": { "Bread": 1, "DairyProducts": 1 } }
+        { "inputs": { "Logs": 2 }, "outputs": { "Boards": 1, "Plywood": 1 } }
       ]
-    }
+    },
+    "OWN": { "defaultCap": 25 },
+    "OWC": { "defaultCap": 25 },
+    "CME": { "defaultCap": 25 },
+    "CMS": { "defaultCap": 25 },
+    "IME": { "defaultCap": 25 },
+    "IMW": { "defaultCap": 25 },
+    "FRC": { "defaultCap": 25 },
+    "FRS": { "defaultCap": 25 },
+    "FM":  { "defaultCap": 25 }
   }
 }
