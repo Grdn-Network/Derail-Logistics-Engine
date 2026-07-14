@@ -209,6 +209,26 @@ namespace DLE.Dispatch
                     return;
                 }
 
+                // Dispatch servicing: load and unload a haul remotely (#43).
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/load", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/load".Length);
+                    var r = DispatchServicing.LoadJob(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/unload", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/unload".Length);
+                    var r = DispatchServicing.UnloadJob(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+
                 const string assignPrefix = "/api/v1/assignments/";
                 if (path.StartsWith(assignPrefix, StringComparison.Ordinal))
                 {
@@ -370,7 +390,7 @@ async function refresh(){
  const jobHdr='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>';
  const jobRow=(x,av)=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
   `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button>`+
-  (av?`<button onclick=""takeJob('${x.id}')"">Take</button>`:`<button onclick=""completeJob('${x.id}')"">Turn in</button>`)+
+  (av?`<button onclick=""takeJob('${x.id}')"">Take</button>`:`<button onclick=""loadJob('${x.id}')"">Load</button><button onclick=""unloadJob('${x.id}')"">Unload</button><button onclick=""completeJob('${x.id}')"">Turn in</button>`)+
   `<button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`;
  document.getElementById('tAvail').innerHTML=jobHdr+jobs.filter(x=>x.state==='Available').map(x=>jobRow(x,true)).join('');
  document.getElementById('tJobs').innerHTML=jobHdr+jobs.filter(x=>x.state!=='Available').map(x=>jobRow(x,false)).join('');
@@ -385,6 +405,8 @@ async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){
 async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
 async function takeJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/take','POST',{player:p||null});msg(r.message||'failed');refresh()}
 async function completeJob(id){const r=await j('/api/v1/jobs/'+id+'/complete','POST');msg(r.message||'failed');refresh()}
+async function loadJob(id){const r=await j('/api/v1/jobs/'+id+'/load','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
+async function unloadJob(id){const r=await j('/api/v1/jobs/'+id+'/unload','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
 async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Assignment lock now '+(r.lockEnabled?'ON':'off'));refresh()}
 async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
  if(!b.from||!b.to){msg('from and to required');return}

@@ -33,6 +33,9 @@
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.JobsManager.jobToJobCars" />
     <Publicize Include="Assembly-CSharp:DV.ServicePenalty.JobDebtController.OnJobTaken" />
     <Publicize Include="Assembly-CSharp:StationController.spawnedJobOverviews" />
+    <Publicize Include="Assembly-CSharp:WarehouseMachineController.StartLoadSequence" />
+    <Publicize Include="Assembly-CSharp:WarehouseMachineController.StartUnloadSequence" />
+    <Publicize Include="Assembly-CSharp:WarehouseMachineController.allControllers" />
   </ItemGroup>
 
   <ItemGroup>

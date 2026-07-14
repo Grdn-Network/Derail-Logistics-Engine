@@ -125,58 +125,68 @@ namespace DLE.Patches
                 var valid = candidates.Count > wanted ? candidates.GetRange(0, wanted) : candidates;
                 if (valid.Count != wanted) continue; // bring the full cut before it attaches
 
-                // Attach to every warehouse task of the job (load and unload).
-                foreach (var t in task.Job.tasks)
-                {
-                    if (!(t is WarehouseTask wt)) continue;
-                    wt.cars.Clear();
-                    float totalCapacity = 0f;
-                    foreach (var car in valid)
-                    {
-                        MakeJobEligible(car);
-                        wt.cars.Add(car);
-                        totalCapacity += car.capacity;
-                        car.TrainCar().UpdateJobIdOnCarPlates(wt.Job.ID);
-                    }
-                    // cargoAmount is public but readonly; set it the way SelfShunter does.
-                    Traverse.Create(wt).Field(nameof(WarehouseTask.cargoAmount)).SetValue(totalCapacity);
-                }
-
-                def.carsToTransport = new List<Car>(valid);
-                def.cargoAmountPerCar = valid.Select(c => c.capacity).ToList();
-                jobsManager.jobToJobCars[task.Job] = new HashSet<Car>(valid);
-
-                // The economics commit the moment the cars do: the machine will load this
-                // cut, so the promised supply leaves the stockpile NOW. Nothing below may
-                // stand between the attach and the debit (a debt-registration throw used
-                // to abort right here, loading the cargo without ever debiting the yard).
-                EconomyState.Instance.ConsumeReservation(jobData.id,
-                    def.chainData.chainOriginYardId, task.cargoType, valid.Count);
-
-                // Cleanup guards: if the job dies with cargo aboard, dump it.
-                task.Job.JobAbandoned += DumpJobCargo;
-                task.Job.JobCompleted += DumpPlates;
-
-                // Insurance debt is bookkeeping, not economics: register it only if
-                // something (job restore, a future game path) has not already, and never
-                // let it break the attach.
-                try
-                {
-                    if (JobDebtController.Instance.GetExistingJobDebtForJob(task.Job) == null)
-                        JobDebtController.Instance.RegisterGeneratedJob(task.Job, valid);
-                    JobDebtController.Instance.OnJobTaken(task.Job, false);
-                }
-                catch (Exception ex)
-                {
-                    Main.LogAlways($"[LoadServicing] {jobData.id}: debt registration failed ({ex.GetType().Name}: {ex.Message}); attach continues.");
-                }
-
-                // Booklets already in someone's hand redraw with the real consist.
-                RefreshInHandBooklets(task.Job);
+                CommitAttach(def, task.Job, valid);
 
                 Main.Log($"[LoadServicing] {jobData.id}: attached {valid.Count} car(s), loading {task.cargoType}. " +
                          $"{def.chainData.chainOriginYardId} stock debited.");
             }
+        }
+
+        /// <summary>
+        /// Attach a chosen set of cars to a Direct Haul: fill its warehouse tasks, debit
+        /// the reserved supply THE MOMENT the cars commit (nothing may stand between the
+        /// attach and the debit), wire the cleanup guards, then best-effort bookkeeping.
+        /// Shared by the player-triggered warehouse attach and dispatch servicing.
+        /// </summary>
+        internal static void CommitAttach(StaticDirectHaulJobDefinition def, Job job, List<Car> valid)
+        {
+            var jobsManager = SingletonBehaviour<JobsManager>.Instance;
+            foreach (var t in job.tasks)
+            {
+                if (!(t is WarehouseTask wt)) continue;
+                wt.cars.Clear();
+                float totalCapacity = 0f;
+                foreach (var car in valid)
+                {
+                    MakeJobEligible(car);
+                    wt.cars.Add(car);
+                    totalCapacity += car.capacity;
+                    car.TrainCar().UpdateJobIdOnCarPlates(wt.Job.ID);
+                }
+                // cargoAmount is public but readonly; set it the way SelfShunter does.
+                Traverse.Create(wt).Field(nameof(WarehouseTask.cargoAmount)).SetValue(totalCapacity);
+            }
+
+            def.carsToTransport = new List<Car>(valid);
+            def.cargoAmountPerCar = valid.Select(c => c.capacity).ToList();
+            jobsManager.jobToJobCars[job] = new HashSet<Car>(valid);
+
+            // The economics commit the moment the cars do: the promised supply leaves the
+            // stockpile NOW (a debt-registration throw used to abort before the debit,
+            // loading the cargo without ever charging the yard).
+            EconomyState.Instance.ConsumeReservation(job.ID,
+                def.chainData.chainOriginYardId, def.transportedCargo, valid.Count);
+
+            // Cleanup guards: if the job dies with cargo aboard, dump it.
+            job.JobAbandoned += DumpJobCargo;
+            job.JobCompleted += DumpPlates;
+
+            // Insurance debt is bookkeeping, not economics: register it only if something
+            // (job restore, a future game path) has not already, and never let it break
+            // the attach.
+            try
+            {
+                if (JobDebtController.Instance.GetExistingJobDebtForJob(job) == null)
+                    JobDebtController.Instance.RegisterGeneratedJob(job, valid);
+                JobDebtController.Instance.OnJobTaken(job, false);
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[LoadServicing] {job.ID}: debt registration failed ({ex.GetType().Name}: {ex.Message}); attach continues.");
+            }
+
+            // Booklets already in someone's hand redraw with the real consist.
+            RefreshInHandBooklets(job);
         }
 
         private static void MakeJobEligible(Car car)
