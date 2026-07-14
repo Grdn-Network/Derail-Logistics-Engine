@@ -15,7 +15,11 @@ namespace DLE.Economy
 
         public static void StartOnHost()
         {
-            if (_host != null) return;
+            // A fresh world load gets a fresh director: the old TickLoop belongs to the
+            // previous save (its one-time seeding and initial fill already ran) and dies
+            // with its host object. Without this, the second save loaded in one session
+            // never seeded and never got an initial fill.
+            if (_host != null) Destroy(_host);
             _host = new GameObject("DLE_Director");
             DontDestroyOnLoad(_host);
             _host.AddComponent<DleDirectorBehaviour>();
