@@ -51,6 +51,26 @@ namespace DLE.Patches
         }
     }
 
+    /// <summary>
+    /// Tally cargo the warehouse machine actually loads into a Company Haul's cars.
+    /// Turn-in pays against this tally: without it, an attached-but-never-loaded cut
+    /// delivered empty was indistinguishable from a properly unloaded one and minted
+    /// phantom stock and pay. Staff loads tally themselves; this covers the machine.
+    /// </summary>
+    [HarmonyPatch(typeof(WarehouseMachine), nameof(WarehouseMachine.LoadOneCarOfTask))]
+    public static class DleLoadTallyPatch
+    {
+        [HarmonyPostfix]
+        public static void Postfix(WarehouseTask task, Car __result)
+        {
+            if (__result == null) return;
+            var jobId = task?.Job?.ID;
+            if (jobId == null) return;
+            if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+                def.loadedCarloads = Math.Min(def.carsToTransport?.Count ?? int.MaxValue, def.loadedCarloads + 1);
+        }
+    }
+
     [HarmonyPatch(typeof(JobDebtController), nameof(JobDebtController.RegisterGeneratedJob))]
     public static class DleDebtRegistrationGuardPatch
     {

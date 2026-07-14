@@ -2,6 +2,7 @@ using DV.Booklets;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DLE.Jobs
 {
@@ -39,6 +40,15 @@ namespace DLE.Jobs
         public float deliveryPayment;
 
         /// <summary>
+        /// Carloads that were actually LOADED onto this job's cars (staff load, terminal
+        /// load, or restored already-loaded). Turn-in pays against this, because empty
+        /// cars at the destination cannot otherwise be told apart from a haul that was
+        /// attached but never loaded: without it, delivering a never-loaded cut minted
+        /// phantom stock and full pay.
+        /// </summary>
+        public int loadedCarloads;
+
+        /// <summary>
         /// Car IDs the dispatcher reserved for this haul (plate IDs). Guidance for crews
         /// and preferred by the warehouse attach; not enforced.
         /// </summary>
@@ -70,13 +80,20 @@ namespace DLE.Jobs
                 _registeredJobId = forcedJobId;
             }
 
+            // Cargo amount is UNITS, not car count: with cars attached (a restored job)
+            // the machine moves capacity-sum units, the same figure CommitAttach writes.
+            // A count here meant a restored consist "loaded" a few units into 45t cars.
+            float cargoUnits = carsToTransport.Count > 0
+                ? carsToTransport.Sum(c => c.capacity)
+                : carsToTransport.Count;
+
             var tasks = new List<Task>();
             if (includeLoadTask)
                 tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Loading,
-                    loadMachine, transportedCargo, carsToTransport.Count));
+                    loadMachine, transportedCargo, cargoUnits));
 
             tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Unloading,
-                unloadMachine, transportedCargo, carsToTransport.Count, (long)timeLimit, true));
+                unloadMachine, transportedCargo, cargoUnits, (long)timeLimit, true));
 
             job = new Job(tasks, JobType.ComplexTransport, timeLimit, initialWage,
                 chainData, forcedJobId, requiredLicenses);

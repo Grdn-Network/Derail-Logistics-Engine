@@ -93,6 +93,7 @@ namespace DLE
                     if (data != null)
                     {
                         DleCarPool.Instance.LoadFrom(data);
+                        DleCarPool.Instance.PruneDeadGuids();
                         DleJobStore.RestoreFrom(data);
                         AssignmentStore.Instance.LoadFrom(data);
                         LogisticsBoard.Instance.LoadFrom(data);

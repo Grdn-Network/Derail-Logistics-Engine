@@ -201,6 +201,7 @@ namespace DLE.Dispatch
                 foreach (var car in cars)
                 {
                     if (!loadable.Contains(car.carType.parentType)) continue;
+                    if (car.playerSpawnedCar) continue; // never conscript a player's own cars
                     if (car.LoadedCargoAmount != 0f) continue;
                     if (jobsManager.GetJobOfCar(car) != null) continue;
                     if (reservedElsewhere.Contains(car.ID)) continue;
@@ -223,23 +224,47 @@ namespace DLE.Dispatch
             if (penalty > 0f) yield return new WaitForSeconds(penalty);
             try
             {
+                // The world moved on during the wait; revalidate EVERYTHING. A lever
+                // attach mid-wait used to trigger a second CommitAttach here (double
+                // stock debit, overwritten consist), and an abandoned job got cargo
+                // loaded into jobless pool cars.
+                if (job.State != JobState.InProgress)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: job is {job.State} after the staff wait; load aborted.");
+                    yield break;
+                }
+                if (!alreadyAttached && def.carsToTransport != null && def.carsToTransport.Count > 0)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: cars attached by someone else during the staff wait; load aborted (already debited once, not twice).");
+                    yield break;
+                }
+
+                var originSc = StationController.GetStationByYardID(def.chainData?.chainOriginYardId);
+                var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
                 var jobsManager = SingletonBehaviour<JobsManager>.Instance;
                 cars = cars.Where(c => c != null && c.LoadedCargoAmount == 0f &&
+                                       c.CurrentTrack != null && originTracks.Contains(c.CurrentTrack) &&
                                        (alreadyAttached || jobsManager.GetJobOfCar(c) == null)).ToList();
                 if (!alreadyAttached)
                 {
                     int wanted = def.plannedCarCount > 0 ? def.plannedCarCount : cars.Count;
                     if (cars.Count < wanted)
                     {
-                        Main.LogAlways($"[Servicing] {job.ID}: cars were taken during the staff wait; load aborted.");
+                        Main.LogAlways($"[Servicing] {job.ID}: cars were taken or moved during the staff wait; load aborted.");
                         yield break;
                     }
                     cars = cars.Take(wanted).ToList();
                     DleWarehouseLoadAttachPatch.CommitAttach(def, job, cars);
                 }
+                else if (cars.Count == 0)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: the consist left {def.chainData?.chainOriginYardId} during the staff wait; load aborted.");
+                    yield break;
+                }
 
                 foreach (var c in cars)
                     c.LoadCargo(c.capacity, def.transportedCargo);
+                def.loadedCarloads = Math.Max(def.loadedCarloads, cars.Count);
 
                 // Check the load task out of the machine so it reads Done; staff handled it.
                 var loadTask = job.tasks.OfType<WarehouseTask>()
@@ -260,6 +285,22 @@ namespace DLE.Dispatch
             if (penalty > 0f) yield return new WaitForSeconds(penalty);
             try
             {
+                // Revalidate after the wait: unloading a train that departed mid-wait
+                // vaporized its cargo on the mainline and force-completed the task.
+                if (job.State != JobState.InProgress)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: job is {job.State} after the staff wait; unload aborted.");
+                    yield break;
+                }
+                var destSc = StationController.GetStationByYardID(def.chainData?.chainDestinationYardId);
+                var allowed = StationTracks(destSc, def.unloadMachine?.WarehouseTrack);
+                var away = cars.Where(c => c == null || c.CurrentTrack == null || !allowed.Contains(c.CurrentTrack)).ToList();
+                if (away.Count > 0)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: the consist left {def.chainData?.chainDestinationYardId} during the staff wait; unload aborted.");
+                    yield break;
+                }
+
                 int unloaded = 0;
                 foreach (var c in cars)
                 {

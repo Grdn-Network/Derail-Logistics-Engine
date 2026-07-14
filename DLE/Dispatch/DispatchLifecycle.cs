@@ -39,8 +39,11 @@ namespace DLE.Dispatch
                 var assignment = AssignmentStore.Instance.Get(jobId);
                 if (assignment == null)
                     return Result.Fail("assignment lock is ON and this haul has no assigned crew");
-                if (!string.IsNullOrEmpty(player) &&
-                    !string.Equals(assignment.Player, player, StringComparison.OrdinalIgnoreCase))
+                // A blank name used to skip the match entirely, taking a locked haul out
+                // from under its assigned crew with no identity at all.
+                if (string.IsNullOrEmpty(player))
+                    return Result.Fail("assignment lock is ON; enter the crew name to take this haul");
+                if (!string.Equals(assignment.Player, player, StringComparison.OrdinalIgnoreCase))
                     return Result.Fail($"assignment lock is ON and this haul is assigned to {assignment.Player}");
             }
             else if (!string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
@@ -66,6 +69,8 @@ namespace DLE.Dispatch
             var cars = def.carsToTransport;
             if (cars == null || cars.Count == 0)
                 return Result.Fail("no cars attached yet; bring empties to the loading track first");
+            if (def.loadedCarloads <= 0)
+                return Result.Fail("this haul was never loaded; empty cars at the destination do not count as a delivery");
 
             // Delivered = empty and anywhere in the destination station's yard (the owner's
             // rule: at the station is enough; the exact track is the terminal's business).

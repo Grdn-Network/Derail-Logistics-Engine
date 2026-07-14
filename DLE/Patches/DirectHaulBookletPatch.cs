@@ -127,8 +127,13 @@ namespace DLE.Patches
             var destination = job.chainDestinationStationInfo
                 ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainDestinationYardId)?.stationInfo;
             if (origin == null || destination == null)
+            {
+                // Rendering on would NRE below (the exact crash this fallback exists to
+                // prevent); the caller degrades to a page without the front sheet.
                 Main.LogAlways($"[DirectHaul] {job.ID}: booklet station info unresolved " +
-                               $"(origin null={origin == null}, dest null={destination == null}).");
+                               $"(origin null={origin == null}, dest null={destination == null}); front page skipped.");
+                return null;
+            }
 
             // A carless job waiting for its empties has no cars sitting anywhere; the old
             // "Cars on track ..." line pointed crews at a consist that does not exist.
@@ -158,7 +163,11 @@ namespace DLE.Patches
                 LocalizationAPI.L(origin.LocalizationKey), origin.Type, origin.StationColor,
                 LocalizationAPI.L(destination.LocalizationKey), destination.Type, destination.StationColor,
                 cars, length, mass, value, timeLimit,
-                job.basePayment.ToString("N0", LocalizationAPI.CC),
+                // The vanilla payment is zeroed (booklets are faux); the paper shows the
+                // real on-delivery pay so crews can see what a haul is worth.
+                (defForTrack != null && defForTrack.deliveryPayment > 0f
+                    ? defForTrack.deliveryPayment
+                    : job.basePayment).ToString("N0", LocalizationAPI.CC),
                 pageNumber, totalPages);
         }
 
@@ -195,9 +204,14 @@ namespace DLE.Patches
             if (job == null || job.type != JobType.ComplexTransport)
                 return true;
 
+            var front = DirectHaulBooklet.BuildFrontPage(job, string.Empty, string.Empty);
             __result = new List<TemplatePaperData>
             {
-                DirectHaulBooklet.BuildFrontPage(job, string.Empty, string.Empty)
+                // Unresolvable station info degrades to a titled placeholder instead of
+                // an NRE that kills the render.
+                front ?? (TemplatePaperData)new JobExpiredTemplatePaperData(
+                    DirectHaulBooklet.DIRECT_HAUL_NAME, string.Empty, job.ID,
+                    DirectHaulBooklet.DIRECT_HAUL_COLOR)
             };
             return false;
         }
@@ -231,8 +245,9 @@ namespace DLE.Patches
             var pages = new List<TemplatePaperData>
             {
                 new CoverPageTemplatePaperData(job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", total),
-                DirectHaulBooklet.BuildFrontPage(job, "2", total),
             };
+            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", total);
+            if (frontPage != null) pages.Add(frontPage);
 
             if (hasLoadStep)
             {

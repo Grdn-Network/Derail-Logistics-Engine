@@ -32,6 +32,7 @@ namespace DLE.Data
             public string SpawnTrackDisplay;
             public bool IncludeLoadTask;
             public int PlannedCars;
+            public int LoadedCarloads;
         }
 
         [Serializable]
@@ -61,6 +62,7 @@ namespace DLE.Data
                     SpawnTrackDisplay = def.spawnTrackDisplay,
                     IncludeLoadTask = def.includeLoadTask,
                     PlannedCars = def.plannedCarCount,
+                    LoadedCarloads = def.loadedCarloads,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -135,7 +137,17 @@ namespace DLE.Data
             bool ok = DirectHaulGenerator.TryRebuild(origin, dest, cars, cargo,
                 snap.JobId, snap.Wage, snap.BonusTime, snap.SpawnTrackDisplay,
                 snap.IncludeLoadTask, snap.PlannedCars);
-            if (ok) JobUtils.EnsureCounterPast(snap.JobId);
+            if (ok)
+            {
+                JobUtils.EnsureCounterPast(snap.JobId);
+                // The saved tally outranks the rebuild's inference (cars may have been
+                // unloaded at the destination before the save, leaving them empty but
+                // legitimately delivered-in-progress).
+                if (snap.LoadedCarloads > 0 &&
+                    StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(snap.JobId, out var rebuilt) &&
+                    rebuilt.loadedCarloads < snap.LoadedCarloads)
+                    rebuilt.loadedCarloads = snap.LoadedCarloads;
+            }
             return ok;
         }
     }

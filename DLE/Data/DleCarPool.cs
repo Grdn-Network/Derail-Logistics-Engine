@@ -49,10 +49,17 @@ namespace DLE.Data
         {
             if (PoolsSeeded || !Main.IsHostOrSingleplayer()) yield break;
 
-            if (WorldAlreadyHasPool())
+            bool adopted = false;
+            try { adopted = TryAdoptExistingPool(); }
+            catch (Exception ex)
+            {
+                // This runs as a child of the director's TickLoop; an escaping exception
+                // would kill the whole loop for the session. Fail toward seeding.
+                Main.LogAlways($"[CarPool] pool adoption check failed ({ex.GetType().Name}: {ex.Message}); seeding instead.");
+            }
+            if (adopted)
             {
                 PoolsSeeded = true;
-                Main.LogAlways("[CarPool] starter pool already present; marking seeded, spawning nothing.");
                 yield break;
             }
 
@@ -70,24 +77,33 @@ namespace DLE.Data
         }
 
         /// <summary>
-        /// True when this world already holds a starter pool. Prefers our own record; falls
-        /// back to counting idle empties in the economy yards for a save whose DLE state did
-        /// not persist but whose cars did. Only detects a clearly-seeded world (a full pool's
-        /// worth); it never tops up a partially depleted one.
+        /// A save whose cars persisted but whose DLE state did not still holds a fleet;
+        /// adopt it instead of stacking a second pool on top. Adoption REGISTERS the cars
+        /// in the pool (previously they were left out of _guids, so the unused-car deleter
+        /// was free to garbage-collect the whole fleet and the cap counted zero). Only a
+        /// clearly-seeded world (a full pool's worth of idle empties) is adopted; a handful
+        /// of stray leftovers is not, and seeding proceeds.
         /// </summary>
-        private bool WorldAlreadyHasPool()
+        private bool TryAdoptExistingPool()
         {
             if (_guids.Count > 0) return true;
-            int threshold = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
-            int idle = 0;
+            var found = new List<TrainCar>();
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
-                idle += CollectIdleEmpties(sc, null, int.MaxValue).Count;
-                if (idle >= threshold) return true;
+                found.AddRange(CollectIdleEmpties(sc, null, int.MaxValue));
             }
-            return false;
+            // A single haul's worth of leftovers is not a pool: expired vanilla jobs leave
+            // that much lying around. Require several hauls' worth before adopting.
+            int threshold = Math.Max(2, Main.Settings?.MaxCarsPerHaul ?? 6) * 3;
+            if (found.Count < threshold) return false;
+
+            foreach (var tc in found)
+                if (tc.logicCar?.carGuid != null)
+                    _guids.Add(tc.logicCar.carGuid);
+            Main.LogAlways($"[CarPool] adopted an existing pool of {found.Count} idle car(s); they are protected and counted, nothing spawned.");
+            return true;
         }
 
         /// <summary>
@@ -212,6 +228,13 @@ namespace DLE.Data
 
             var bad = new List<TrainCar>();
             int slept = 0;
+            List<KeyValuePair<TrainCar, Vector3>> snapshot;
+            try { snapshot = SnapshotAllCars(); }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[CarPool] validation snapshot failed ({ex.Message}); sleeping cars unvalidated.");
+                snapshot = new List<KeyValuePair<TrainCar, Vector3>>();
+            }
             foreach (var tc in cars)
             {
                 if (tc == null) continue;
@@ -219,7 +242,7 @@ namespace DLE.Data
                 {
                     // Wrecked (derailed or impossibly tilted) OR interpenetrating another
                     // car: sleeping it just plants a mine that detonates when it wakes.
-                    if (IsWreck(tc) || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
+                    if (IsWreck(tc) || OverlapsAnotherCar(tc, snapshot)) { bad.Add(tc); continue; }
                     tc.ForceSleep(true);
                     slept++;
                 }
@@ -315,20 +338,36 @@ namespace DLE.Data
         }
 
         /// <summary>
-        /// Two coupled freight cars sit roughly 10m apart center to center, so another
-        /// car's center within 5m means the two interpenetrate: a physics mine that fires
-        /// both apart at speed the moment they wake (the "stress build up at speed" derail
-        /// spam). Kinematic sleep hides mines from every derail check, so overlap has to
-        /// be detected geometrically.
+        /// Interpenetration distance: coupled cars on one track sit ~10m apart center to
+        /// center and true stacked spawns sit near 0-2m, while parallel tracks (DoubleTrack
+        /// lays them at 4.0-4.5m centers) put healthy cars abreast just past 3.5m. 5m used
+        /// to false-positive on those neighbors and delete healthy stock.
         /// </summary>
-        private static bool OverlapsAnotherCar(TrainCar tc, float threshold = 5f)
+        private const float OverlapDistance = 3.5f;
+        private const float OverlapDistanceSq = OverlapDistance * OverlapDistance;
+
+        /// <summary>
+        /// Cars frozen inside each other are physics mines that fire apart on wake; sleep
+        /// hides them from every derail flag, so overlap is detected geometrically against
+        /// a position snapshot (one native transform fetch per car instead of per pair).
+        /// </summary>
+        private static List<KeyValuePair<TrainCar, Vector3>> SnapshotAllCars()
+        {
+            var list = new List<KeyValuePair<TrainCar, Vector3>>();
+            foreach (var other in TrainCarRegistry.Instance.logicCarToTrainCar.Values)
+                if (other != null)
+                    list.Add(new KeyValuePair<TrainCar, Vector3>(other, other.transform.position));
+            return list;
+        }
+
+        private static bool OverlapsAnotherCar(TrainCar tc, List<KeyValuePair<TrainCar, Vector3>> snapshot)
         {
             if (tc == null) return false;
             var pos = tc.transform.position;
-            foreach (var other in TrainCarRegistry.Instance.logicCarToTrainCar.Values)
+            foreach (var kv in snapshot)
             {
-                if (other == null || ReferenceEquals(other, tc)) continue;
-                if ((other.transform.position - pos).sqrMagnitude < threshold * threshold)
+                if (ReferenceEquals(kv.Key, tc)) continue;
+                if ((kv.Value - pos).sqrMagnitude < OverlapDistanceSq)
                     return true;
             }
             return false;
@@ -372,12 +411,18 @@ namespace DLE.Data
                 if (IsWreck(tc)) targets.Add(tc);
             }
 
-            // Mine sweep: interpenetrating pairs among the free cars.
+            // Mine sweep: interpenetrating pairs among the free cars. Positions are
+            // snapshotted once (not re-fetched per pair), and the threshold sits below
+            // parallel-track spacing (DoubleTrack lays neighbors at 4.0-4.5m centers) so
+            // healthy cars standing abreast are never mistaken for a stack.
             int mines = 0;
+            var positions = new Vector3[freeCars.Count];
+            for (int i = 0; i < freeCars.Count; i++)
+                positions[i] = freeCars[i].transform.position;
             for (int i = 0; i < freeCars.Count; i++)
                 for (int j = i + 1; j < freeCars.Count; j++)
                 {
-                    if ((freeCars[i].transform.position - freeCars[j].transform.position).sqrMagnitude >= 25f)
+                    if ((positions[i] - positions[j]).sqrMagnitude >= OverlapDistanceSq)
                         continue;
                     if (targets.Add(freeCars[i])) mines++;
                     if (targets.Add(freeCars[j])) mines++;
@@ -417,9 +462,24 @@ namespace DLE.Data
         /// off the same track. Company.respawn and new-game seeding both come through here.
         /// Host or singleplayer only.
         /// </summary>
+        /// <summary>
+        /// True while a pool sweep (seed or respawn) is running. Two interleaved sweeps
+        /// each see the same tracks as free with separate ledgers and stack cuts, and the
+        /// second sweep's bulldozer eats the first's unslept cars; single-flight only.
+        /// Reset by the director on every world load so a dead coroutine cannot wedge it.
+        /// </summary>
+        internal static bool SweepInFlight;
+
         public IEnumerator RespawnStationPoolsRoutine(bool deleteFirst, Action<int> onDone = null)
         {
             if (!Main.IsHostOrSingleplayer()) { onDone?.Invoke(0); yield break; }
+            if (SweepInFlight)
+            {
+                Main.LogAlways("[CarPool] a pool sweep is already running; ignoring this one.");
+                onDone?.Invoke(0);
+                yield break;
+            }
+            SweepInFlight = true;
             int totalSpawned = 0;
             int perOutput = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
             var claimed = new Dictionary<JobTrack, float>();
@@ -457,6 +517,7 @@ namespace DLE.Data
             yield return ValidateAndSleepRoutine(spawnedCars, n => deleted = n);
             totalSpawned -= deleted;
 
+            SweepInFlight = false;
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             onDone?.Invoke(totalSpawned);
         }
@@ -476,6 +537,25 @@ namespace DLE.Data
                 PoolsSeeded = PoolsSeeded,
                 Guids = _guids.ToList(),
             });
+
+        /// <summary>
+        /// Drop guids whose car no longer exists (deleted via comms radio, MP despawn,
+        /// game cleanup): they are dead weight that only counts against MaxPoolCars, and
+        /// left alone the counted fleet creeps to the cap while the real one shrinks.
+        /// Runs at load, when the registry already holds every restored car.
+        /// </summary>
+        public void PruneDeadGuids()
+        {
+            if (_guids.Count == 0) return;
+            var alive = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
+                if (kv.Key?.carGuid != null)
+                    alive.Add(kv.Key.carGuid);
+            int before = _guids.Count;
+            _guids.RemoveWhere(g => !alive.Contains(g));
+            if (_guids.Count != before)
+                Main.LogAlways($"[CarPool] pruned {before - _guids.Count} dead pool guid(s); pool now {_guids.Count}.");
+        }
 
         public void LoadFrom(SaveGameData data)
         {

@@ -39,6 +39,13 @@ namespace DLE.Economy
                     Outputs = outputs,
                 };
 
+                // Stations with proper warehouses double as storage (hubs hold cargo for
+                // redistribution), so they ship with twice the default cap; economy.json
+                // overrides everything as usual.
+                if (sc.logicStation?.yard?.WarehouseMachines != null &&
+                    sc.logicStation.yard.WarehouseMachines.Count > 0)
+                    facility.DefaultCap *= 2f;
+
                 // Default recipe: consume one of each input to make one of each output.
                 // Sources (no inputs) and sinks (no outputs) simply hold stock in 0.1.
                 if (outputs.Count > 0 && inputs.Count > 0)

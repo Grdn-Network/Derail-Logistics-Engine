@@ -58,7 +58,11 @@ namespace DLE.Economy
                     var consumer = FindConsumer(econ, cargo, producer.YardId);
                     if (consumer == null) continue;
 
-                    int carCount = (int)Math.Min(max, Math.Floor(stock));
+                    // Size to what the destination can actually accept, not just to stock:
+                    // oversizing meant the delivery gate destroyed the excess unpaid on a
+                    // haul the director itself ordered.
+                    double room = econ.GetRoom(consumer.YardId, cargo) + 0.001;
+                    int carCount = (int)Math.Min(max, Math.Min(Math.Floor(stock), Math.Floor(room)));
                     if (carCount < min) continue;
 
                     var producerSc = StationController.GetStationByYardID(producer.YardId);

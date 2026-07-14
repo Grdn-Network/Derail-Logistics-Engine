@@ -37,6 +37,9 @@ namespace DLE.Economy
 
         private void Start()
         {
+            // Fresh world, fresh sweep state: a coroutine that died mid-sweep in the old
+            // world must not wedge the single-flight guard forever.
+            Data.DleCarPool.SweepInFlight = false;
             StartCoroutine(TickLoop());
             StartCoroutine(OverviewSweepLoop());
         }
@@ -71,8 +74,18 @@ namespace DLE.Economy
                 for (int i = overviews.Count - 1; i >= 0; i--)
                 {
                     var ov = overviews[i];
-                    var id = ov?.job?.ID;
+                    // Unity's overloaded == catches destroyed components; `ov?.` would not,
+                    // and DestroyJobOverview does NOT remove itself from this list (vanilla
+                    // callers remove first), so we prune AND remove or the next pass throws
+                    // MissingReferenceException and aborts the sweep.
+                    if (ov == null)
+                    {
+                        overviews.RemoveAt(i);
+                        continue;
+                    }
+                    var id = ov.job?.ID;
                     if (id == null || !Jobs.JobUtils.ManagedJobIds.Contains(id)) continue;
+                    overviews.RemoveAt(i);
                     ov.DestroyJobOverview();
                     removed++;
                 }

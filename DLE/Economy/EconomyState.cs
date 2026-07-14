@@ -165,7 +165,9 @@ namespace DLE.Economy
         public int OnDelivered(string yardId, CargoType cargo, int carloads)
         {
             if (carloads <= 0) return 0;
-            int accepted = (int)Math.Min(carloads, GetRoom(yardId, cargo));
+            // Epsilon absorbs float drift from fractional recipes (HasOutputRoom does the
+            // same); without it 3.9999962 room truncated to 3 and ate a real carload.
+            int accepted = (int)Math.Min(carloads, GetRoom(yardId, cargo) + 0.001f);
             if (accepted <= 0)
             {
                 Main.Log($"[Economy] {yardId} is full of {cargo}; delivery accepted nothing.");
