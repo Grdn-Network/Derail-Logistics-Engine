@@ -188,6 +188,27 @@ namespace DLE.Dispatch
                     return;
                 }
 
+                // Remote lifecycle: dispatch takes and turns in hauls from the board (#30).
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/take", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/take".Length);
+                    var req = JsonConvert.DeserializeObject<TakeRequest>(ReadBody(ctx) ?? "");
+                    var r = DispatchLifecycle.TakeJob(jobId, req?.player);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/complete", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/complete".Length);
+                    var r = DispatchLifecycle.CompleteJob(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+
                 const string assignPrefix = "/api/v1/assignments/";
                 if (path.StartsWith(assignPrefix, StringComparison.Ordinal))
                 {
@@ -228,6 +249,7 @@ namespace DLE.Dispatch
 
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
+        private class TakeRequest { public string player = null; }
         private class LockRequest { public bool enabled = false; }
         private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
@@ -346,10 +368,12 @@ async function refresh(){
  document.getElementById('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
   options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
  const jobHdr='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>';
- const jobRow=x=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
-  `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`;
- document.getElementById('tAvail').innerHTML=jobHdr+jobs.filter(x=>x.state==='Available').map(jobRow).join('');
- document.getElementById('tJobs').innerHTML=jobHdr+jobs.filter(x=>x.state!=='Available').map(jobRow).join('');
+ const jobRow=(x,av)=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
+  `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button>`+
+  (av?`<button onclick=""takeJob('${x.id}')"">Take</button>`:`<button onclick=""completeJob('${x.id}')"">Turn in</button>`)+
+  `<button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`;
+ document.getElementById('tAvail').innerHTML=jobHdr+jobs.filter(x=>x.state==='Available').map(x=>jobRow(x,true)).join('');
+ document.getElementById('tJobs').innerHTML=jobHdr+jobs.filter(x=>x.state!=='Available').map(x=>jobRow(x,false)).join('');
  document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
   logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
    `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
@@ -359,6 +383,8 @@ async function refresh(){
 async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){msg('enter a player name');return}
  const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});msg(r.ok?('Assigned '+id+' to '+p):'assign failed');refresh()}
 async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
+async function takeJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/take','POST',{player:p||null});msg(r.message||'failed');refresh()}
+async function completeJob(id){const r=await j('/api/v1/jobs/'+id+'/complete','POST');msg(r.message||'failed');refresh()}
 async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Assignment lock now '+(r.lockEnabled?'ON':'off'));refresh()}
 async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
  if(!b.from||!b.to){msg('from and to required');return}
