@@ -110,6 +110,18 @@ namespace DLE.Economy
                     if (so.remoteUnload.HasValue) facility.RemoteUnload = so.remoteUnload.Value;
                     if (so.remoteSecondsPerCar.HasValue) facility.RemoteSecondsPerCar = so.remoteSecondsPerCar.Value;
                 }
+
+            // Warn when a role contradicts the station's derived economy, so a config
+            // typo that silently strands stock or starves inputs is visible in the log.
+            foreach (var f in facilities.Values)
+            {
+                if (f.Role == ServiceRole.Unload && f.Outputs.Count > 0)
+                    Main.LogAlways($"[Economy] {f.YardId}: role=unload but it produces " +
+                                   $"{string.Join(", ", f.Outputs)}; those never ship.");
+                if (f.Role == ServiceRole.Load && f.Inputs.Count > 0)
+                    Main.LogAlways($"[Economy] {f.YardId}: role=load but it consumes " +
+                                   $"{string.Join(", ", f.Inputs)}; those never arrive.");
+            }
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
         }
 
