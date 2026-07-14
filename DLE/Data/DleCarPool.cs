@@ -136,20 +136,23 @@ namespace DLE.Data
 
             float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
 
-            // Physical occupancy decides, not the YardTracksOrganizer reservation ledger
-            // (stale reservations from long-dead jobs report full tracks in an empty yard).
-            // The per-sweep claimed ledger is subtracted on top so cars spawned earlier in
-            // this same sweep, which OccupiedLength has not caught up to yet, still count.
+            // One cut per EMPTY track. The physics overlap check (Strict) is blind at
+            // stations whose cells are not streamed in, so the only streaming-proof
+            // guarantee against stacking is the logic layer: a track with zero cars on it
+            // and no claim from this sweep cannot hold anything to stack onto. Stations
+            // with more outputs than free storage tracks shortfall and say so.
             var fitting = station.logicStation.yard.StorageTracks
-                .Where(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t) > length)
+                .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                .Where(t => ClaimedOn(claimed, t) <= 0f)
+                .Where(t => t.length - 10.0 > length)
                 .ToList();
             if (fitting.Count == 0)
             {
-                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no storage track has {length:F0}m physically free for {count} empt{(count == 1 ? "y" : "ies")}.");
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no empty storage track fits {count} empt{(count == 1 ? "y" : "ies")} ({length:F0}m); nothing spawned.");
                 return 0;
             }
             var track = fitting
-                .OrderByDescending(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t))
+                .OrderByDescending(t => t.length)
                 .First();
 
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
@@ -212,22 +215,44 @@ namespace DLE.Data
             foreach (var tc in cars)
             {
                 if (tc == null) continue;
-                // Wrecked (derailed or impossibly tilted) OR interpenetrating another
-                // car: sleeping it just plants a mine that detonates when it wakes.
-                if (IsWreck(tc) || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
-                tc.ForceSleep(true);
-                slept++;
+                try
+                {
+                    // Wrecked (derailed or impossibly tilted) OR interpenetrating another
+                    // car: sleeping it just plants a mine that detonates when it wakes.
+                    if (IsWreck(tc) || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
+                    tc.ForceSleep(true);
+                    slept++;
+                }
+                catch (Exception ex)
+                {
+                    bad.Add(tc);
+                    Main.LogAlways($"[CarPool] {tc.ID}: validation failed ({ex.GetType().Name}); quarantining it.");
+                }
             }
 
             if (bad.Count > 0)
             {
+                int gone = 0;
+                var single = new List<TrainCar>(1);
                 foreach (var tc in bad)
-                    if (tc.logicCar?.carGuid != null)
-                        _guids.Remove(tc.logicCar.carGuid);
-                CarSpawner.Instance.DeleteTrainCars(bad, true);
-                Main.LogAlways($"[CarPool] quarantined {bad.Count} car(s) that spawned derailed or overlapping; they are deleted, not saved.");
+                {
+                    try
+                    {
+                        if (tc.logicCar?.carGuid != null)
+                            _guids.Remove(tc.logicCar.carGuid);
+                        single.Clear();
+                        single.Add(tc);
+                        CarSpawner.Instance.DeleteTrainCars(single, true);
+                        gone++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Main.LogAlways($"[CarPool] could not delete quarantined {tc?.ID}: {ex.Message}");
+                    }
+                }
+                Main.LogAlways($"[CarPool] quarantined {gone}/{bad.Count} car(s) that spawned derailed or overlapping; they are deleted, not saved.");
             }
-            Main.Log($"[CarPool] {slept} spawned car(s) put to sleep.");
+            Main.LogAlways($"[CarPool] {slept} spawned car(s) put to sleep.");
             onDeleted?.Invoke(bad.Count);
         }
 
@@ -413,7 +438,15 @@ namespace DLE.Data
                 if (sc == null) continue;
 
                 foreach (var cargo in facility.Outputs)
-                    totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed, spawnedCars);
+                {
+                    // One failed station must not kill the whole map's respawn: a silent
+                    // coroutine death here is exactly what left stacked cuts unvalidated.
+                    try { totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed, spawnedCars); }
+                    catch (Exception ex)
+                    {
+                        Main.LogAlways($"[CarPool] {facility.YardId}: spawning {cargo} failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
 
                 // One station per frame-slice: spread the cost, let physics settle.
                 yield return null;
