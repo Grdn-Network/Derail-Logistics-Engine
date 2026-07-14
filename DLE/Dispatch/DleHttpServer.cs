@@ -95,6 +95,11 @@ namespace DLE.Dispatch
             string method = ctx.Request.HttpMethod;
             try
             {
+                // CSRF guard: refuse state-changing calls from another web origin. Same-origin
+                // board requests and non-browser clients (curl, RemoteDispatch) are allowed.
+                if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx))
+                { Json(ctx, 403, new { error = "cross-origin request refused" }); return; }
+
                 if (method == "GET" && (path == "" || path == "/")) { Html(ctx, DashboardPage); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
@@ -430,12 +435,20 @@ refresh();setInterval(refresh,5000);
                 return reader.ReadToEnd();
         }
 
+        // A same-origin board request (or a non-browser client like curl / RemoteDispatch)
+        // either sends no Origin header or sends our own; anything else is a foreign site.
+        private static bool IsForeignOrigin(HttpListenerContext ctx)
+        {
+            var origin = ctx.Request.Headers["Origin"];
+            if (string.IsNullOrEmpty(origin)) return false;
+            return origin != $"http://127.0.0.1:{Port}" && origin != $"http://localhost:{Port}";
+        }
+
         private static void Json(HttpListenerContext ctx, int status, object payload)
         {
             var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
             ctx.Response.StatusCode = status;
             ctx.Response.ContentType = "application/json";
-            ctx.Response.Headers.Add("Access-Control-Allow-Origin", "*");
             ctx.Response.ContentLength64 = bytes.Length;
             ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
             ctx.Response.OutputStream.Close();

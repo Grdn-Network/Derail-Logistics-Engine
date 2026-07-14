@@ -96,17 +96,27 @@ namespace DLE.Patches
                 if (wanted <= 0) continue;
 
                 if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(task.cargoType, out var v2)) continue;
-                var loadable = DV.Globals.G.Types.CargoToLoadableCarTypes[v2];
+                if (!DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var loadable)) continue;
 
                 // Suitable = on the warehouse track, right car family, jobless and empty.
                 // Dispatcher-reserved cars are taken first, then anything else suitable.
                 var jobsManager = SingletonBehaviour<JobsManager>.Instance;
+
+                // Cars another live job has reserved are off-limits here, so this job never
+                // grabs the cut a dispatcher set aside for a different haul.
+                var reservedElsewhere = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var other in StaticDirectHaulJobDefinition.jobDefinitions)
+                    if (other.Key != jobData.id && other.Value?.reservedCarIds != null)
+                        foreach (var rid in other.Value.reservedCarIds)
+                            reservedElsewhere.Add(rid);
+
                 var candidates = new List<Car>();
                 foreach (var car in machine.WarehouseTrack.GetCarsFullyOnTrack())
                 {
                     if (!loadable.Contains(car.carType.parentType)) continue;
                     if (jobsManager.GetJobOfCar(car) != null) continue;
                     if (car.LoadedCargoAmount != 0) continue;
+                    if (reservedElsewhere.Contains(car.ID)) continue; // reserved for another job
                     candidates.Add(car);
                 }
                 var reserved = def.reservedCarIds;
@@ -189,6 +199,12 @@ namespace DLE.Patches
                         new DV.Booklets.Job_data(job),
                         book.transform.position, book.transform.rotation).gameObject;
                     var tempPb = tempBook.GetComponent<PageBook>();
+                    if (tempPb == null)
+                    {
+                        // No page book to swap from; drop the temp so it does not leak.
+                        UnityEngine.Object.Destroy(tempBook);
+                        continue;
+                    }
 
                     tempPb.PageBookGenerated += () =>
                     {
