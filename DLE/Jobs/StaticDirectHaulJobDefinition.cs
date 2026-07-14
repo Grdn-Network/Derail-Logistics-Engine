@@ -32,6 +32,13 @@ namespace DLE.Jobs
         public int plannedCarCount;
 
         /// <summary>
+        /// The real haul payment. Booklets are faux (the vanilla job pays 0), so this is
+        /// paid into the wallet on the delivery unload instead, and only for the cargo the
+        /// destination actually accepts (nothing when it is full).
+        /// </summary>
+        public float deliveryPayment;
+
+        /// <summary>
         /// Car IDs the dispatcher reserved for this haul (plate IDs). Guidance for crews
         /// and preferred by the warehouse attach; not enforced.
         /// </summary>

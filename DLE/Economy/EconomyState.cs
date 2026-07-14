@@ -156,14 +156,26 @@ namespace DLE.Economy
             Debit(yardId, cargo, actualAmount);
         }
 
-        /// <summary>Called when a Direct Haul unloads its cars at the destination.</summary>
-        public void OnDelivered(string yardId, CargoType cargo, int carloads)
+        /// <summary>
+        /// Called when a Direct Haul unloads its cars at the destination. Only the cargo the
+        /// station still has room for is accepted (a full consumer accepts nothing and so
+        /// pays nothing); returns the accepted carloads so the payment gate pays for exactly
+        /// what was delivered.
+        /// </summary>
+        public int OnDelivered(string yardId, CargoType cargo, int carloads)
         {
-            if (carloads <= 0) return;
-            Credit(yardId, cargo, carloads);
-            EconomyHistory.Record("delivered", yardId, cargo.ToString(), carloads);
-            Main.Log($"[Economy] {yardId} received {carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
+            if (carloads <= 0) return 0;
+            int accepted = (int)Math.Min(carloads, GetRoom(yardId, cargo));
+            if (accepted <= 0)
+            {
+                Main.Log($"[Economy] {yardId} is full of {cargo}; delivery accepted nothing.");
+                return 0;
+            }
+            Credit(yardId, cargo, accepted);
+            EconomyHistory.Record("delivered", yardId, cargo.ToString(), accepted);
+            Main.Log($"[Economy] {yardId} received {accepted}/{carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
             Conversion.Current.OnDelivered(this, yardId);
+            return accepted;
         }
 
         public void Credit(string yardId, CargoType cargo, float amount)

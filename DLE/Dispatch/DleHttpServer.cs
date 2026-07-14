@@ -303,7 +303,7 @@ namespace DLE.Dispatch
                 cars = kv.Value.carsToTransport?.Count ?? 0,
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
-                wage = kv.Value.initialWage,
+                wage = kv.Value.deliveryPayment,
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
