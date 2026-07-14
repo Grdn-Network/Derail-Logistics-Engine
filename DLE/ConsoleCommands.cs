@@ -17,8 +17,12 @@ namespace DLE
         public static void Respawn(CommandArg[] args)
         {
             if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.respawn: host or singleplayer only."); return; }
-            int spawned = DleCarPool.Instance.RespawnStationPools(deleteFirst: true);
-            Debug.Log($"company.respawn: pools rebuilt, {spawned} car(s) spawned.");
+            bool started = DleDirectorBehaviour.TryRun(
+                DleCarPool.Instance.RespawnStationPoolsRoutine(deleteFirst: true,
+                    n => Debug.Log($"company.respawn: pools rebuilt, {n} car(s) spawned.")));
+            Debug.Log(started
+                ? "company.respawn: rebuilding pools, spreading spawns across frames..."
+                : "company.respawn: world not ready yet, try again once loaded.");
         }
 
         [RegisterCommand("company.resupply",

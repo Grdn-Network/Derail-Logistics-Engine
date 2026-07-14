@@ -21,6 +21,16 @@ namespace DLE.Economy
             _host.AddComponent<DleDirectorBehaviour>();
         }
 
+        /// <summary>Run a coroutine on the host director (used by console commands).</summary>
+        public static bool TryRun(IEnumerator routine)
+        {
+            if (_host == null || routine == null) return false;
+            var beh = _host.GetComponent<DleDirectorBehaviour>();
+            if (beh == null) return false;
+            beh.StartCoroutine(routine);
+            return true;
+        }
+
         private void Start() => StartCoroutine(TickLoop());
 
         private IEnumerator TickLoop()
@@ -37,8 +47,9 @@ namespace DLE.Economy
             }
 
             // One-time starter pools happen here, not at LoadingFinished: car spawning
-            // needs the world fully live (the same reason this loop waits).
-            Data.DleCarPool.Instance.SeedOnceIfNeeded();
+            // needs the world fully live (the same reason this loop waits). Runs as a
+            // nested coroutine so the fill spreads across frames.
+            yield return Data.DleCarPool.Instance.SeedOnceIfNeededRoutine();
 
             Main.LogAlways("[Director] initial fill starting.");
             int created = 0;
