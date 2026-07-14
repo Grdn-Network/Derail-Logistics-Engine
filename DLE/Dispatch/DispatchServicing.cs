@@ -94,10 +94,10 @@ namespace DLE.Dispatch
             if (facility == null || !facility.RemoteLoad)
                 return Result.Fail($"{originYard} has no loading staff; bring the cars to {loadTrack?.ID?.FullDisplayID ?? "the loading track"}");
 
-            float penalty = (facility.RemoteSecondsPerCar) * cars.Count;
-            if (!DleDirectorBehaviour.TryRun(StaffLoadRoutine(def, job, cars, attached, penalty)))
+            float perCar = facility.RemoteSecondsPerCar;
+            if (!DleDirectorBehaviour.TryRun(StaffLoadRoutine(def, job, cars, attached, perCar)))
                 return Result.Fail("world not ready");
-            return Result.Done($"station staff loading {cars.Count} car(s), about {penalty:0}s");
+            return Result.Done($"station staff loading {cars.Count} car(s), one every {perCar:0}s (about {perCar * cars.Count:0}s)");
         }
 
         public static Result UnloadJob(string jobId)
@@ -140,10 +140,10 @@ namespace DLE.Dispatch
             if (facility == null || !facility.RemoteUnload)
                 return Result.Fail($"{destYard} has no unloading staff; spot the cars on {unloadTrack?.ID?.FullDisplayID ?? "the unloading track"}");
 
-            float penalty = facility.RemoteSecondsPerCar * cars.Count;
-            if (!DleDirectorBehaviour.TryRun(StaffUnloadRoutine(def, job, cars.ToList(), penalty)))
+            float perCar = facility.RemoteSecondsPerCar;
+            if (!DleDirectorBehaviour.TryRun(StaffUnloadRoutine(def, job, cars.ToList(), perCar)))
                 return Result.Fail("world not ready");
-            return Result.Done($"station staff unloading {cars.Count} car(s), about {penalty:0}s");
+            return Result.Done($"station staff unloading {cars.Count} car(s), one every {perCar:0}s (about {perCar * cars.Count:0}s)");
         }
 
         // Helpers
@@ -218,106 +218,146 @@ namespace DLE.Dispatch
                 .ToList();
         }
 
+        /// <summary>
+        /// Station staff work the cut the way the terminal does, one car per
+        /// remoteSecondsPerCar, just on whatever track the cars stand: the longer-loading
+        /// pacing on any track, per the owner's design. Everything is revalidated when
+        /// each car comes up, so a job that dies or a consist that leaves mid-work stops
+        /// the loading at that car instead of double-debiting or conjuring cargo.
+        /// </summary>
         private static IEnumerator StaffLoadRoutine(StaticDirectHaulJobDefinition def, Job job,
-            List<Car> cars, bool alreadyAttached, float penalty)
+            List<Car> cars, bool alreadyAttached, float perCar)
         {
-            if (penalty > 0f) yield return new WaitForSeconds(penalty);
+            // The first staff member walks out to the cut.
+            if (perCar > 0f) yield return new WaitForSeconds(perCar);
+
+            // Attach commitment happens once, revalidated: a lever attach mid-wait used to
+            // trigger a second CommitAttach (double stock debit, overwritten consist).
+            var originSc = StationController.GetStationByYardID(def.chainData?.chainOriginYardId);
+            var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
             try
             {
-                // The world moved on during the wait; revalidate EVERYTHING. A lever
-                // attach mid-wait used to trigger a second CommitAttach here (double
-                // stock debit, overwritten consist), and an abandoned job got cargo
-                // loaded into jobless pool cars.
                 if (job.State != JobState.InProgress)
                 {
-                    Main.LogAlways($"[Servicing] {job.ID}: job is {job.State} after the staff wait; load aborted.");
+                    Main.LogAlways($"[Servicing] {job.ID}: job is {job.State}; staff load aborted.");
                     yield break;
                 }
-                if (!alreadyAttached && def.carsToTransport != null && def.carsToTransport.Count > 0)
-                {
-                    Main.LogAlways($"[Servicing] {job.ID}: cars attached by someone else during the staff wait; load aborted (already debited once, not twice).");
-                    yield break;
-                }
-
-                var originSc = StationController.GetStationByYardID(def.chainData?.chainOriginYardId);
-                var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
-                var jobsManager = SingletonBehaviour<JobsManager>.Instance;
-                cars = cars.Where(c => c != null && c.LoadedCargoAmount == 0f &&
-                                       c.CurrentTrack != null && originTracks.Contains(c.CurrentTrack) &&
-                                       (alreadyAttached || jobsManager.GetJobOfCar(c) == null)).ToList();
                 if (!alreadyAttached)
                 {
+                    if (def.carsToTransport != null && def.carsToTransport.Count > 0)
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: cars attached by someone else during the staff walk-out; load aborted (debited once, not twice).");
+                        yield break;
+                    }
+                    var jobsManager = SingletonBehaviour<JobsManager>.Instance;
+                    cars = cars.Where(c => c != null && c.LoadedCargoAmount == 0f &&
+                                           c.CurrentTrack != null && originTracks.Contains(c.CurrentTrack) &&
+                                           jobsManager.GetJobOfCar(c) == null).ToList();
                     int wanted = def.plannedCarCount > 0 ? def.plannedCarCount : cars.Count;
                     if (cars.Count < wanted)
                     {
-                        Main.LogAlways($"[Servicing] {job.ID}: cars were taken or moved during the staff wait; load aborted.");
+                        Main.LogAlways($"[Servicing] {job.ID}: cars were taken or moved during the staff walk-out; load aborted.");
                         yield break;
                     }
                     cars = cars.Take(wanted).ToList();
                     DleWarehouseLoadAttachPatch.CommitAttach(def, job, cars);
                 }
-                else if (cars.Count == 0)
-                {
-                    Main.LogAlways($"[Servicing] {job.ID}: the consist left {def.chainData?.chainOriginYardId} during the staff wait; load aborted.");
-                    yield break;
-                }
-
-                foreach (var c in cars)
-                    c.LoadCargo(c.capacity, def.transportedCargo);
-                def.loadedCarloads = Math.Max(def.loadedCarloads, cars.Count);
-
-                // Check the load task out of the machine so it reads Done; staff handled it.
-                var loadTask = job.tasks.OfType<WarehouseTask>()
-                    .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Loading);
-                if (loadTask != null) def.loadMachine?.RemoveWarehouseTask(loadTask);
-
-                Main.LogAlways($"[Servicing] {job.ID}: staff loaded {cars.Count} {def.transportedCargo} at {def.chainData?.chainOriginYardId}.");
             }
             catch (Exception ex)
             {
                 Main.LogAlways($"[Servicing] {job.ID}: staff load failed: {ex.GetType().Name}: {ex.Message}");
+                yield break;
+            }
+
+            // One car per interval, exactly like the terminal's paced loop but off-track.
+            int loaded = 0;
+            for (int i = 0; i < cars.Count; i++)
+            {
+                if (i > 0 && perCar > 0f) yield return new WaitForSeconds(perCar);
+                try
+                {
+                    if (job.State != JobState.InProgress)
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: job is {job.State}; staff load stopped at {loaded}/{cars.Count}.");
+                        yield break;
+                    }
+                    var c = cars[i];
+                    if (c == null || c.LoadedCargoAmount > 0f) continue;
+                    if (c.CurrentTrack == null || !originTracks.Contains(c.CurrentTrack))
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: {c.ID} left {def.chainData?.chainOriginYardId}; staff load stopped at {loaded}/{cars.Count}.");
+                        yield break;
+                    }
+                    c.LoadCargo(c.capacity, def.transportedCargo);
+                    loaded++;
+                    def.loadedCarloads = Math.Max(def.loadedCarloads, loaded);
+                }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: staff load of car {i + 1} failed: {ex.Message}");
+                }
+            }
+
+            try
+            {
+                // Check the load task out of the machine so it reads Done; staff handled it.
+                var loadTask = job.tasks.OfType<WarehouseTask>()
+                    .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Loading);
+                if (loadTask != null) def.loadMachine?.RemoveWarehouseTask(loadTask);
+                Main.LogAlways($"[Servicing] {job.ID}: staff loaded {loaded} {def.transportedCargo} at {def.chainData?.chainOriginYardId}.");
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[Servicing] {job.ID}: staff load wrap-up failed: {ex.Message}");
             }
         }
 
+        /// <summary>Mirror of the staff load: one car per interval, revalidated per car,
+        /// so a consist that departs mid-work stops the unloading instead of having its
+        /// cargo vaporized on the mainline.</summary>
         private static IEnumerator StaffUnloadRoutine(StaticDirectHaulJobDefinition def, Job job,
-            List<Car> cars, float penalty)
+            List<Car> cars, float perCar)
         {
-            if (penalty > 0f) yield return new WaitForSeconds(penalty);
-            try
-            {
-                // Revalidate after the wait: unloading a train that departed mid-wait
-                // vaporized its cargo on the mainline and force-completed the task.
-                if (job.State != JobState.InProgress)
-                {
-                    Main.LogAlways($"[Servicing] {job.ID}: job is {job.State} after the staff wait; unload aborted.");
-                    yield break;
-                }
-                var destSc = StationController.GetStationByYardID(def.chainData?.chainDestinationYardId);
-                var allowed = StationTracks(destSc, def.unloadMachine?.WarehouseTrack);
-                var away = cars.Where(c => c == null || c.CurrentTrack == null || !allowed.Contains(c.CurrentTrack)).ToList();
-                if (away.Count > 0)
-                {
-                    Main.LogAlways($"[Servicing] {job.ID}: the consist left {def.chainData?.chainDestinationYardId} during the staff wait; unload aborted.");
-                    yield break;
-                }
+            var destSc = StationController.GetStationByYardID(def.chainData?.chainDestinationYardId);
+            var allowed = StationTracks(destSc, def.unloadMachine?.WarehouseTrack);
 
-                int unloaded = 0;
-                foreach (var c in cars)
+            int unloaded = 0;
+            for (int i = 0; i < cars.Count; i++)
+            {
+                if (perCar > 0f) yield return new WaitForSeconds(perCar);
+                try
                 {
+                    if (job.State != JobState.InProgress)
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: job is {job.State}; staff unload stopped at {unloaded}.");
+                        yield break;
+                    }
+                    var c = cars[i];
                     if (c == null || c.LoadedCargoAmount <= 0f) continue;
+                    if (c.CurrentTrack == null || !allowed.Contains(c.CurrentTrack))
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: {c.ID} left {def.chainData?.chainDestinationYardId}; staff unload stopped at {unloaded}.");
+                        yield break;
+                    }
                     c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
                     unloaded++;
                 }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Servicing] {job.ID}: staff unload of car {i + 1} failed: {ex.Message}");
+                }
+            }
 
+            try
+            {
                 var unloadTask = job.tasks.OfType<WarehouseTask>()
                     .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Unloading);
                 if (unloadTask != null) def.unloadMachine?.RemoveWarehouseTask(unloadTask);
-
                 Main.LogAlways($"[Servicing] {job.ID}: staff unloaded {unloaded} car(s) at {def.chainData?.chainDestinationYardId}. Turn the haul in to get paid.");
             }
             catch (Exception ex)
             {
-                Main.LogAlways($"[Servicing] {job.ID}: staff unload failed: {ex.GetType().Name}: {ex.Message}");
+                Main.LogAlways($"[Servicing] {job.ID}: staff unload wrap-up failed: {ex.Message}");
             }
         }
     }

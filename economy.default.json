@@ -7,6 +7,9 @@
     "remoteSecondsPerCar": 45
   },
   "stations": {
+    "HB": {
+      "defaultCap": 150
+    },
     "SW": {
       "recipes": [
         { "inputs": { "Logs": 2 }, "outputs": { "Boards": 1, "Plywood": 1 } }
@@ -19,6 +22,7 @@
       ]
     },
     "GF": {
+      "defaultCap": 100,
       "recipes": [
         { "inputs": { "Boards": 1, "SteelRolls": 1 }, "outputs": { "Furniture": 1, "ToolsIskar": 1 } }
       ]
