@@ -82,24 +82,71 @@ namespace DLE.Economy
                 Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
                 return;
             }
-            if (overlay?.stations == null) return;
+            if (overlay == null || (overlay.stations == null && overlay.defaults == null)) return;
 
-            foreach (var kv in overlay.stations)
-            {
-                if (!facilities.TryGetValue(kv.Key, out var facility))
+            // Global defaults first: the baseline for every facility.
+            if (overlay.defaults != null)
+                foreach (var facility in facilities.Values)
+                    ApplyDefaults(facility, overlay.defaults);
+
+            if (overlay.stations != null)
+                foreach (var kv in overlay.stations)
                 {
-                    facility = new FacilityDef { YardId = kv.Key };
-                    facilities[kv.Key] = facility;
+                    if (!facilities.TryGetValue(kv.Key, out var facility))
+                    {
+                        facility = new FacilityDef { YardId = kv.Key };
+                        ApplyDefaults(facility, overlay.defaults);
+                        facilities[kv.Key] = facility;
+                    }
+                    var so = kv.Value;
+                    if (so.defaultCap.HasValue) facility.DefaultCap = so.defaultCap.Value;
+                    if (so.caps != null)
+                        foreach (var c in so.caps)
+                            if (TryCargo(c.Key, out var cargo)) facility.StorageCaps[cargo] = c.Value;
+                    if (so.recipes != null)
+                        facility.Recipes = so.recipes.Select(ToRecipe).Where(r => r != null).ToList();
+                    facility.Role = ParseRole(so.role, facility.Role);
+                    if (so.remoteLoad.HasValue) facility.RemoteLoad = so.remoteLoad.Value;
+                    if (so.remoteUnload.HasValue) facility.RemoteUnload = so.remoteUnload.Value;
+                    if (so.remoteSecondsPerCar.HasValue) facility.RemoteSecondsPerCar = so.remoteSecondsPerCar.Value;
                 }
-                var so = kv.Value;
-                if (so.defaultCap.HasValue) facility.DefaultCap = so.defaultCap.Value;
-                if (so.caps != null)
-                    foreach (var c in so.caps)
-                        if (TryCargo(c.Key, out var cargo)) facility.StorageCaps[cargo] = c.Value;
-                if (so.recipes != null)
-                    facility.Recipes = so.recipes.Select(ToRecipe).Where(r => r != null).ToList();
+
+            // Warn when a role contradicts the station's derived economy, so a config
+            // typo that silently strands stock or starves inputs is visible in the log.
+            foreach (var f in facilities.Values)
+            {
+                if (f.Role == ServiceRole.Unload && f.Outputs.Count > 0)
+                    Main.LogAlways($"[Economy] {f.YardId}: role=unload but it produces " +
+                                   $"{string.Join(", ", f.Outputs)}; those never ship.");
+                if (f.Role == ServiceRole.Load && f.Inputs.Count > 0)
+                    Main.LogAlways($"[Economy] {f.YardId}: role=load but it consumes " +
+                                   $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
-            Main.Log($"[Economy] applied economy.json overlay for {overlay.stations.Count} station(s).");
+            Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
+        }
+
+        private static void ApplyDefaults(FacilityDef f, OverlayDefaults d)
+        {
+            if (d == null) return;
+            f.Role = ParseRole(d.role, f.Role);
+            if (d.remoteLoad.HasValue) f.RemoteLoad = d.remoteLoad.Value;
+            if (d.remoteUnload.HasValue) f.RemoteUnload = d.remoteUnload.Value;
+            if (d.remoteSecondsPerCar.HasValue) f.RemoteSecondsPerCar = d.remoteSecondsPerCar.Value;
+            if (d.defaultCap.HasValue) f.DefaultCap = d.defaultCap.Value;
+        }
+
+        private static ServiceRole ParseRole(string s, ServiceRole fallback)
+        {
+            if (string.IsNullOrEmpty(s)) return fallback;
+            switch (s.Trim().ToLowerInvariant())
+            {
+                case "load": return ServiceRole.Load;
+                case "unload": return ServiceRole.Unload;
+                case "both": return ServiceRole.Both;
+                default:
+                    Main.Log($"[Economy] unknown role '{s}' in economy.json, using {fallback}.");
+                    return fallback;
+            }
         }
 
         private static RecipeDef ToRecipe(RecipeOverlay ro)

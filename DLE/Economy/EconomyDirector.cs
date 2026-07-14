@@ -48,6 +48,7 @@ namespace DLE.Economy
 
             foreach (var producer in econ.Facilities.Values)
             {
+                if (!producer.CanLoad) continue; // unload-only station is never an origin
                 if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;
                 foreach (var cargo in producer.Outputs)
                 {
@@ -87,12 +88,14 @@ namespace DLE.Economy
             var econ = EconomyState.Instance;
             var options = new List<HaulOption>();
             foreach (var producer in econ.Facilities.Values)
+            {
+                if (!producer.CanLoad) continue;
                 foreach (var cargo in producer.Outputs)
                 {
                     float stock = econ.GetAvailable(producer.YardId, cargo);
                     if (stock < 1f) continue;
                     var consumers = econ.Facilities.Values
-                        .Where(f => f.YardId != producer.YardId && f.Consumes(cargo))
+                        .Where(f => f.YardId != producer.YardId && f.CanUnload && f.Consumes(cargo))
                         .Select(f => f.YardId)
                         .ToList();
                     if (consumers.Count == 0) continue;
@@ -104,6 +107,7 @@ namespace DLE.Economy
                         Consumers = consumers,
                     });
                 }
+            }
             return options;
         }
 
@@ -156,6 +160,7 @@ namespace DLE.Economy
             foreach (var f in econ.Facilities.Values)
             {
                 if (f.YardId == excludeYard) continue;
+                if (!f.CanUnload) continue; // load-only station is never a destination
                 if (!f.Consumes(cargo)) continue;
 
                 var sc = StationController.GetStationByYardID(f.YardId);
