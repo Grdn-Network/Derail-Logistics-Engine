@@ -56,7 +56,7 @@ namespace DLE.Data
                     DestYardId = def.chainData?.chainDestinationYardId,
                     Cargo = def.transportedCargo.ToString(),
                     CarGuids = def.carsToTransport.Select(c => c.carGuid).ToList(),
-                    Wage = def.initialWage,
+                    Wage = def.deliveryPayment,
                     BonusTime = def.timeLimitForJob,
                     SpawnTrackDisplay = def.spawnTrackDisplay,
                     IncludeLoadTask = def.includeLoadTask,

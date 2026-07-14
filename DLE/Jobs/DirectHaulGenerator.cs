@@ -189,8 +189,11 @@ namespace DLE.Jobs
             def.plannedCarCount   = plannedCarCount > 0 ? plannedCarCount : logicCars.Count;
             def.displayCars       = displayCarsOverride ?? logicCars.Select(c => new Car_data(c, false)).ToList();
             def.spawnTrackDisplay = spawnTrackDisplay;
+            def.deliveryPayment   = wage;
             def.ForceJobId(jobId);
-            def.PopulateBaseJobDefinition(producer.logicStation, bonusTime, wage, chainData, requiredLicenses);
+            // The booklet is faux: the vanilla job pays 0, and deliveryPayment is awarded on
+            // the delivery unload instead (gated, so load and storage-unload never pay).
+            def.PopulateBaseJobDefinition(producer.logicStation, bonusTime, 0f, chainData, requiredLicenses);
 
             var jcc = new JobChainController(go);
             jcc.carsForJobChain = logicCars;

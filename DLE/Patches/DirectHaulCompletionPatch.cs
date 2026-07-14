@@ -1,6 +1,8 @@
 using DLE.Economy;
 using DLE.Jobs;
+using DV.InventorySystem;
 using DV.Logic.Job;
+using DV.Utils;
 using HarmonyLib;
 
 namespace DLE.Patches
@@ -24,7 +26,26 @@ namespace DLE.Patches
             var dest = def.chainData?.chainDestinationYardId;
             if (string.IsNullOrEmpty(dest)) return;
 
-            EconomyState.Instance.OnDelivered(dest, def.transportedCargo, def.carsToTransport?.Count ?? 0);
+            int total = def.carsToTransport?.Count ?? 0;
+            int accepted = EconomyState.Instance.OnDelivered(dest, def.transportedCargo, total);
+
+            // Faux booklet paid nothing; the wallet is paid here, and only for the cargo the
+            // destination actually accepted (nothing when it is full). This is the single
+            // gated payout: loading and storage-unloads never reach it.
+            if (accepted > 0 && def.deliveryPayment > 0f)
+            {
+                double pay = def.deliveryPayment * (double)accepted / System.Math.Max(1, total);
+                var inv = SingletonBehaviour<Inventory>.Instance;
+                if (inv != null)
+                {
+                    inv.SetMoney(inv.PlayerMoney + pay);
+                    Main.Log($"[Economy] delivery paid {pay:0} for {accepted}/{total} {def.transportedCargo} at {dest}.");
+                }
+                else
+                {
+                    Main.LogAlways($"[Economy] {dest}: delivery complete but Inventory.Instance null; not paid.");
+                }
+            }
         }
     }
 }
