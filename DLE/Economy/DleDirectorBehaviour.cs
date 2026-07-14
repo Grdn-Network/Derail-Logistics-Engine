@@ -31,7 +31,51 @@ namespace DLE.Economy
             return true;
         }
 
-        private void Start() => StartCoroutine(TickLoop());
+        private void Start()
+        {
+            StartCoroutine(TickLoop());
+            StartCoroutine(OverviewSweepLoop());
+        }
+
+        /// <summary>
+        /// While the assignment lock is ON, Company Haul paperwork stops existing at
+        /// station offices: crews take and turn in from the board instead. The game keeps
+        /// respawning overviews for available jobs, so this sweeps them every few seconds
+        /// rather than patching the spawner.
+        /// </summary>
+        private IEnumerator OverviewSweepLoop()
+        {
+            var wait = new WaitForSeconds(3f);
+            while (true)
+            {
+                yield return wait;
+                if (!Main.IsHostOrSingleplayer()) continue;
+                if (!Dispatch.AssignmentStore.Instance.LockEnabled) continue;
+                try { DespawnManagedOverviews(); }
+                catch (System.Exception ex) { Main.Log($"[Director] overview sweep failed: {ex.Message}"); }
+            }
+        }
+
+        private static void DespawnManagedOverviews()
+        {
+            if (StationController.allStations == null) return;
+            int removed = 0;
+            foreach (var sc in StationController.allStations)
+            {
+                var overviews = sc?.spawnedJobOverviews;
+                if (overviews == null) continue;
+                for (int i = overviews.Count - 1; i >= 0; i--)
+                {
+                    var ov = overviews[i];
+                    var id = ov?.job?.ID;
+                    if (id == null || !Jobs.JobUtils.ManagedJobIds.Contains(id)) continue;
+                    ov.DestroyJobOverview();
+                    removed++;
+                }
+            }
+            if (removed > 0)
+                Main.Log($"[Director] assignment lock: removed {removed} Company Haul office paper(s).");
+        }
 
         private IEnumerator TickLoop()
         {

@@ -32,6 +32,7 @@
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.Task.taskFinishTime" />
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.JobsManager.jobToJobCars" />
     <Publicize Include="Assembly-CSharp:DV.ServicePenalty.JobDebtController.OnJobTaken" />
+    <Publicize Include="Assembly-CSharp:StationController.spawnedJobOverviews" />
   </ItemGroup>
 
   <ItemGroup>
