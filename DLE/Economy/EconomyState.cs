@@ -120,6 +120,20 @@ namespace DLE.Economy
         public float GetAvailable(string yardId, CargoType cargo) =>
             GetStock(yardId, cargo) - GetReserved(yardId, cargo);
 
+        /// <summary>
+        /// Storage room left for a cargo at a station: its cap minus what is on hand. A
+        /// consumer with no room stops accepting deliveries, which is what caps demand and
+        /// ends the source-to-consumer grind (finite demand, not just finite supply).
+        /// </summary>
+        public float GetRoom(string yardId, CargoType cargo)
+        {
+            float cap = _facilities.TryGetValue(yardId, out var f) ? f.Cap(cargo) : float.MaxValue;
+            return Math.Max(0f, cap - GetStock(yardId, cargo));
+        }
+
+        public bool HasRoomFor(string yardId, CargoType cargo, float amount) =>
+            GetRoom(yardId, cargo) >= amount;
+
         public void Reserve(string jobId, string yardId, CargoType cargo, float amount)
         {
             _reservations[jobId] = new Reservation { YardId = yardId, Cargo = cargo.ToString(), Amount = amount };

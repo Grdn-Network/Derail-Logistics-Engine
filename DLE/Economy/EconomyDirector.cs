@@ -95,7 +95,8 @@ namespace DLE.Economy
                     float stock = econ.GetAvailable(producer.YardId, cargo);
                     if (stock < 1f) continue;
                     var consumers = econ.Facilities.Values
-                        .Where(f => f.YardId != producer.YardId && f.CanUnload && f.Consumes(cargo))
+                        .Where(f => f.YardId != producer.YardId && f.CanUnload && f.Consumes(cargo)
+                                    && econ.GetRoom(f.YardId, cargo) >= 1f)
                         .Select(f => f.YardId)
                         .ToList();
                     if (consumers.Count == 0) continue;
@@ -162,6 +163,7 @@ namespace DLE.Economy
                 if (f.YardId == excludeYard) continue;
                 if (!f.CanUnload) continue; // load-only station is never a destination
                 if (!f.Consumes(cargo)) continue;
+                if (econ.GetRoom(f.YardId, cargo) < 1f) continue; // consumer storage is full
 
                 var sc = StationController.GetStationByYardID(f.YardId);
                 if (sc?.logicStation?.yard == null) continue;
