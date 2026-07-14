@@ -196,9 +196,9 @@ namespace DLE.Data
             foreach (var tc in cars)
             {
                 if (tc == null) continue;
-                // Derailed OR interpenetrating another car: sleeping an overlapped car
-                // just plants a mine that detonates when it wakes.
-                if (tc.derailed || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
+                // Wrecked (derailed or impossibly tilted) OR interpenetrating another
+                // car: sleeping it just plants a mine that detonates when it wakes.
+                if (IsWreck(tc) || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
                 tc.ForceSleep(true);
                 slept++;
             }
@@ -260,6 +260,20 @@ namespace DLE.Data
         }
 
         /// <summary>
+        /// A car that is physically wrong even though the derail flag never tripped:
+        /// either the game says it derailed, or it is tilted harder than any DV track
+        /// could tilt it (steepest grades are ~4 degrees; a jobless car pitched past 8 is
+        /// resting ON something, the frozen ramp piles). Sleep freezes these mid-crash, so
+        /// the flag alone misses them.
+        /// </summary>
+        private static bool IsWreck(TrainCar tc)
+        {
+            if (tc == null) return false;
+            if (tc.derailed) return true;
+            return Vector3.Angle(tc.transform.up, Vector3.up) > 8f;
+        }
+
+        /// <summary>
         /// Two coupled freight cars sit roughly 10m apart center to center, so another
         /// car's center within 5m means the two interpenetrate: a physics mine that fires
         /// both apart at speed the moment they wake (the "stress build up at speed" derail
@@ -314,7 +328,7 @@ namespace DLE.Data
                 if (car.LoadedCargoAmount > 0f) continue;
                 if (jobsManager.GetJobOfCar(car) != null) continue;
                 freeCars.Add(tc);
-                if (tc.derailed) targets.Add(tc);
+                if (IsWreck(tc)) targets.Add(tc);
             }
 
             // Mine sweep: interpenetrating pairs among the free cars.
