@@ -58,6 +58,14 @@ namespace DLE.Dispatch
                 cars = def.carsToTransport.ToList();
                 if (cars.All(c => c.LoadedCargoAmount > 0f))
                     return Result.Fail("cargo is already loaded; haul it");
+
+                // Staff only work their own station: attached cars must be back in the
+                // origin yard before anyone loads them.
+                var originSc = StationController.GetStationByYardID(originYard);
+                var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
+                var strays = cars.Where(c => c.CurrentTrack == null || !originTracks.Contains(c.CurrentTrack)).ToList();
+                if (strays.Count > 0)
+                    return Result.Fail($"{strays.Count}/{cars.Count} car(s) not at {originYard} ({string.Join(", ", strays.Take(4).Select(c => c.ID))})");
             }
             else
             {

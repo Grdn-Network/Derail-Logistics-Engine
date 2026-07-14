@@ -35,7 +35,9 @@ namespace DLE.Dispatch
 
         public static void StartOnHost()
         {
-            if (_host != null) return;
+            // Recreate per world load, like the director: the old listener closes in
+            // OnDestroy (end of frame) before the new component's Start opens the port.
+            if (_host != null) Destroy(_host);
             _host = new GameObject("DLE_HttpServer");
             DontDestroyOnLoad(_host);
             _host.AddComponent<DleHttpServer>();
