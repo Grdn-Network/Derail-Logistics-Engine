@@ -196,7 +196,9 @@ namespace DLE.Data
             foreach (var tc in cars)
             {
                 if (tc == null) continue;
-                if (tc.derailed) { bad.Add(tc); continue; }
+                // Derailed OR interpenetrating another car: sleeping an overlapped car
+                // just plants a mine that detonates when it wakes.
+                if (tc.derailed || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
                 tc.ForceSleep(true);
                 slept++;
             }
@@ -207,7 +209,7 @@ namespace DLE.Data
                     if (tc.logicCar?.carGuid != null)
                         _guids.Remove(tc.logicCar.carGuid);
                 CarSpawner.Instance.DeleteTrainCars(bad, true);
-                Main.LogAlways($"[CarPool] quarantined {bad.Count} car(s) that spawned derailed; they are deleted, not saved.");
+                Main.LogAlways($"[CarPool] quarantined {bad.Count} car(s) that spawned derailed or overlapping; they are deleted, not saved.");
             }
             Main.Log($"[CarPool] {slept} spawned car(s) put to sleep.");
             onDeleted?.Invoke(bad.Count);
@@ -258,42 +260,75 @@ namespace DLE.Data
         }
 
         /// <summary>
-        /// Recovery bulldozer for company.respawn: idle empties in every economy yard PLUS
-        /// any derailed, jobless, empty, non-player freight car anywhere in the world.
-        /// Flood wreckage flies off its track when overlap physics resolves, so the yard
-        /// sweep alone cannot see it. Deletion is one car at a time inside try/catch: a
-        /// consist the game itself cannot split (the Trainset.Split
-        /// ArgumentOutOfRangeException that bricked a save and previously killed this whole
-        /// routine mid-delete) now costs that single car, and the recovery carries on.
+        /// Two coupled freight cars sit roughly 10m apart center to center, so another
+        /// car's center within 5m means the two interpenetrate: a physics mine that fires
+        /// both apart at speed the moment they wake (the "stress build up at speed" derail
+        /// spam). Kinematic sleep hides mines from every derail check, so overlap has to
+        /// be detected geometrically.
+        /// </summary>
+        private static bool OverlapsAnotherCar(TrainCar tc, float threshold = 5f)
+        {
+            if (tc == null) return false;
+            var pos = tc.transform.position;
+            foreach (var other in TrainCarRegistry.Instance.logicCarToTrainCar.Values)
+            {
+                if (other == null || ReferenceEquals(other, tc)) continue;
+                if ((other.transform.position - pos).sqrMagnitude < threshold * threshold)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Recovery bulldozer for company.respawn: idle empties in every economy yard,
+        /// PLUS any derailed jobless empty non-player freight car anywhere in the world
+        /// (wreckage flies off its track, so the yard sweep cannot see it), PLUS any pair
+        /// of such cars interpenetrating anywhere (sleeping mines from the stacked-spawn
+        /// era; they detonate on wake, so they go now instead). Deletion is one car at a
+        /// time inside try/catch: a consist the game itself cannot split (the
+        /// Trainset.Split ArgumentOutOfRangeException that bricked a save and previously
+        /// killed this whole routine mid-delete) now costs that single car, and the
+        /// recovery carries on.
         /// </summary>
         private void DeleteRecoverableCars()
         {
-            var targets = new List<TrainCar>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var targets = new HashSet<TrainCar>();
 
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
                 foreach (var tc in CollectIdleEmpties(sc, null, int.MaxValue))
-                {
-                    var guid = tc.logicCar?.carGuid;
-                    if (guid == null || seen.Add(guid)) targets.Add(tc);
-                }
+                    targets.Add(tc);
             }
 
+            // Every jobless empty non-player freight car on the map, wherever it stands.
             var jobsManager = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
+            var freeCars = new List<TrainCar>();
             foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
             {
                 var car = kv.Key;
                 var tc = kv.Value;
-                if (car == null || tc == null || !tc.derailed) continue;
+                if (car == null || tc == null) continue;
                 if (tc.IsLoco || car.playerSpawnedCar) continue;
                 if (car.LoadedCargoAmount > 0f) continue;
                 if (jobsManager.GetJobOfCar(car) != null) continue;
-                var guid = car.carGuid;
-                if (guid == null || seen.Add(guid)) targets.Add(tc);
+                freeCars.Add(tc);
+                if (tc.derailed) targets.Add(tc);
             }
+
+            // Mine sweep: interpenetrating pairs among the free cars.
+            int mines = 0;
+            for (int i = 0; i < freeCars.Count; i++)
+                for (int j = i + 1; j < freeCars.Count; j++)
+                {
+                    if ((freeCars[i].transform.position - freeCars[j].transform.position).sqrMagnitude >= 25f)
+                        continue;
+                    if (targets.Add(freeCars[i])) mines++;
+                    if (targets.Add(freeCars[j])) mines++;
+                }
+            if (mines > 0)
+                Main.LogAlways($"[CarPool] found {mines} overlapping car(s) waiting to detonate; deleting them.");
 
             int deleted = 0, stubborn = 0;
             var single = new List<TrainCar>(1);
