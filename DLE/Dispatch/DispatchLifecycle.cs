@@ -67,15 +67,16 @@ namespace DLE.Dispatch
             if (cars == null || cars.Count == 0)
                 return Result.Fail("no cars attached yet; bring empties to the loading track first");
 
+            // Delivered = empty and anywhere in the destination station's yard (the owner's
+            // rule: at the station is enough; the exact track is the terminal's business).
             var destTrack = def.unloadMachine?.WarehouseTrack;
-            if (destTrack == null)
-                return Result.Fail("job has no unload warehouse");
-
+            var destSc = StationController.GetStationByYardID(def.chainData?.chainDestinationYardId);
+            var allowed = DispatchServicing.StationTracks(destSc, destTrack);
             var notDelivered = cars.Where(c =>
-                c.LoadedCargoAmount > 0f || c.CurrentTrack != destTrack).ToList();
+                c.LoadedCargoAmount > 0f || c.CurrentTrack == null || !allowed.Contains(c.CurrentTrack)).ToList();
             if (notDelivered.Count > 0)
-                return Result.Fail($"{notDelivered.Count}/{cars.Count} car(s) not unloaded on " +
-                                   $"{destTrack.ID?.FullDisplayID} yet ({string.Join(", ", notDelivered.Take(4).Select(c => c.ID))})");
+                return Result.Fail($"{notDelivered.Count}/{cars.Count} car(s) not unloaded at " +
+                                   $"{def.chainData?.chainDestinationYardId} yet ({string.Join(", ", notDelivered.Take(4).Select(c => c.ID))})");
 
             var state = SingletonBehaviour<JobsManager>.Instance.TryToCompleteAJob(job);
             if (state != JobState.Completed)
