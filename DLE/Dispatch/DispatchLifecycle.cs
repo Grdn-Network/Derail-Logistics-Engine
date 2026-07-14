@@ -1,5 +1,4 @@
 using DLE.Jobs;
-using DV.InventorySystem;
 using DV.Logic.Job;
 using DV.ThingTypes;
 using DV.Utils;
@@ -82,16 +81,11 @@ namespace DLE.Dispatch
             if (state != JobState.Completed)
                 return Result.Fail($"game refused completion (state {state})");
 
-            // No booklet was validated, so the wage is paid here, into the shared wallet.
-            float wage = job.GetWageForTheJob();
-            var inv = SingletonBehaviour<Inventory>.Instance;
-            if (inv != null && wage > 0f)
-                inv.SetMoney(inv.PlayerMoney + wage);
-            else if (inv == null)
-                Main.LogAlways($"[Dispatch] {jobId} completed but Inventory.Instance is null; not paid.");
-
-            Main.LogAlways($"[Dispatch] {jobId} turned in via board; paid {wage:0}.");
-            return Result.Done($"{jobId} turned in; paid ${wage:0}");
+            // Completion fired the chain, and DirectHaulCompletionPatch is the single
+            // gated payout: it pays deliveryPayment scaled to the cargo the destination
+            // accepted. Paying here as well would double it.
+            Main.LogAlways($"[Dispatch] {jobId} turned in via board.");
+            return Result.Done($"{jobId} turned in; delivery pay up to ${def.deliveryPayment:0}");
         }
     }
 }
