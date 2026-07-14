@@ -1,0 +1,97 @@
+using DLE.Jobs;
+using DV.InventorySystem;
+using DV.Logic.Job;
+using DV.ThingTypes;
+using DV.Utils;
+using System;
+using System.Linq;
+
+namespace DLE.Dispatch
+{
+    /// <summary>
+    /// Remote job lifecycle for the dispatch board and API (#30): take a Company Haul on
+    /// behalf of a crew and turn it in when it is really delivered. The turn-in check is
+    /// economic, not paperwork: cars attached, empty, and standing on the destination
+    /// warehouse track. (The scoped WarehouseTask patch makes task states unreliable for
+    /// DLE jobs, so validating those would let an untouched job "complete".)
+    /// Host or singleplayer only; the dispatcher's authority stands in for license checks.
+    /// </summary>
+    public static class DispatchLifecycle
+    {
+        public struct Result
+        {
+            public bool Ok;
+            public string Message;
+            public static Result Fail(string m) => new Result { Ok = false, Message = m };
+            public static Result Done(string m) => new Result { Ok = true, Message = m };
+        }
+
+        public static Result TakeJob(string jobId, string player)
+        {
+            if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
+            if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
+                return Result.Fail($"unknown job '{jobId}'");
+            var job = def.LiveJob;
+            if (job.State != JobState.Available)
+                return Result.Fail($"job is {job.State}, not available");
+
+            if (AssignmentStore.Instance.LockEnabled)
+            {
+                var assignment = AssignmentStore.Instance.Get(jobId);
+                if (assignment == null)
+                    return Result.Fail("assignment lock is ON and this haul has no assigned crew");
+                if (!string.IsNullOrEmpty(player) &&
+                    !string.Equals(assignment.Player, player, StringComparison.OrdinalIgnoreCase))
+                    return Result.Fail($"assignment lock is ON and this haul is assigned to {assignment.Player}");
+            }
+            else if (!string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
+            {
+                // Keep the board honest about who is running the haul.
+                AssignmentStore.Instance.Assign(jobId, player, "board-take");
+            }
+
+            SingletonBehaviour<JobsManager>.Instance.TakeJob(job, false);
+            Main.LogAlways($"[Dispatch] {jobId} taken via board{(string.IsNullOrEmpty(player) ? "" : $" for {player}")}.");
+            return Result.Done($"{jobId} taken{(string.IsNullOrEmpty(player) ? "" : $" for {player}")}");
+        }
+
+        public static Result CompleteJob(string jobId)
+        {
+            if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
+            if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
+                return Result.Fail($"unknown job '{jobId}'");
+            var job = def.LiveJob;
+            if (job.State != JobState.InProgress)
+                return Result.Fail($"job is {job.State}, not in progress");
+
+            var cars = def.carsToTransport;
+            if (cars == null || cars.Count == 0)
+                return Result.Fail("no cars attached yet; bring empties to the loading track first");
+
+            var destTrack = def.unloadMachine?.WarehouseTrack;
+            if (destTrack == null)
+                return Result.Fail("job has no unload warehouse");
+
+            var notDelivered = cars.Where(c =>
+                c.LoadedCargoAmount > 0f || c.CurrentTrack != destTrack).ToList();
+            if (notDelivered.Count > 0)
+                return Result.Fail($"{notDelivered.Count}/{cars.Count} car(s) not unloaded on " +
+                                   $"{destTrack.ID?.FullDisplayID} yet ({string.Join(", ", notDelivered.Take(4).Select(c => c.ID))})");
+
+            var state = SingletonBehaviour<JobsManager>.Instance.TryToCompleteAJob(job);
+            if (state != JobState.Completed)
+                return Result.Fail($"game refused completion (state {state})");
+
+            // No booklet was validated, so the wage is paid here, into the shared wallet.
+            float wage = job.GetWageForTheJob();
+            var inv = SingletonBehaviour<Inventory>.Instance;
+            if (inv != null && wage > 0f)
+                inv.SetMoney(inv.PlayerMoney + wage);
+            else if (inv == null)
+                Main.LogAlways($"[Dispatch] {jobId} completed but Inventory.Instance is null; not paid.");
+
+            Main.LogAlways($"[Dispatch] {jobId} turned in via board; paid {wage:0}.");
+            return Result.Done($"{jobId} turned in; paid ${wage:0}");
+        }
+    }
+}

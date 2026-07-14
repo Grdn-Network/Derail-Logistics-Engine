@@ -130,9 +130,24 @@ namespace DLE.Patches
                 Main.LogAlways($"[DirectHaul] {job.ID}: booklet station info unresolved " +
                                $"(origin null={origin == null}, dest null={destination == null}).");
 
-            string pickup = string.IsNullOrEmpty(defForTrack?.spawnTrackDisplay)
-                ? string.Empty
-                : $" Cars on track {defForTrack.spawnTrackDisplay}.";
+            // A carless job waiting for its empties has no cars sitting anywhere; the old
+            // "Cars on track ..." line pointed crews at a consist that does not exist.
+            string pickup;
+            bool awaitingEmpties = defForTrack != null && defForTrack.includeLoadTask &&
+                                   (defForTrack.carsToTransport?.Count ?? 0) == 0;
+            if (awaitingEmpties)
+            {
+                var loadTrack = GetTaskTrackDisplay(job, 0);
+                pickup = string.IsNullOrEmpty(loadTrack)
+                    ? " Bring empty cars to the loading track."
+                    : $" Bring empty cars to loading track {loadTrack}.";
+            }
+            else
+            {
+                pickup = string.IsNullOrEmpty(defForTrack?.spawnTrackDisplay)
+                    ? string.Empty
+                    : $" Cars on track {defForTrack.spawnTrackDisplay}.";
+            }
 
             return new FrontPageTemplatePaperData(
                 DIRECT_HAUL_NAME, string.Empty, job.ID, DIRECT_HAUL_COLOR,
@@ -157,6 +172,17 @@ namespace DLE.Patches
                 return string.Empty;
             var trackId = job.tasksData[taskIndex].destinationTrackID;
             return trackId != null ? trackId.TrackPartOnly : string.Empty;
+        }
+
+        /// <summary>Localize with a fallback so a missing key cannot blank a booklet.</summary>
+        public static string SafeL(string key, string fallback)
+        {
+            try
+            {
+                var s = LocalizationAPI.L(key);
+                return string.IsNullOrEmpty(s) || s == key ? fallback : s;
+            }
+            catch { return fallback; }
         }
     }
 
@@ -188,30 +214,53 @@ namespace DLE.Patches
 
             DirectHaulBooklet.GetDisplayData(job, out var cars, out _, out _);
 
-            var destination = job.chainDestinationStationInfo;
+            StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var def);
+            var origin = job.chainOriginStationInfo
+                ?? StationController.GetStationByYardID(def?.chainData?.chainOriginYardId)?.stationInfo;
+            var destination = job.chainDestinationStationInfo
+                ?? StationController.GetStationByYardID(def?.chainData?.chainDestinationYardId)?.stationInfo;
 
-            var cover = new CoverPageTemplatePaperData(
-                job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", "4");
+            // A carless Company Haul carries a leading load task; the booklet mirrors it.
+            // Preloaded-era jobs (single unload task) keep the old 4-page layout, and the
+            // unload page reads its track from the right task either way (the old code
+            // always read task 0, which is the LOAD track on a carless job).
+            bool hasLoadStep = def?.includeLoadTask
+                ?? (job.tasksData != null && job.tasksData.Length > 1);
+            string total = hasLoadStep ? "5" : "4";
 
-            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", "4");
-
-            // 0.1 jobs are unload-only (cars arrive pre-loaded), so the single task page is
-            // the unload at the destination. Mode B (0.5) will add a load page.
-            var unloadPage = new TaskTemplatePaperData(
-                "1",
-                LocalizationAPI.L("job/task_type_unload"),
-                LocalizationAPI.L("job/task_desc_unload"),
-                destination.YardID, destination.StationColor,
-                DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
-                string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                cars, null, "3", "4");
-
-            var validatePage = new ValidateJobTaskTemplatePaperData("2", "4", "4");
-
-            __result = new List<TemplatePaperData>
+            var pages = new List<TemplatePaperData>
             {
-                cover, frontPage, unloadPage, validatePage
+                new CoverPageTemplatePaperData(job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", total),
+                DirectHaulBooklet.BuildFrontPage(job, "2", total),
             };
+
+            if (hasLoadStep)
+            {
+                pages.Add(new TaskTemplatePaperData(
+                    "1",
+                    DirectHaulBooklet.SafeL("job/task_type_load", "LOAD"),
+                    "Bring empty cars to the loading track, unless dispatch has already loaded them remotely.",
+                    origin?.YardID ?? string.Empty,
+                    origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                    DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
+                    string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                    cars, null, "3", total));
+            }
+
+            pages.Add(new TaskTemplatePaperData(
+                hasLoadStep ? "2" : "1",
+                DirectHaulBooklet.SafeL("job/task_type_unload", "UNLOAD"),
+                DirectHaulBooklet.SafeL("job/task_desc_unload", "Unload the cars at the destination warehouse."),
+                destination?.YardID ?? string.Empty,
+                destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                DirectHaulBooklet.GetTaskTrackDisplay(job, hasLoadStep ? 1 : 0), C.TRACK_COLOR,
+                string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                cars, null, hasLoadStep ? "4" : "3", total));
+
+            pages.Add(new ValidateJobTaskTemplatePaperData(
+                hasLoadStep ? "3" : "2", hasLoadStep ? "5" : "4", total));
+
+            __result = pages;
             return false;
         }
     }
