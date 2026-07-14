@@ -1,5 +1,11 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. Entries under 'stations' override the auto-derived economy. Cargo names are the game's CargoType enum names (verified against DV.ThingTypes). Amounts and caps are whole carloads. Stations not listed keep their derived recipe (one of each input makes one of each output). Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'defaults' sets baseline servicing for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Example: \"HB\": { \"role\": \"unload\", \"remoteUnload\": false } makes harbor a sink you must service at the quay. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "defaults": {
+    "role": "both",
+    "remoteLoad": true,
+    "remoteUnload": true,
+    "remoteSecondsPerCar": 45
+  },
   "stations": {
     "SW": {
       "recipes": [
