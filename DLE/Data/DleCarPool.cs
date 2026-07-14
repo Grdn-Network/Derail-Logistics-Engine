@@ -98,9 +98,26 @@ namespace DLE.Data
         /// spawns re-pick the same physically-free track and stack cars into a derail.
         /// </summary>
         public int SpawnEmpties(StationController station, CargoType cargo, int count,
-            IDictionary<JobTrack, float> claimed = null)
+            IDictionary<JobTrack, float> claimed = null, List<TrainCar> collector = null)
         {
             if (station == null || count <= 0) return 0;
+
+            // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
+            // pool past it. The car-flood incident showed what an unbounded pool does to
+            // physics, saves and MP sync; the cap is the backstop even if a future bug
+            // tries to compound the fleet again.
+            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int room = cap - _guids.Count;
+            if (room <= 0)
+            {
+                Main.LogAlways($"[CarPool] pool is at its cap ({cap}); refusing to spawn more. Raise MaxPoolCars in settings if this is intended.");
+                return 0;
+            }
+            if (count > room)
+            {
+                Main.LogAlways($"[CarPool] trimming spawn from {count} to {room} car(s) to respect the {cap}-car pool cap.");
+                count = room;
+            }
 
             if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
                 !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
@@ -151,9 +168,49 @@ namespace DLE.Data
             if (claimed != null)
                 claimed[track] = ClaimedOn(claimed, track) + length;
 
+            if (collector != null)
+                collector.AddRange(spawned);
+            else
+                // One-off spawn (empties API): quarantine-check this cut on its own.
+                Economy.DleDirectorBehaviour.TryRun(ValidateAndSleepRoutine(new List<TrainCar>(spawned), null));
+
             Main.Log($"[CarPool] spawned {spawned.Count} empty {carType.name} at " +
                      $"{station.stationInfo.YardID} track {track.ID?.FullDisplayID} (pool now {_guids.Count}).");
             return spawned.Count;
+        }
+
+        /// <summary>
+        /// Bad-spawn quarantine plus instant sleep. A car that spawns derailed never
+        /// becomes stationary, never sleeps, drags the framerate down and corrupts the
+        /// save it is written into (the 86%-hang incident), so after physics settles the
+        /// cut, anything derailed is deleted on the spot. Healthy cars are force-slept
+        /// through the game's own optimizer API instead of waiting out its stationary
+        /// timer; the TrainsOptimizer wakes them again when live traffic reaches them.
+        /// </summary>
+        private IEnumerator ValidateAndSleepRoutine(List<TrainCar> cars, Action<int> onDeleted)
+        {
+            yield return new WaitForSeconds(1f);
+
+            var bad = new List<TrainCar>();
+            int slept = 0;
+            foreach (var tc in cars)
+            {
+                if (tc == null) continue;
+                if (tc.derailed) { bad.Add(tc); continue; }
+                tc.ForceSleep(true);
+                slept++;
+            }
+
+            if (bad.Count > 0)
+            {
+                foreach (var tc in bad)
+                    if (tc.logicCar?.carGuid != null)
+                        _guids.Remove(tc.logicCar.carGuid);
+                CarSpawner.Instance.DeleteTrainCars(bad, true);
+                Main.LogAlways($"[CarPool] quarantined {bad.Count} car(s) that spawned derailed; they are deleted, not saved.");
+            }
+            Main.Log($"[CarPool] {slept} spawned car(s) put to sleep.");
+            onDeleted?.Invoke(bad.Count);
         }
 
         private static float ClaimedOn(IDictionary<JobTrack, float> claimed, JobTrack t) =>
@@ -233,17 +290,23 @@ namespace DLE.Data
                 yield return new WaitForSeconds(0.5f);
             }
 
+            var spawnedCars = new List<TrainCar>();
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
 
                 foreach (var cargo in facility.Outputs)
-                    totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed);
+                    totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed, spawnedCars);
 
                 // One station per frame-slice: spread the cost, let physics settle.
                 yield return null;
             }
+
+            // Quarantine anything that spawned derailed and sleep the healthy cars.
+            int deleted = 0;
+            yield return ValidateAndSleepRoutine(spawnedCars, n => deleted = n);
+            totalSpawned -= deleted;
 
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             onDone?.Invoke(totalSpawned);
