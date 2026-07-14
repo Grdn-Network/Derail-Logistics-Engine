@@ -115,12 +115,21 @@ namespace DLE.Patches
             GetStats(job, cars, cargoTypePerCar,
                 out var timeLimit, out var value, out var mass, out var length);
 
-            var origin = job.chainOriginStationInfo;
-            var destination = job.chainDestinationStationInfo;
-
             // Tell the player where the loaded consist is sitting. Falls back silently when
             // the definition is not registered (e.g. on a DVMP client).
             StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var defForTrack);
+
+            // A carless job can reach the booklet before chainOriginStationInfo/Destination are
+            // populated, which NRE'd the whole render (the "carless booklets never print" bug).
+            // Fall back to resolving the station info from the definition's yard ids.
+            var origin = job.chainOriginStationInfo
+                ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainOriginYardId)?.stationInfo;
+            var destination = job.chainDestinationStationInfo
+                ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainDestinationYardId)?.stationInfo;
+            if (origin == null || destination == null)
+                Main.LogAlways($"[DirectHaul] {job.ID}: booklet station info unresolved " +
+                               $"(origin null={origin == null}, dest null={destination == null}).");
+
             string pickup = string.IsNullOrEmpty(defForTrack?.spawnTrackDisplay)
                 ? string.Empty
                 : $" Cars on track {defForTrack.spawnTrackDisplay}.";

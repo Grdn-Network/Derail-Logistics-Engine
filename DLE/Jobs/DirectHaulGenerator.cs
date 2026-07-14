@@ -42,13 +42,19 @@ namespace DLE.Jobs
                 Main.Log($"[DirectHaul] carless: no loadable car type for {cargo}.");
                 return null;
             }
+            var usableTypes = carTypes.Where(t => t.liveries != null && t.liveries.Count > 0).ToList();
+            if (usableTypes.Count == 0)
+            {
+                Main.Log($"[DirectHaul] carless: no car type with a livery for {cargo}.");
+                return null;
+            }
 
             // Synthetic display cars: the booklet shows what to bring before cars attach.
             var displayCars = new List<Car_data>();
             var liveryCounts = new Dictionary<TrainCarLivery, int>();
             for (int i = 0; i < carCount; i++)
             {
-                var shownType = carTypes[i % carTypes.Count];
+                var shownType = usableTypes[i % usableTypes.Count];
                 var livery = shownType.liveries[i % shownType.liveries.Count];
                 displayCars.Add(new Car_data("?", livery, false, false, 0f, 0f, 0f));
                 liveryCounts.TryGetValue(livery, out var n);
@@ -118,10 +124,11 @@ namespace DLE.Jobs
                 DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) &&
                 carTypes.Count > 0)
             {
+                var usableTypes = carTypes.Where(t => t.liveries != null && t.liveries.Count > 0).ToList();
                 displayOverride = new List<Car_data>();
-                for (int i = 0; i < plannedCars; i++)
+                for (int i = 0; usableTypes.Count > 0 && i < plannedCars; i++)
                 {
-                    var shownType = carTypes[i % carTypes.Count];
+                    var shownType = usableTypes[i % usableTypes.Count];
                     displayOverride.Add(new Car_data("?",
                         shownType.liveries[i % shownType.liveries.Count], false, false, 0f, 0f, 0f));
                 }
