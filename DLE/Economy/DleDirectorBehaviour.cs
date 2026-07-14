@@ -51,10 +51,22 @@ namespace DLE.Economy
             // nested coroutine so the fill spreads across frames.
             yield return Data.DleCarPool.Instance.SeedOnceIfNeededRoutine();
 
+            // A tick that throws must not kill the whole generation loop for the session
+            // (an NRE in job creation used to end all generation silently).
+            bool SafeTick()
+            {
+                try { return DispatcherBrain.Current.TickOnce(); }
+                catch (System.Exception ex)
+                {
+                    Main.LogAlways($"[Director] tick failed: {ex.GetType().Name}: {ex.Message}");
+                    return false;
+                }
+            }
+
             Main.LogAlways("[Director] initial fill starting.");
             int created = 0;
             while (Main.IsHostOrSingleplayer() && WorldReady() &&
-                   DispatcherBrain.Current.TickOnce() && created++ < 40)
+                   SafeTick() && created++ < 40)
                 yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
             Main.LogAlways($"[Director] initial fill done: {created} haul(s) created." +
                 (created == 0 ? " Nothing shippable: check available supply at /api/v1/options (stock may be drained or fully reserved)." : ""));
@@ -76,7 +88,7 @@ namespace DLE.Economy
                     productionAccumulator %= interval;
                 }
 
-                DispatcherBrain.Current.TickOnce();
+                SafeTick();
             }
         }
 

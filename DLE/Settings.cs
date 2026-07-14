@@ -25,6 +25,9 @@ namespace DLE
         [Draw("Minutes per carload produced at source industries")]
         public int SourceProductionMinutes = 10;
 
+        [Draw("Hard cap on DLE pool cars in the world")]
+        public int MaxPoolCars = 500;
+
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
 

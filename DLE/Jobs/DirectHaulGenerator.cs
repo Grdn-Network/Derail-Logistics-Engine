@@ -156,7 +156,18 @@ namespace DLE.Jobs
             List<Car_data> displayCarsOverride = null,
             int plannedCarCount = 0)
         {
-            var logicCars = TrainCar.ExtractLogicCars(cars);
+            // ExtractLogicCars returns NULL for an empty list (and warns "Passed null or
+            // empty list of trainCars"), so a carless job must not go through it: the NRE
+            // here killed every Company Haul at birth, which is why no carless booklet or
+            // warehouse attach was ever seen live.
+            var logicCars = cars != null && cars.Count > 0
+                ? TrainCar.ExtractLogicCars(cars)
+                : new List<Car>();
+            if (logicCars == null)
+            {
+                Main.LogAlways($"[DirectHaul] {jobId}: could not extract logic cars; job not created.");
+                return false;
+            }
             int licenseCarCount = logicCars.Count > 0 ? logicCars.Count : plannedCarCount;
             var chainData = new StationsChainData(
                 producer.stationInfo.YardID, consumer.stationInfo.YardID);

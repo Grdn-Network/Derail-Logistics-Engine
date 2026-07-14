@@ -98,9 +98,26 @@ namespace DLE.Data
         /// spawns re-pick the same physically-free track and stack cars into a derail.
         /// </summary>
         public int SpawnEmpties(StationController station, CargoType cargo, int count,
-            IDictionary<JobTrack, float> claimed = null)
+            IDictionary<JobTrack, float> claimed = null, List<TrainCar> collector = null)
         {
             if (station == null || count <= 0) return 0;
+
+            // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
+            // pool past it. The car-flood incident showed what an unbounded pool does to
+            // physics, saves and MP sync; the cap is the backstop even if a future bug
+            // tries to compound the fleet again.
+            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int room = cap - _guids.Count;
+            if (room <= 0)
+            {
+                Main.LogAlways($"[CarPool] pool is at its cap ({cap}); refusing to spawn more. Raise MaxPoolCars in settings if this is intended.");
+                return 0;
+            }
+            if (count > room)
+            {
+                Main.LogAlways($"[CarPool] trimming spawn from {count} to {room} car(s) to respect the {cap}-car pool cap.");
+                count = room;
+            }
 
             if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
                 !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
@@ -119,28 +136,47 @@ namespace DLE.Data
 
             float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
 
-            // Physical occupancy decides, not the YardTracksOrganizer reservation ledger
-            // (stale reservations from long-dead jobs report full tracks in an empty yard).
-            // The per-sweep claimed ledger is subtracted on top so cars spawned earlier in
-            // this same sweep, which OccupiedLength has not caught up to yet, still count.
+            // One cut per EMPTY track. The physics overlap check (Strict) is blind at
+            // stations whose cells are not streamed in, so the only streaming-proof
+            // guarantee against stacking is the logic layer: a track with zero cars on it
+            // and no claim from this sweep cannot hold anything to stack onto. Stations
+            // with more outputs than free storage tracks shortfall and say so.
             var fitting = station.logicStation.yard.StorageTracks
-                .Where(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t) > length)
+                .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                .Where(t => ClaimedOn(claimed, t) <= 0f)
+                .Where(t => t.length - 10.0 > length)
                 .ToList();
             if (fitting.Count == 0)
             {
-                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no storage track has {length:F0}m physically free for {count} empt{(count == 1 ? "y" : "ies")}.");
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no empty storage track fits {count} empt{(count == 1 ? "y" : "ies")} ({length:F0}m); nothing spawned.");
                 return 0;
             }
             var track = fitting
-                .OrderByDescending(t => t.length - t.OccupiedLength - ClaimedOn(claimed, t))
+                .OrderByDescending(t => t.length)
                 .First();
 
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
-            var spawned = CarSpawner.Instance
-                .SpawnCarTypesOnTrackRandomOrientation(liveries, railTrack, true, applyHandbrakeOnLastCars: true);
+
+            // Spawn STRICT: it physically overlap-checks every car (IsBoxOverlapping) and
+            // refuses with Blocked/CannotFitOnTrack instead of placing. The middle-based
+            // spawn the pool used before centers every cut on the track midpoint with no
+            // overlap check at all, which is what piled cuts on top of each other. A
+            // Blocked anchor just means try the next spot along the track.
+            List<TrainCar> spawned = null;
+            double margin = 5.0;
+            double maxStart = track.length - length - margin;
+            if (maxStart >= margin)
+            {
+                for (int attempt = 0; attempt < 5 && (spawned == null || spawned.Count == 0); attempt++)
+                {
+                    double startSpan = margin + (maxStart - margin) * attempt / 4.0;
+                    spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
+                        liveries, railTrack, true, true, startSpan, false, true, false);
+                }
+            }
             if (spawned == null || spawned.Count == 0)
             {
-                Main.LogAlways($"[CarPool] spawn failed at {station.stationInfo.YardID}.");
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no clear spot for {count} car(s) on {track.ID?.FullDisplayID}; nothing spawned.");
                 return 0;
             }
 
@@ -151,9 +187,73 @@ namespace DLE.Data
             if (claimed != null)
                 claimed[track] = ClaimedOn(claimed, track) + length;
 
+            if (collector != null)
+                collector.AddRange(spawned);
+            else
+                // One-off spawn (empties API): quarantine-check this cut on its own.
+                Economy.DleDirectorBehaviour.TryRun(ValidateAndSleepRoutine(new List<TrainCar>(spawned), null));
+
             Main.Log($"[CarPool] spawned {spawned.Count} empty {carType.name} at " +
                      $"{station.stationInfo.YardID} track {track.ID?.FullDisplayID} (pool now {_guids.Count}).");
             return spawned.Count;
+        }
+
+        /// <summary>
+        /// Bad-spawn quarantine plus instant sleep. A car that spawns derailed never
+        /// becomes stationary, never sleeps, drags the framerate down and corrupts the
+        /// save it is written into (the 86%-hang incident), so after physics settles the
+        /// cut, anything derailed is deleted on the spot. Healthy cars are force-slept
+        /// through the game's own optimizer API instead of waiting out its stationary
+        /// timer; the TrainsOptimizer wakes them again when live traffic reaches them.
+        /// </summary>
+        private IEnumerator ValidateAndSleepRoutine(List<TrainCar> cars, Action<int> onDeleted)
+        {
+            yield return new WaitForSeconds(1f);
+
+            var bad = new List<TrainCar>();
+            int slept = 0;
+            foreach (var tc in cars)
+            {
+                if (tc == null) continue;
+                try
+                {
+                    // Wrecked (derailed or impossibly tilted) OR interpenetrating another
+                    // car: sleeping it just plants a mine that detonates when it wakes.
+                    if (IsWreck(tc) || OverlapsAnotherCar(tc)) { bad.Add(tc); continue; }
+                    tc.ForceSleep(true);
+                    slept++;
+                }
+                catch (Exception ex)
+                {
+                    bad.Add(tc);
+                    Main.LogAlways($"[CarPool] {tc.ID}: validation failed ({ex.GetType().Name}); quarantining it.");
+                }
+            }
+
+            if (bad.Count > 0)
+            {
+                int gone = 0;
+                var single = new List<TrainCar>(1);
+                foreach (var tc in bad)
+                {
+                    try
+                    {
+                        if (tc.logicCar?.carGuid != null)
+                            _guids.Remove(tc.logicCar.carGuid);
+                        single.Clear();
+                        single.Add(tc);
+                        CarSpawner.Instance.DeleteTrainCars(single, true);
+                        gone++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Main.LogAlways($"[CarPool] could not delete quarantined {tc?.ID}: {ex.Message}");
+                    }
+                }
+                Main.LogAlways($"[CarPool] quarantined {gone}/{bad.Count} car(s) that spawned derailed or overlapping; they are deleted, not saved.");
+            }
+            Main.LogAlways($"[CarPool] {slept} spawned car(s) put to sleep.");
+            onDeleted?.Invoke(bad.Count);
         }
 
         private static float ClaimedOn(IDictionary<JobTrack, float> claimed, JobTrack t) =>
@@ -201,6 +301,115 @@ namespace DLE.Data
         }
 
         /// <summary>
+        /// A car that is physically wrong even though the derail flag never tripped:
+        /// either the game says it derailed, or it is tilted harder than any DV track
+        /// could tilt it (steepest grades are ~4 degrees; a jobless car pitched past 8 is
+        /// resting ON something, the frozen ramp piles). Sleep freezes these mid-crash, so
+        /// the flag alone misses them.
+        /// </summary>
+        private static bool IsWreck(TrainCar tc)
+        {
+            if (tc == null) return false;
+            if (tc.derailed) return true;
+            return Vector3.Angle(tc.transform.up, Vector3.up) > 8f;
+        }
+
+        /// <summary>
+        /// Two coupled freight cars sit roughly 10m apart center to center, so another
+        /// car's center within 5m means the two interpenetrate: a physics mine that fires
+        /// both apart at speed the moment they wake (the "stress build up at speed" derail
+        /// spam). Kinematic sleep hides mines from every derail check, so overlap has to
+        /// be detected geometrically.
+        /// </summary>
+        private static bool OverlapsAnotherCar(TrainCar tc, float threshold = 5f)
+        {
+            if (tc == null) return false;
+            var pos = tc.transform.position;
+            foreach (var other in TrainCarRegistry.Instance.logicCarToTrainCar.Values)
+            {
+                if (other == null || ReferenceEquals(other, tc)) continue;
+                if ((other.transform.position - pos).sqrMagnitude < threshold * threshold)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Recovery bulldozer for company.respawn: idle empties in every economy yard,
+        /// PLUS any derailed jobless empty non-player freight car anywhere in the world
+        /// (wreckage flies off its track, so the yard sweep cannot see it), PLUS any pair
+        /// of such cars interpenetrating anywhere (sleeping mines from the stacked-spawn
+        /// era; they detonate on wake, so they go now instead). Deletion is one car at a
+        /// time inside try/catch: a consist the game itself cannot split (the
+        /// Trainset.Split ArgumentOutOfRangeException that bricked a save and previously
+        /// killed this whole routine mid-delete) now costs that single car, and the
+        /// recovery carries on.
+        /// </summary>
+        private void DeleteRecoverableCars()
+        {
+            var targets = new HashSet<TrainCar>();
+
+            foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
+            {
+                var sc = StationController.GetStationByYardID(facility.YardId);
+                if (sc == null) continue;
+                foreach (var tc in CollectIdleEmpties(sc, null, int.MaxValue))
+                    targets.Add(tc);
+            }
+
+            // Every jobless empty non-player freight car on the map, wherever it stands.
+            var jobsManager = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
+            var freeCars = new List<TrainCar>();
+            foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
+            {
+                var car = kv.Key;
+                var tc = kv.Value;
+                if (car == null || tc == null) continue;
+                if (tc.IsLoco || car.playerSpawnedCar) continue;
+                if (car.LoadedCargoAmount > 0f) continue;
+                if (jobsManager.GetJobOfCar(car) != null) continue;
+                freeCars.Add(tc);
+                if (IsWreck(tc)) targets.Add(tc);
+            }
+
+            // Mine sweep: interpenetrating pairs among the free cars.
+            int mines = 0;
+            for (int i = 0; i < freeCars.Count; i++)
+                for (int j = i + 1; j < freeCars.Count; j++)
+                {
+                    if ((freeCars[i].transform.position - freeCars[j].transform.position).sqrMagnitude >= 25f)
+                        continue;
+                    if (targets.Add(freeCars[i])) mines++;
+                    if (targets.Add(freeCars[j])) mines++;
+                }
+            if (mines > 0)
+                Main.LogAlways($"[CarPool] found {mines} overlapping car(s) waiting to detonate; deleting them.");
+
+            int deleted = 0, stubborn = 0;
+            var single = new List<TrainCar>(1);
+            foreach (var tc in targets)
+            {
+                if (tc == null) continue;
+                try
+                {
+                    var guid = tc.logicCar?.carGuid;
+                    if (guid != null) _guids.Remove(guid);
+                    single.Clear();
+                    single.Add(tc);
+                    CarSpawner.Instance.DeleteTrainCars(single, true);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    stubborn++;
+                    Main.LogAlways($"[CarPool] could not delete {tc.ID}: {ex.GetType().Name}: {ex.Message}. Rerail or remove it by hand.");
+                }
+            }
+            Main.LogAlways($"[CarPool] recovery cleared {deleted} car(s)" +
+                (stubborn > 0 ? $"; {stubborn} refused to delete (broken consists, see log)." : "."));
+        }
+
+        /// <summary>
         /// Give every producer a working pool, spread one station per frame so a large fill
         /// neither hitches nor stacks. When deleteFirst is set, clears the idle jobless
         /// empties in each economy yard first (company.respawn recovery) and waits for the
@@ -217,33 +426,36 @@ namespace DLE.Data
 
             if (deleteFirst)
             {
-                foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
-                {
-                    var sc = StationController.GetStationByYardID(facility.YardId);
-                    if (sc == null) continue;
-                    var idle = CollectIdleEmpties(sc, null, int.MaxValue);
-                    if (idle.Count == 0) continue;
-                    foreach (var tc in idle)
-                        if (tc.logicCar?.carGuid != null)
-                            _guids.Remove(tc.logicCar.carGuid);
-                    CarSpawner.Instance.DeleteTrainCars(idle, true);
-                    Main.Log($"[CarPool] {facility.YardId}: cleared {idle.Count} idle empt{(idle.Count == 1 ? "y" : "ies")}.");
-                }
+                DeleteRecoverableCars();
                 // Let the deletions settle so freed track length is visible before respawn.
                 yield return new WaitForSeconds(0.5f);
             }
 
+            var spawnedCars = new List<TrainCar>();
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
 
                 foreach (var cargo in facility.Outputs)
-                    totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed);
+                {
+                    // One failed station must not kill the whole map's respawn: a silent
+                    // coroutine death here is exactly what left stacked cuts unvalidated.
+                    try { totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed, spawnedCars); }
+                    catch (Exception ex)
+                    {
+                        Main.LogAlways($"[CarPool] {facility.YardId}: spawning {cargo} failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
 
                 // One station per frame-slice: spread the cost, let physics settle.
                 yield return null;
             }
+
+            // Quarantine anything that spawned derailed and sleep the healthy cars.
+            int deleted = 0;
+            yield return ValidateAndSleepRoutine(spawnedCars, n => deleted = n);
+            totalSpawned -= deleted;
 
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             onDone?.Invoke(totalSpawned);
