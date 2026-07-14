@@ -2,12 +2,14 @@
   "Id": "DerailLogisticsEngine",
   "DisplayName": "Derail Logistics Engine",
   "Author": "Grdn-Network",
-  "Version": "0.1.8",
+  "Version": "0.2.0",
   "AssemblyName": "DerailLogisticsEngine.dll",
   "EntryMethod": "DLE.Main.Load",
-  "HomePage": "https://github.com/Grdn-Network/grdn-interchange",
+  "HomePage": "https://github.com/Grdn-Network/Derail-Logistics-Engine",
   "ManagerVersion": "0.27.0",
   "Requirements": [],
-  "LoadAfter": ["Multiplayer"],
+  "LoadAfter": [
+    "Multiplayer"
+  ],
   "MultiplayerCompatibility": "Host"
 }
