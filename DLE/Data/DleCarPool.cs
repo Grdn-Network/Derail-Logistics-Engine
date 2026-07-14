@@ -38,17 +38,56 @@ namespace DLE.Data
 
         /// <summary>
         /// One-time starter seeding for a save that has never had it, spread across frames.
-        /// The seeded flag is set BEFORE spawning so any save that captures the new cars
-        /// also captures the flag: otherwise a load without a later save re-seeds and stacks
-        /// a second pool on top. Never an automatic top-up.
+        /// Two guards keep it exactly once without ever leaving the world empty:
+        /// - if a prior session already put a pool in the world (its cars persisted even if
+        ///   the flag did not), adopt it and spawn nothing, so reloads never stack a second
+        ///   pool (never an automatic top-up);
+        /// - the seeded flag latches only after cars actually spawn, so an interrupted or
+        ///   failed seed retries next load instead of locking the world empty forever.
         /// </summary>
         public IEnumerator SeedOnceIfNeededRoutine()
         {
             if (PoolsSeeded || !Main.IsHostOrSingleplayer()) yield break;
-            PoolsSeeded = true;
+
+            if (WorldAlreadyHasPool())
+            {
+                PoolsSeeded = true;
+                Main.LogAlways("[CarPool] starter pool already present; marking seeded, spawning nothing.");
+                yield break;
+            }
+
             int spawned = 0;
             yield return RespawnStationPoolsRoutine(deleteFirst: false, n => spawned = n);
-            Main.LogAlways($"[CarPool] one-time starter pools seeded for this save ({spawned} car(s)).");
+            if (spawned > 0)
+            {
+                PoolsSeeded = true;
+                Main.LogAlways($"[CarPool] one-time starter pools seeded for this save ({spawned} car(s)).");
+            }
+            else
+            {
+                Main.LogAlways("[CarPool] seeding produced no cars; will retry next load.");
+            }
+        }
+
+        /// <summary>
+        /// True when this world already holds a starter pool. Prefers our own record; falls
+        /// back to counting idle empties in the economy yards for a save whose DLE state did
+        /// not persist but whose cars did. Only detects a clearly-seeded world (a full pool's
+        /// worth); it never tops up a partially depleted one.
+        /// </summary>
+        private bool WorldAlreadyHasPool()
+        {
+            if (_guids.Count > 0) return true;
+            int threshold = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
+            int idle = 0;
+            foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
+            {
+                var sc = StationController.GetStationByYardID(facility.YardId);
+                if (sc == null) continue;
+                idle += CollectIdleEmpties(sc, null, int.MaxValue).Count;
+                if (idle >= threshold) return true;
+            }
+            return false;
         }
 
         /// <summary>
