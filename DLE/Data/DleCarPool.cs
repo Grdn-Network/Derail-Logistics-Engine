@@ -153,11 +153,27 @@ namespace DLE.Data
                 .First();
 
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
-            var spawned = CarSpawner.Instance
-                .SpawnCarTypesOnTrackRandomOrientation(liveries, railTrack, true, applyHandbrakeOnLastCars: true);
+
+            // Spawn STRICT: it physically overlap-checks every car (IsBoxOverlapping) and
+            // refuses with Blocked/CannotFitOnTrack instead of placing. The middle-based
+            // spawn the pool used before centers every cut on the track midpoint with no
+            // overlap check at all, which is what piled cuts on top of each other. A
+            // Blocked anchor just means try the next spot along the track.
+            List<TrainCar> spawned = null;
+            double margin = 5.0;
+            double maxStart = track.length - length - margin;
+            if (maxStart >= margin)
+            {
+                for (int attempt = 0; attempt < 5 && (spawned == null || spawned.Count == 0); attempt++)
+                {
+                    double startSpan = margin + (maxStart - margin) * attempt / 4.0;
+                    spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
+                        liveries, railTrack, true, true, startSpan, false, true, false);
+                }
+            }
             if (spawned == null || spawned.Count == 0)
             {
-                Main.LogAlways($"[CarPool] spawn failed at {station.stationInfo.YardID}.");
+                Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no clear spot for {count} car(s) on {track.ID?.FullDisplayID}; nothing spawned.");
                 return 0;
             }
 
