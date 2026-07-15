@@ -102,7 +102,7 @@ namespace DLE.Dispatch
                 if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx))
                 { Json(ctx, 403, new { error = "cross-origin request refused" }); return; }
 
-                if (method == "GET" && (path == "" || path == "/")) { Html(ctx, DashboardPage); return; }
+                if (method == "GET" && (path == "" || path == "/")) { Html(ctx, BoardPage.Html); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
@@ -354,107 +354,6 @@ namespace DLE.Dispatch
             ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
             ctx.Response.OutputStream.Close();
         }
-
-        // Minimal built-in dispatch board so the economy is fully manageable without
-        // RemoteDispatch. RD integration supersedes this later.
-        private const string DashboardPage = @"<!doctype html><html><head><meta charset='utf-8'>
-<title>DLE Dispatch</title>
-<style>
-body{font-family:Segoe UI,Arial,sans-serif;background:#1b1d21;color:#ddd;margin:16px}
-h1{font-size:20px;color:#b58ee0} h2{font-size:15px;margin:18px 0 6px;color:#9fc2e8}
-table{border-collapse:collapse;width:100%;font-size:13px}
-td,th{border:1px solid #333;padding:4px 8px;text-align:left}
-th{background:#26282e} tr:nth-child(even){background:#22242a}
-button{background:#5a3f78;color:#fff;border:0;padding:4px 10px;cursor:pointer;border-radius:3px}
-input,select{background:#26282e;color:#ddd;border:1px solid #444;padding:3px 6px}
-#msg{color:#8fd18f;min-height:18px}
-</style></head><body>
-<h1>Derail Logistics Engine: dispatch board</h1><div id='msg'></div>
-<h2>Create a haul</h2>
-<div>Origin <select id='hOrigin'></select> Cargo <select id='hCargo'></select>
-Destination <select id='hDest'></select> Cars <input id='hCars' type='number' value='4' min='1' max='20' style='width:60px'>
-<button onclick='createHaul()'>Spawn haul</button></div>
-<h2>Shippable now (options)</h2><table id='tOptions'></table>
-<h2>Available hauls (not yet accepted)</h2><table id='tAvail'></table>
-<h2>Accepted hauls <button onclick='toggleLock()' id='bLock' title='When ON, the job validator rejects hauls that are not assigned to the accepting crew. Assign players below, then lock.'>Assignment lock: ?</button></h2><table id='tJobs'></table>
-<pre id='carsOut' style='background:#22242a;padding:6px;display:none'></pre>
-<h2>Logistics runs (unpaid, no booklet)</h2>
-<div>From <input id='lFrom' style='width:50px'> To <input id='lTo' style='width:50px'>
-Cars <input id='lCars' type='number' value='4' min='1' style='width:55px'>
-For cargo <input id='lCargo' style='width:110px'> Note <input id='lNote' style='width:220px'>
-<button onclick='createLog()'>Post run</button></div>
-<table id='tLog'></table>
-<h2>Economy</h2><table id='tEcon'></table>
-<script>
-let options=[];let lockOn=false;
-async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
-function msg(t){document.getElementById('msg').textContent=t;setTimeout(()=>msg2(t),4000)}
-function msg2(t){const m=document.getElementById('msg');if(m.textContent===t)m.textContent=''}
-async function refresh(){
- const state=await j('/api/v1/state');lockOn=state.lockEnabled;
- document.getElementById('bLock').textContent='Assignment lock: '+(lockOn?'ON':'off');
- options=await j('/api/v1/options');
- const jobs=await j('/api/v1/jobs'); const econ=await j('/api/v1/economy'); const logs=await j('/api/v1/logistics');
- const oSel=document.getElementById('hOrigin');const cur=oSel.value;
- oSel.innerHTML=options.map(o=>`<option>${o.origin}</option>`).join('');
- if([...oSel.options].some(x=>x.value===cur))oSel.value=cur;
- originChanged();
- document.getElementById('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
-  options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
- const jobHdr='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>';
- const jobRow=(x,av)=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
-  `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button>`+
-  (av?`<button onclick=""takeJob('${x.id}')"">Take</button>`:`<button onclick=""loadJob('${x.id}')"">Load</button><button onclick=""unloadJob('${x.id}')"">Unload</button><button onclick=""completeJob('${x.id}')"">Turn in</button>`)+
-  `<button onclick=""faxJob('${x.id}')"" title='Fax the booklet to the named player (blank = you)'>Fax</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`;
- document.getElementById('tAvail').innerHTML=jobHdr+jobs.filter(x=>x.state==='Available').map(x=>jobRow(x,true)).join('');
- document.getElementById('tJobs').innerHTML=jobHdr+jobs.filter(x=>x.state!=='Available').map(x=>jobRow(x,false)).join('');
- document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
-  logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
-   `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
- document.getElementById('tEcon').innerHTML='<tr><th>Yard</th><th>Stock</th></tr>'+
-  econ.filter(e=>e.stock.length).map(e=>`<tr><td>${e.yardId}</td><td>${e.stock.map(s=>s.amount+' '+s.cargo).join(', ')}</td></tr>`).join('');
-}
-async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){msg('enter a player name');return}
- const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});msg(r.ok?('Assigned '+id+' to '+p):'assign failed');refresh()}
-async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
-async function takeJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/take','POST',{player:p||null});msg(r.message||'failed');refresh()}
-async function completeJob(id){const r=await j('/api/v1/jobs/'+id+'/complete','POST');msg(r.message||'failed');refresh()}
-async function loadJob(id){const r=await j('/api/v1/jobs/'+id+'/load','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
-async function unloadJob(id){const r=await j('/api/v1/jobs/'+id+'/unload','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
-async function faxJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/fax','POST',{player:p||null});msg(r.message||'failed')}
-async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Assignment lock now '+(r.lockEnabled?'ON':'off'));refresh()}
-async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
- if(!b.from||!b.to){msg('from and to required');return}
- const r=await j('/api/v1/logistics','POST',b);msg(r.Id?('Posted '+r.Id):'failed');refresh()}
-async function logStatus(id,s){await j('/api/v1/logistics/'+id,'PUT',{status:s});refresh()}
-async function showCars(id){
- const r=await j('/api/v1/jobs/'+id+'/cars');const o=document.getElementById('carsOut');
- o.style.display='block';
- o.textContent=id+' loading track: '+(r.loadingTrack||'?')+'\n'+
-  (r.cars.length?r.cars.map(c=>`${c.carId}  ${c.type}  ${c.loaded?'LOADED':'empty'}  on ${c.track}`+(c.metersFromLoading!=null?`  ${c.metersFromLoading}m from loading`:''))
-   .join('\n'):'no cars attached yet (bring empties to the loading track)');}
-async function logDel(id){await j('/api/v1/logistics/'+id,'DELETE');refresh()}
-function originChanged(){
- const o=document.getElementById('hOrigin').value;
- const mine=options.filter(x=>x.origin===o);
- document.getElementById('hCargo').innerHTML=mine.map(x=>`<option>${x.cargo}</option>`).join('');
- cargoChanged();
-}
-function cargoChanged(){
- const o=document.getElementById('hOrigin').value;const c=document.getElementById('hCargo').value;
- const opt=options.find(x=>x.origin===o&&x.cargo===c);
- document.getElementById('hDest').innerHTML=(opt?opt.consumers:[]).map(x=>`<option>${x}</option>`).join('');
-}
-document.getElementById('hOrigin').addEventListener('change',originChanged);
-document.getElementById('hCargo').addEventListener('change',cargoChanged);
-async function createHaul(){
- const b={origin:hOrigin.value,destination:hDest.value,cargo:hCargo.value,cars:parseInt(hCars.value)};
- const r=await j('/api/v1/hauls','POST',b);
- msg(r.jobId?('Created '+r.jobId):('Failed: '+(r.error||'see game log')));
- refresh();
-}
-refresh();setInterval(refresh,5000);
-</script></body></html>";
 
         private static object JobCarsPayload(StaticDirectHaulJobDefinition def)
         {
