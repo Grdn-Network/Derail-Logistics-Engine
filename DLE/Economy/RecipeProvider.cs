@@ -39,7 +39,7 @@ namespace DLE.Economy
                     Outputs = outputs,
                 };
                 // Hub storage is CONFIG, not code: the default economy.json grants it to
-                // the owner-designated hubs (HB largest, GF has the storage buildings);
+                // the designated hubs (HB largest, GF has the storage buildings);
                 // SM and CW join when contracts can gate their use.
 
                 // Default recipe: consume one of each input to make one of each output.

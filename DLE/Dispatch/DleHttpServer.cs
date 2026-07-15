@@ -502,7 +502,7 @@ refresh();setInterval(refresh,5000);
         }
 
         // A same-origin board request (or a non-browser client like curl / RemoteDispatch)
-        // either sends no Origin header or sends our own; anything else is a foreign site.
+        // either sends no Origin header or sends the board's own; anything else is a foreign site.
         private static bool IsForeignOrigin(HttpListenerContext ctx)
         {
             var origin = ctx.Request.Headers["Origin"];

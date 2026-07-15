@@ -220,8 +220,8 @@ namespace DLE.Dispatch
 
         /// <summary>
         /// Station staff work the cut the way the terminal does, one car per
-        /// remoteSecondsPerCar, just on whatever track the cars stand: the longer-loading
-        /// pacing on any track, per the owner's design. Everything is revalidated when
+        /// remoteSecondsPerCar, just on whatever track the cars stand: longer-loading
+        /// pacing on any track. Everything is revalidated when
         /// each car comes up, so a job that dies or a consist that leaves mid-work stops
         /// the loading at that car instead of double-debiting or conjuring cargo.
         /// </summary>
@@ -231,8 +231,9 @@ namespace DLE.Dispatch
             // The first staff member walks out to the cut.
             if (perCar > 0f) yield return new WaitForSeconds(perCar);
 
-            // Attach commitment happens once, revalidated: a lever attach mid-wait used to
-            // trigger a second CommitAttach (double stock debit, overwritten consist).
+            // Attach commitment happens once, revalidated: without the recheck, a lever
+            // attach mid-wait triggers a second CommitAttach (double stock debit,
+            // overwritten consist).
             var originSc = StationController.GetStationByYardID(def.chainData?.chainOriginYardId);
             var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
             try

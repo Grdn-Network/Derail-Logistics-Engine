@@ -26,8 +26,8 @@ namespace DLE.Patches
             var dest = def.chainData?.chainDestinationYardId;
             if (string.IsNullOrEmpty(dest)) return;
 
-            // Only cargo that was actually LOADED can be delivered: an attached but
-            // never-loaded cut used to mint stock and pay here.
+            // Only cargo that was actually LOADED can be delivered: without the tally,
+            // an attached but never-loaded cut mints stock and pay here.
             int total = def.carsToTransport?.Count ?? 0;
             int deliverable = System.Math.Min(total, def.loadedCarloads);
             if (deliverable <= 0)

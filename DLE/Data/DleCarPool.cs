@@ -79,8 +79,8 @@ namespace DLE.Data
         /// <summary>
         /// A save whose cars persisted but whose DLE state did not still holds a fleet;
         /// adopt it instead of stacking a second pool on top. Adoption REGISTERS the cars
-        /// in the pool (previously they were left out of _guids, so the unused-car deleter
-        /// was free to garbage-collect the whole fleet and the cap counted zero). Only a
+        /// in the pool: unregistered cars are unprotected from the unused-car deleter and
+        /// invisible to the cap accounting. Only a
         /// clearly-seeded world (a full pool's worth of idle empties) is adopted; a handful
         /// of stray leftovers is not, and seeding proceeds.
         /// </summary>
@@ -119,9 +119,8 @@ namespace DLE.Data
             if (station == null || count <= 0) return 0;
 
             // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
-            // pool past it. The car-flood incident showed what an unbounded pool does to
-            // physics, saves and MP sync; the cap is the backstop even if a future bug
-            // tries to compound the fleet again.
+            // pool past it. An unbounded pool degrades physics, saves and MP sync; the cap
+            // is the backstop if a bug ever compounds the fleet.
             int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
             int room = cap - _guids.Count;
             if (room <= 0)
@@ -217,7 +216,7 @@ namespace DLE.Data
         /// <summary>
         /// Bad-spawn quarantine plus instant sleep. A car that spawns derailed never
         /// becomes stationary, never sleeps, drags the framerate down and corrupts the
-        /// save it is written into (the 86%-hang incident), so after physics settles the
+        /// save it is written into (corrupted consists hang save loading), so after physics settles the
         /// cut, anything derailed is deleted on the spot. Healthy cars are force-slept
         /// through the game's own optimizer API instead of waiting out its stationary
         /// timer; the TrainsOptimizer wakes them again when live traffic reaches them.
@@ -380,8 +379,8 @@ namespace DLE.Data
         /// of such cars interpenetrating anywhere (sleeping mines from the stacked-spawn
         /// era; they detonate on wake, so they go now instead). Deletion is one car at a
         /// time inside try/catch: a consist the game itself cannot split (the
-        /// Trainset.Split ArgumentOutOfRangeException that bricked a save and previously
-        /// killed this whole routine mid-delete) now costs that single car, and the
+        /// Trainset.Split ArgumentOutOfRangeException, which corrupts saves and would kill
+        /// this whole routine mid-delete) costs that single car, and the
         /// recovery carries on.
         /// </summary>
         private void DeleteRecoverableCars()

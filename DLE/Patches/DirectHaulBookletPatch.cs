@@ -119,9 +119,9 @@ namespace DLE.Patches
             // the definition is not registered (e.g. on a DVMP client).
             StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var defForTrack);
 
-            // A carless job can reach the booklet before chainOriginStationInfo/Destination are
-            // populated, which NRE'd the whole render (the "carless booklets never print" bug).
-            // Fall back to resolving the station info from the definition's yard ids.
+            // A carless job can reach the booklet before chainOriginStationInfo/Destination
+            // are populated, and rendering with them null NREs the whole booklet. Fall back
+            // to resolving the station info from the definition's yard ids.
             var origin = job.chainOriginStationInfo
                 ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainOriginYardId)?.stationInfo;
             var destination = job.chainDestinationStationInfo
@@ -135,8 +135,8 @@ namespace DLE.Patches
                 return null;
             }
 
-            // A carless job waiting for its empties has no cars sitting anywhere; the old
-            // "Cars on track ..." line pointed crews at a consist that does not exist.
+            // A carless job waiting for its empties has no cars sitting anywhere; a
+            // "Cars on track ..." line would point crews at a consist that does not exist.
             string pickup;
             bool awaitingEmpties = defForTrack != null && defForTrack.includeLoadTask &&
                                    (defForTrack.carsToTransport?.Count ?? 0) == 0;
@@ -235,9 +235,9 @@ namespace DLE.Patches
                 ?? StationController.GetStationByYardID(def?.chainData?.chainDestinationYardId)?.stationInfo;
 
             // A carless Company Haul carries a leading load task; the booklet mirrors it.
-            // Preloaded-era jobs (single unload task) keep the old 4-page layout, and the
-            // unload page reads its track from the right task either way (the old code
-            // always read task 0, which is the LOAD track on a carless job).
+            // Jobs whose cars ship pre-loaded (single unload task) keep the 4-page layout, and the
+            // unload page reads its track from the right task either way (task 0 is the
+            // LOAD track on a carless job, not the unload track).
             bool hasLoadStep = def?.includeLoadTask
                 ?? (job.tasksData != null && job.tasksData.Length > 1);
             string total = hasLoadStep ? "5" : "4";

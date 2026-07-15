@@ -182,8 +182,8 @@ namespace DLE.Patches
             jobsManager.jobToJobCars[job] = new HashSet<Car>(valid);
 
             // The economics commit the moment the cars do: the promised supply leaves the
-            // stockpile NOW (a debt-registration throw used to abort before the debit,
-            // loading the cargo without ever charging the yard).
+            // stockpile NOW: nothing below this line may abort the debit, or the machine
+            // loads the cargo without ever charging the yard.
             EconomyState.Instance.ConsumeReservation(job.ID,
                 def.chainData.chainOriginYardId, def.transportedCargo, valid.Count);
 
