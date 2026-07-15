@@ -2,34 +2,19 @@ using UnityModManagerNet;
 
 namespace DLE
 {
+    /// <summary>
+    /// Host preferences only. World tuning (starting stock, production pace, pool size
+    /// and packing, director tick) lives in economy.json's "settings" block; haul sizing
+    /// for auto-generation is fixed in EconomyDirector, and dispatcher-picked hauls are
+    /// never bound by it.
+    /// </summary>
     public class Settings : UnityModManager.ModSettings, IDrawable
     {
-        [Draw("Starting stock per output cargo (carloads)")]
-        public int InitialStock = 6;
+        [Draw("Available booklets per station")]
+        public int MaxOpenBookletsPerStation = 10;
 
-        [Draw("Smallest haul the economy will generate (carloads)")]
-        public int MinShipCarloads = 3;
-
-        [Draw("Largest haul the economy will generate (cars)")]
-        public int MaxCarsPerHaul = 6;
-
-        [Draw("Seconds between generation ticks")]
-        public int DirectorTickSeconds = 60;
-
-        [Draw("Max active hauls per origin station")]
-        public int MaxHaulsPerStation = 4;
-
-        [Draw("Max active hauls on the whole map")]
-        public int MaxHaulsTotal = 40;
-
-        [Draw("Minutes per carload produced at source industries")]
-        public int SourceProductionMinutes = 10;
-
-        [Draw("How full to pack producer storage tracks with pool cars (%)")]
-        public int PoolTrackFillPercent = 90;
-
-        [Draw("Hard cap on DLE pool cars in the world")]
-        public int MaxPoolCars = 500;
+        [Draw("Available booklets on the whole map")]
+        public int MaxOpenBookletsTotal = 60;
 
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;

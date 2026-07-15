@@ -1,5 +1,12 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'settings' is world tuning: initialStock (carloads each producer output starts with, also the company.resupply target), directorTickSeconds (haul generation and production heartbeat), sourceProductionMinutes (minutes per carload at mines, forests, wells, farm), poolTrackFillPercent (how full company.respawn packs producer storage tracks), maxPoolCars (hard fleet ceiling). 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "settings": {
+    "initialStock": 6,
+    "directorTickSeconds": 120,
+    "sourceProductionMinutes": 10,
+    "poolTrackFillPercent": 90,
+    "maxPoolCars": 500
+  },
   "defaults": {
     "role": "both",
     "remoteLoad": true,

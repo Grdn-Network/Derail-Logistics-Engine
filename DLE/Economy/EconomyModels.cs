@@ -63,8 +63,20 @@ namespace DLE.Economy
     // economy.json overlay shape (cargo names are CargoType enum names).
     public class EconomyOverlay
     {
+        public TuningDef settings;
         public OverlayDefaults defaults;
         public Dictionary<string, StationOverlay> stations;
+    }
+
+    // World tuning from economy.json's "settings" block; absent keys keep these values.
+    // Hot-reloadable through "Reload economy.json".
+    public class TuningDef
+    {
+        public int initialStock = 6;
+        public int directorTickSeconds = 120;
+        public int sourceProductionMinutes = 10;
+        public int poolTrackFillPercent = 90;
+        public int maxPoolCars = 500;
     }
 
     // Global servicing defaults applied to every station before per-station overrides.

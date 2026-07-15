@@ -145,20 +145,8 @@ namespace DLE
             Settings.Draw(entry);
 
             UnityEngine.GUILayout.Space(10);
-            UnityEngine.GUILayout.Label("Economy");
-            if (UnityEngine.GUILayout.Button("Generate a haul from stock", UnityEngine.GUILayout.Width(240)))
-                DLE.Economy.EconomyDirector.GenerateOne();
-            if (UnityEngine.GUILayout.Button("Seed starting stock now", UnityEngine.GUILayout.Width(240)))
-                EconomyState.Instance.SeedInitialStock(Settings?.InitialStock ?? 6);
             if (UnityEngine.GUILayout.Button("Reload economy.json", UnityEngine.GUILayout.Width(240)))
                 EconomyState.Instance.ReloadRecipes(ModEntry.Path);
-
-            UnityEngine.GUILayout.Space(6);
-            UnityEngine.GUILayout.Label("Debug");
-            if (UnityEngine.GUILayout.Button("Dump economy to log", UnityEngine.GUILayout.Width(240)))
-                EconomyState.Instance.DumpToLog();
-            if (UnityEngine.GUILayout.Button("Simulate a delivery (no train)", UnityEngine.GUILayout.Width(240)))
-                DebugEconomy.SimulateDelivery();
         }
 
         private static void OnSaveGUI(UnityModManager.ModEntry entry)

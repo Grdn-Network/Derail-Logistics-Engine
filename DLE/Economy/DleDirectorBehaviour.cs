@@ -136,13 +136,13 @@ namespace DLE.Economy
             float productionAccumulator = 0f;
             while (true)
             {
-                float tick = Mathf.Max(15, Main.Settings?.DirectorTickSeconds ?? 60);
+                float tick = Mathf.Max(15, RecipeProvider.Tuning.directorTickSeconds);
                 yield return new WaitForSeconds(tick);
                 if (!Main.IsHostOrSingleplayer() || !WorldReady()) continue;
 
                 // Cargo enters the world at the sources on a slow clock.
                 productionAccumulator += tick / 60f;
-                float interval = Mathf.Max(1, Main.Settings?.SourceProductionMinutes ?? 10);
+                float interval = Mathf.Max(1, RecipeProvider.Tuning.sourceProductionMinutes);
                 if (productionAccumulator >= interval)
                 {
                     EconomyState.Instance.TickSourceProduction((int)(productionAccumulator / interval));

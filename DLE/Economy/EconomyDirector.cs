@@ -14,12 +14,23 @@ namespace DLE.Economy
     /// </summary>
     public static class EconomyDirector
     {
-        /// <summary>Count live hauls once per sweep: total plus per-origin, one pass.</summary>
-        private static int CountActiveHauls(Dictionary<string, int> perOrigin)
+        // Auto-generation sizing. Dispatcher-picked hauls (CreateSpecific) are bound only
+        // by stock and track length, never by these.
+        private const int MinAutoHaulCarloads = 3;
+        private const int MaxAutoHaulCars = 6;
+
+        /// <summary>
+        /// Count open booklets once per sweep: total plus per-origin, one pass. Only
+        /// not-yet-taken hauls count toward the generation caps, so a map full of crews
+        /// running work keeps offering fresh paper; the caps limit un-taken paper only.
+        /// </summary>
+        private static int CountOpenBooklets(Dictionary<string, int> perOrigin)
         {
             int total = 0;
             foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
             {
+                var state = kv.Value.LiveJob?.State;
+                if (state != null && state != JobState.Available) continue;
                 total++;
                 var origin = kv.Value.chainData?.chainOriginYardId;
                 if (origin == null) continue;
@@ -38,13 +49,13 @@ namespace DLE.Economy
             }
 
             var econ = EconomyState.Instance;
-            int min = Math.Max(1, Main.Settings?.MinShipCarloads ?? 3);
-            int max = Math.Max(min, Main.Settings?.MaxCarsPerHaul ?? 6);
-            int perStation = Math.Max(1, Main.Settings?.MaxHaulsPerStation ?? 4);
-            int total = Math.Max(1, Main.Settings?.MaxHaulsTotal ?? 40);
+            const int min = MinAutoHaulCarloads;
+            const int max = MaxAutoHaulCars;
+            int perStation = Math.Max(1, Main.Settings?.MaxOpenBookletsPerStation ?? 10);
+            int total = Math.Max(1, Main.Settings?.MaxOpenBookletsTotal ?? 60);
 
             var perOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
-            if (CountActiveHauls(perOrigin) >= total) return false;
+            if (CountOpenBooklets(perOrigin) >= total) return false;
 
             foreach (var producer in econ.Facilities.Values)
             {

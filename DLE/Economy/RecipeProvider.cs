@@ -70,8 +70,13 @@ namespace DLE.Economy
             return set;
         }
 
+        /// <summary>World tuning from economy.json's "settings" block; defaults when the
+        /// file or block is absent. Refreshed by every ApplyOverlay (load and reload).</summary>
+        public static TuningDef Tuning { get; private set; } = new TuningDef();
+
         public static void ApplyOverlay(Dictionary<string, FacilityDef> facilities, string modPath)
         {
+            Tuning = new TuningDef();
             var path = Path.Combine(modPath, "economy.json");
             if (!File.Exists(path)) return;
 
@@ -85,7 +90,9 @@ namespace DLE.Economy
                 Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
                 return;
             }
-            if (overlay == null || (overlay.stations == null && overlay.defaults == null)) return;
+            if (overlay == null) return;
+            if (overlay.settings != null) Tuning = overlay.settings;
+            if (overlay.stations == null && overlay.defaults == null) return;
 
             // Global defaults first: the baseline for every facility.
             if (overlay.defaults != null)

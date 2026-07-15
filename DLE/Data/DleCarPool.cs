@@ -96,7 +96,7 @@ namespace DLE.Data
             }
             // A single haul's worth of leftovers is not a pool: expired vanilla jobs leave
             // that much lying around. Require several hauls' worth before adopting.
-            int threshold = Math.Max(2, Main.Settings?.MaxCarsPerHaul ?? 6) * 3;
+            int threshold = 18; // three typical hauls' worth
             if (found.Count < threshold) return false;
 
             foreach (var tc in found)
@@ -121,7 +121,7 @@ namespace DLE.Data
             // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
             // pool past it. An unbounded pool degrades physics, saves and MP sync; the cap
             // is the backstop if a bug ever compounds the fleet.
-            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             int room = cap - _guids.Count;
             if (room <= 0)
             {
@@ -532,7 +532,7 @@ namespace DLE.Data
             // One track per station per round, so the pool cap lands evenly across the
             // map instead of starving whichever stations iterate last.
             var spawnedCars = new List<TrainCar>();
-            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             bool capHit = false;
             for (bool any = offers.Count > 0; any && !capHit;)
             {
@@ -583,7 +583,7 @@ namespace DLE.Data
         private int PackTrack(StationController station, Economy.FacilityDef facility,
             JobTrack track, IDictionary<JobTrack, float> claimed, List<TrainCar> collector)
         {
-            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             int room = cap - _guids.Count;
             if (room < 2) return 0;
             if ((track.GetCarsFullyOnTrack()?.Count ?? 0) != 0 || ClaimedOn(claimed, track) > 0f)
@@ -598,7 +598,7 @@ namespace DLE.Data
                     perCargo.Add(carTypes[0].liveries);
             if (perCargo.Count == 0) return 0;
 
-            int fillPercent = Mathf.Clamp(Main.Settings?.PoolTrackFillPercent ?? 90, 10, 100);
+            int fillPercent = Mathf.Clamp(Economy.RecipeProvider.Tuning.poolTrackFillPercent, 10, 100);
             double usable = track.length * fillPercent / 100.0 - 10.0;
             if (usable <= 0) return 0;
 

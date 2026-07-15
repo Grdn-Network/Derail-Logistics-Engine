@@ -36,7 +36,7 @@ namespace DLE.Economy
             LoadFrom(saveData);
             bool seeded = _stock.Count == 0;
             if (seeded)
-                SeedInitialStock(Main.Settings?.InitialStock ?? 6);
+                SeedInitialStock(RecipeProvider.Tuning.initialStock);
             Main.Log($"[Economy] initialised {_facilities.Count} facilities; " +
                      $"{_stock.Count} have stock.");
             return seeded;
