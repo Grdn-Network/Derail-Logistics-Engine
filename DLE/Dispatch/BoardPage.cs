@@ -93,6 +93,10 @@ padding:8px 10px;font-size:12.5px}
 .loadpill.yes{background:#173424;color:var(--green)}
 .loadpill.no{background:var(--panel);color:var(--dim);border:1px solid var(--line2)}
 .empty{color:var(--dim);font-size:13px;padding:8px 2px}
+.carchip{display:inline-block;border:1px solid var(--line2);border-radius:4px;
+padding:1px 7px;margin:2px 4px 2px 0;font-size:12px;cursor:default}
+.carchip.ok{border-color:#2c5c3f;color:var(--green)}
+.carchip.busy{color:var(--dim)}
 .econ{display:grid;gap:12px}
 .yard .yhead{font-weight:700;margin-bottom:5px}
 .stockrow{display:grid;grid-template-columns:110px 1fr 84px;gap:10px;
@@ -136,6 +140,16 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   <h2>Shippable now <span class='sub'>click a row to fill the form</span></h2>
   <div class='tablewrap'><table id='tOptions'></table></div>
  </section>
+ <section class='card col12' id='finder'>
+  <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
+  <div class='formrow' style='margin-bottom:10px'>
+   <label>Cargo<select id='fCargo'></select></label>
+   <label>Yard<input id='fYard' style='width:70px' placeholder='any'></label>
+   <button class='primary' data-act='findCars'>Find</button>
+   <span class='meta' id='fSummary'></span>
+  </div>
+  <div class='tablewrap'><table id='tFleet'></table></div>
+ </section>
  <section class='col12'>
   <h2>Available hauls <span class='count' id='cAvail'></span></h2>
   <div class='cards' id='availCards'></div>
@@ -166,7 +180,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
-let options=[],lockOn=false,expanded=new Set(),last={};
+let options=[],lockOn=false,expanded=new Set(),last={},lastJobs=[];
 async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
 function toast(t,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');
  d.textContent=t;$('toasts').appendChild(d);setTimeout(()=>d.remove(),4200)}
@@ -191,6 +205,7 @@ function jobCard(x,avail){
   <div class='acts'>${acts}
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet to the named crew (blank = you)'>Fax</button>
    <button class='mini' data-act='cars' data-id='${esc(x.id)}'>${expanded.has(x.id)?'Hide cars':'Cars'}</button>
+   <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
    <input class='crew' id='a_${esc(x.id)}' placeholder='crew name'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>&times;</button>
@@ -210,6 +225,7 @@ async function refresh(){
   j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics')]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
+ lastJobs=jobs;
  lockOn=!!state.lockEnabled;
  $('bLock').textContent='LOCK '+(lockOn?'ON':'OFF');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
@@ -218,6 +234,7 @@ async function refresh(){
  $('chipJobs').textContent=state.jobCount+' hauls';
  keepSelect($('hOrigin'),[...new Set(options.map(o=>o.origin))]);
  originChanged();
+ keepSelect($('fCargo'),['any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
  const oKey=JSON.stringify(options);
  if(last.opt!==oKey){last.opt=oKey;
   $('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
@@ -264,6 +281,20 @@ async function fillCars(id){
   if(box.innerHTML!==html)box.innerHTML=html}
  catch(e){box.textContent='car view failed'}
 }
+function renderFleet(r){
+ $('fSummary').textContent=r.total+' car(s), '+r.usable+' usable now';
+ const groups={};
+ for(const c of r.cars){const k=(c.yard||'~')+'|'+c.track;(groups[k]=groups[k]||[]).push(c)}
+ const keys=Object.keys(groups).sort();
+ $('tFleet').innerHTML=keys.length?'<tr><th>Yard</th><th>Track</th><th>Usable</th><th>Cars</th></tr>'+
+  keys.map(k=>{const g=groups[k];g.sort((a,b)=>(b.usable?1:0)-(a.usable?1:0));
+   const u=g.filter(c=>c.usable).length;
+   return `<tr><td>${esc(g[0].yard||'')}</td><td>${esc(g[0].track)}</td><td class='num'>${u}/${g.length}</td><td>`+
+    g.map(c=>{const why=c.loadedCargo?('loaded: '+c.loadedCargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':'usable';
+     return `<span class='carchip ${c.usable?'ok':'busy'}' title='${esc(c.type)}; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+
+    `</td></tr>`}).join('')
+  :`<tr><td class='empty' colspan='4'>no matching cars found</td></tr>`;
+}
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}
 const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
@@ -289,6 +320,17 @@ const actions={
   toast(r.ok?'Assigned '+id+' to '+p:'assign failed',!r.ok);refresh()},
  unassign:async id=>{await j('/api/v1/assignments/'+id,'DELETE');toast('Unassigned '+id);refresh()},
  cars:id=>{expanded.has(id)?expanded.delete(id):expanded.add(id);last.jobs=null;refresh()},
+ findCars:async()=>{const c=$('fCargo').value,y=$('fYard').value.trim();
+  const q=[];if(c&&c!=='any cargo')q.push('cargo='+encodeURIComponent(c));
+  if(y)q.push('yard='+encodeURIComponent(y.toUpperCase()));
+  const r=await j('/api/v1/fleet'+(q.length?'?'+q.join('&'):''));
+  if(r.error){toast(r.error,true);return}
+  renderFleet(r)},
+ findEmpties:id=>{const x=lastJobs.find(v=>v.id===id);if(!x)return;
+  const sel=$('fCargo');
+  if(![...sel.options].some(o=>o.value===x.cargo)){const o=document.createElement('option');o.textContent=x.cargo;sel.appendChild(o)}
+  sel.value=x.cargo;$('fYard').value='';
+  actions.findCars();$('finder').scrollIntoView({behavior:'smooth'})},
  postRun:async()=>{const b={from:$('lFrom').value,to:$('lTo').value,cars:parseInt($('lCars').value),
    cargo:$('lCargo').value||null,note:$('lNote').value||null};
   if(!b.from||!b.to){toast('from and to are required',true);return}

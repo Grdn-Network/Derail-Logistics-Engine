@@ -107,6 +107,13 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/fleet")
+                {
+                    var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
+                    if (payload == null) { Json(ctx, 400, new { error = fleetError }); return; }
+                    Json(ctx, 200, payload);
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/history")
                 {
                     int limit = 200;
@@ -289,6 +296,71 @@ namespace DLE.Dispatch
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
         private class StatusRequest { public string status = null; }
+
+        /// <summary>
+        /// Every freight car in the world with its track and availability, optionally
+        /// narrowed to the car types that can load a given cargo and to one yard. A car
+        /// is usable when it is empty, jobless, unreserved and not player-spawned.
+        /// </summary>
+        private static object FleetPayload(string cargoFilter, string yardFilter, out string error)
+        {
+            error = null;
+            List<DV.ThingTypes.TrainCarType_v2> loadable = null;
+            if (!string.IsNullOrEmpty(cargoFilter))
+            {
+                if (!Enum.TryParse<DV.ThingTypes.CargoType>(cargoFilter, out var cargoType))
+                { error = $"unknown cargo '{cargoFilter}'"; return null; }
+                if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargoType, out var v2) ||
+                    !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out loadable))
+                { error = $"no car type carries {cargoType}"; return null; }
+            }
+
+            var reservedBy = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
+                if (kv.Value?.reservedCarIds != null)
+                    foreach (var rid in kv.Value.reservedCarIds)
+                        reservedBy[rid] = kv.Key;
+
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            var rows = new List<(string sortKey, object row)>();
+            int usable = 0;
+            foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+            {
+                var car = pair.Key;
+                var tc = pair.Value;
+                if (car == null || tc == null || tc.IsLoco) continue;
+                if (loadable != null && (car.carType?.parentType == null || !loadable.Contains(car.carType.parentType))) continue;
+
+                var trackId = car.CurrentTrack?.ID;
+                if (!string.IsNullOrEmpty(yardFilter) &&
+                    !string.Equals(trackId?.yardId, yardFilter, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var jobOfCar = jobsManager != null ? jobsManager.GetJobOfCar(car) : null;
+                reservedBy.TryGetValue(car.ID, out var holder);
+                bool free = car.LoadedCargoAmount == 0f && jobOfCar == null && holder == null && !car.playerSpawnedCar;
+                if (free) usable++;
+                rows.Add(($"{trackId?.yardId}|{trackId?.FullDisplayID}|{car.ID}", new
+                {
+                    carId = car.ID,
+                    type = tc.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                    yard = trackId?.yardId,
+                    track = trackId?.FullDisplayID ?? "in motion",
+                    loadedCargo = car.LoadedCargoAmount > 0f ? car.CurrentCargoTypeInCar.ToString() : null,
+                    jobId = jobOfCar?.ID,
+                    reservedBy = holder,
+                    playerSpawned = car.playerSpawnedCar,
+                    usable = free,
+                }));
+            }
+            rows.Sort((a, b) => string.CompareOrdinal(a.sortKey, b.sortKey));
+            return new
+            {
+                cargo = string.IsNullOrEmpty(cargoFilter) ? null : cargoFilter,
+                total = rows.Count,
+                usable,
+                cars = rows.Select(r => r.row).ToList(),
+            };
+        }
 
         private static object OptionsPayload() =>
             EconomyDirector.GetOptions().Select(o => new

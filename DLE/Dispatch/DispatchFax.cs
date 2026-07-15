@@ -53,10 +53,16 @@ namespace DLE.Dispatch
             var pos = target.position + target.forward * 0.6f + Vector3.up * 1.1f;
             var rot = Quaternion.LookRotation(target.forward);
 
+            // The Job overload assigns the job to the JobBooklet component (the Job_data
+            // overload renders pages only, leaving the item named [NO JOB] and exempt from
+            // completion cleanup). Parenting to the origin shift keeps a world-printed
+            // paper in place when the world moves; storage registration is deferred until
+            // the paper is known to stay in the world.
             GameObject booklet;
             try
             {
-                booklet = BookletCreator_Job.Create(new Job_data(def.LiveJob), pos, rot)?.gameObject;
+                booklet = BookletCreator_Job.Create(def.LiveJob, pos, rot,
+                    WorldMover.OriginShiftParent, addToWorldStorage: false)?.gameObject;
             }
             catch (Exception ex)
             {
@@ -84,6 +90,9 @@ namespace DLE.Dispatch
                     Main.Log($"[Fax] inventory stash failed ({ex.Message}); leaving the paper in the world.");
                 }
             }
+
+            try { SingletonBehaviour<StorageController>.Instance?.AddItemToWorldStorageAfterOneFrame(booklet); }
+            catch (Exception ex) { Main.Log($"[Fax] world storage registration failed: {ex.Message}"); }
 
             Main.LogAlways($"[Fax] {jobId} faxed; printed in front of {name}.");
             return Result.Done($"{jobId} faxed; printing in front of {name}");

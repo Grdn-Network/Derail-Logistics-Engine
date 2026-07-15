@@ -79,6 +79,10 @@
       <HintPath>lib\DV.Common.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="WorldStreamer">
+      <HintPath>lib\WorldStreamer.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="DV.Localization">
       <HintPath>lib\DV.Localization.dll</HintPath>
       <Private>False</Private>
