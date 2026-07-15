@@ -156,11 +156,34 @@ namespace DLE.Data
             // guarantee against stacking is the logic layer: a track with zero cars on it
             // and no claim from this sweep cannot hold anything to stack onto. Stations
             // with more outputs than free storage tracks shortfall and say so.
-            var fitting = station.logicStation.yard.StorageTracks
-                .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
-                .Where(t => ClaimedOn(claimed, t) <= 0f)
-                .Where(t => t.length - 10.0 > length)
-                .ToList();
+            System.Collections.Generic.List<Track> FittingTracks(float len) =>
+                station.logicStation.yard.StorageTracks
+                    .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                    .Where(t => ClaimedOn(claimed, t) <= 0f)
+                    .Where(t => t.length - 10.0 > len)
+                    .ToList();
+
+            var fitting = FittingTracks(length);
+
+            // A station whose remaining empty tracks are all short loses the whole output
+            // when the full cut cannot fit anywhere; half a cut on a short track beats
+            // zero cars for that cargo.
+            if (fitting.Count == 0 && count > 2)
+            {
+                int half = Math.Max(2, count / 2);
+                var halfLiveries = liveries.Take(half).ToList();
+                float halfLength = CarSpawner.Instance.GetTotalCarLiveriesLength(halfLiveries, true);
+                var halfFitting = FittingTracks(halfLength);
+                if (halfFitting.Count > 0)
+                {
+                    Main.Log($"[CarPool] {station.stationInfo.YardID}: no track fits {count} cars ({length:F0}m); spawning {half} instead.");
+                    count = half;
+                    liveries = halfLiveries;
+                    length = halfLength;
+                    fitting = halfFitting;
+                }
+            }
+
             if (fitting.Count == 0)
             {
                 Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no empty storage track fits {count} empt{(count == 1 ? "y" : "ies")} ({length:F0}m); nothing spawned.");
@@ -480,7 +503,7 @@ namespace DLE.Data
             }
             SweepInFlight = true;
             int totalSpawned = 0;
-            int perOutput = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
+            int perOutput = Math.Max(1, Main.Settings?.PoolCarsPerOutput ?? 9);
             var claimed = new Dictionary<JobTrack, float>();
 
             if (deleteFirst)
