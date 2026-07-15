@@ -518,6 +518,10 @@ namespace DLE.Data
                 yield return new WaitForSeconds(0.5f);
             }
 
+            // Guids of cars that died since load (any cause) otherwise count against the
+            // cap and shrink the repack by exactly that many phantom cars.
+            PruneDeadGuids();
+
             // Each producer offers its empty storage tracks, longest first; each track is
             // packed with a random mix of the cargos that producer ships. Consumers with
             // no outputs offer nothing and stay clear for deliveries.
@@ -708,6 +712,25 @@ namespace DLE.Data
                 // Older saves have no flag and deserialize as false: they seed once, by design.
                 PoolsSeeded = payload.PoolsSeeded;
             }
+            _loadedFrom = data;
+        }
+
+        private SaveGameData _loadedFrom;
+
+        /// <summary>
+        /// Arm the pool from the current save if it has not been read yet. The game
+        /// decides which jobless cars to delete DURING world load, before OnWorldLoaded
+        /// fires; a guard that waits for OnWorldLoaded is armed after the kill list is
+        /// already made and the whole fleet is condemned on every load. Reference
+        /// comparison keeps the fast path allocation-free; a new world means a new
+        /// SaveGameData instance and triggers a fresh read.
+        /// </summary>
+        public void EnsureLoaded()
+        {
+            var data = SaveGameManager.Instance?.data;
+            if (data == null || ReferenceEquals(_loadedFrom, data)) return;
+            LoadFrom(data);
+            Main.LogAlways($"[CarPool] pool armed early from save data: {_guids.Count} guid(s).");
         }
     }
 }
