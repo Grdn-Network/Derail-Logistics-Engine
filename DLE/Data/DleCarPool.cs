@@ -431,6 +431,12 @@ namespace DLE.Data
                 if (jobsManager.GetJobOfCar(car) != null) continue;
                 freeCars.Add(tc);
                 if (IsWreck(tc)) targets.Add(tc);
+
+                // Pool-registered cars are DLE's own fleet: a jobless empty pool car is
+                // recoverable wherever it stands, not only in a yard. Strays left outside
+                // yards otherwise survive every respawn and eat the pool cap while the
+                // repack shortfalls. Loaded cars and cars on jobs never reach this line.
+                if (car.carGuid != null && _guids.Contains(car.carGuid)) targets.Add(tc);
             }
 
             // Mine sweep: interpenetrating pairs among the free cars. Positions are
