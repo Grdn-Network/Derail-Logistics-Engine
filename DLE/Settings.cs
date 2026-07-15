@@ -25,8 +25,8 @@ namespace DLE
         [Draw("Minutes per carload produced at source industries")]
         public int SourceProductionMinutes = 10;
 
-        [Draw("Pool cars spawned per output cargo (seed and company.respawn)")]
-        public int PoolCarsPerOutput = 9;
+        [Draw("How full to pack producer storage tracks with pool cars (%)")]
+        public int PoolTrackFillPercent = 90;
 
         [Draw("Hard cap on DLE pool cars in the world")]
         public int MaxPoolCars = 500;
