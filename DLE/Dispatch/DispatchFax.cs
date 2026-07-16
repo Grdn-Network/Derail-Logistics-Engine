@@ -32,6 +32,19 @@ namespace DLE.Dispatch
             if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
                 return Result.Fail($"unknown job '{jobId}'");
 
+            // No name given: the assigned crew is the natural target; only an
+            // unassigned job faxes to the local player.
+            bool viaAssignment = false;
+            if (string.IsNullOrEmpty(player))
+            {
+                var assignment = AssignmentStore.Instance.Get(jobId);
+                if (!string.IsNullOrEmpty(assignment?.Player))
+                {
+                    player = assignment.Player;
+                    viaAssignment = true;
+                }
+            }
+
             Transform target;
             bool isLocal;
             string name;
@@ -46,7 +59,9 @@ namespace DLE.Dispatch
                 target = FindNetworkedPlayer(player, out name);
                 isLocal = false;
                 if (target == null)
-                    return Result.Fail($"player '{player}' not found in this session");
+                    return Result.Fail(viaAssignment
+                        ? $"assigned crew '{player}' is not in this session; type a name to fax someone else"
+                        : $"player '{player}' not found in this session");
             }
             if (target == null) return Result.Fail("no player to fax to");
 
