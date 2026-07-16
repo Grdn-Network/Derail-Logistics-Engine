@@ -41,7 +41,7 @@
         {
           "inputs": {
             "IronOre": 2,
-            "Coal": 2
+            "Coal": 1
           },
           "outputs": {
             "SteelRolls": 2,
