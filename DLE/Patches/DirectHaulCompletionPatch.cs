@@ -26,8 +26,16 @@ namespace DLE.Patches
             var dest = def.chainData?.chainDestinationYardId;
             if (string.IsNullOrEmpty(dest)) return;
 
+            // Only cargo that was actually LOADED can be delivered: without the tally,
+            // an attached but never-loaded cut mints stock and pay here.
             int total = def.carsToTransport?.Count ?? 0;
-            int accepted = EconomyState.Instance.OnDelivered(dest, def.transportedCargo, total);
+            int deliverable = System.Math.Min(total, def.loadedCarloads);
+            if (deliverable <= 0)
+            {
+                Main.LogAlways($"[Economy] {lastJobInChain.ID} completed with no cargo ever loaded; nothing credited or paid.");
+                return;
+            }
+            int accepted = EconomyState.Instance.OnDelivered(dest, def.transportedCargo, deliverable);
 
             // Faux booklet paid nothing; the wallet is paid here, and only for the cargo the
             // destination actually accepted (nothing when it is full). This is the single

@@ -119,19 +119,24 @@ namespace DLE.Patches
             // the definition is not registered (e.g. on a DVMP client).
             StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var defForTrack);
 
-            // A carless job can reach the booklet before chainOriginStationInfo/Destination are
-            // populated, which NRE'd the whole render (the "carless booklets never print" bug).
-            // Fall back to resolving the station info from the definition's yard ids.
+            // A carless job can reach the booklet before chainOriginStationInfo/Destination
+            // are populated, and rendering with them null NREs the whole booklet. Fall back
+            // to resolving the station info from the definition's yard ids.
             var origin = job.chainOriginStationInfo
                 ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainOriginYardId)?.stationInfo;
             var destination = job.chainDestinationStationInfo
                 ?? StationController.GetStationByYardID(defForTrack?.chainData?.chainDestinationYardId)?.stationInfo;
             if (origin == null || destination == null)
+            {
+                // Rendering on would NRE below (the exact crash this fallback exists to
+                // prevent); the caller degrades to a page without the front sheet.
                 Main.LogAlways($"[DirectHaul] {job.ID}: booklet station info unresolved " +
-                               $"(origin null={origin == null}, dest null={destination == null}).");
+                               $"(origin null={origin == null}, dest null={destination == null}); front page skipped.");
+                return null;
+            }
 
-            // A carless job waiting for its empties has no cars sitting anywhere; the old
-            // "Cars on track ..." line pointed crews at a consist that does not exist.
+            // A carless job waiting for its empties has no cars sitting anywhere; a
+            // "Cars on track ..." line would point crews at a consist that does not exist.
             string pickup;
             bool awaitingEmpties = defForTrack != null && defForTrack.includeLoadTask &&
                                    (defForTrack.carsToTransport?.Count ?? 0) == 0;
@@ -158,7 +163,11 @@ namespace DLE.Patches
                 LocalizationAPI.L(origin.LocalizationKey), origin.Type, origin.StationColor,
                 LocalizationAPI.L(destination.LocalizationKey), destination.Type, destination.StationColor,
                 cars, length, mass, value, timeLimit,
-                job.basePayment.ToString("N0", LocalizationAPI.CC),
+                // The vanilla payment is zeroed (booklets are faux); the paper shows the
+                // real on-delivery pay so crews can see what a haul is worth.
+                (defForTrack != null && defForTrack.deliveryPayment > 0f
+                    ? defForTrack.deliveryPayment
+                    : job.basePayment).ToString("N0", LocalizationAPI.CC),
                 pageNumber, totalPages);
         }
 
@@ -195,9 +204,14 @@ namespace DLE.Patches
             if (job == null || job.type != JobType.ComplexTransport)
                 return true;
 
+            var front = DirectHaulBooklet.BuildFrontPage(job, string.Empty, string.Empty);
             __result = new List<TemplatePaperData>
             {
-                DirectHaulBooklet.BuildFrontPage(job, string.Empty, string.Empty)
+                // Unresolvable station info degrades to a titled placeholder instead of
+                // an NRE that kills the render.
+                front ?? (TemplatePaperData)new JobExpiredTemplatePaperData(
+                    DirectHaulBooklet.DIRECT_HAUL_NAME, string.Empty, job.ID,
+                    DirectHaulBooklet.DIRECT_HAUL_COLOR)
             };
             return false;
         }
@@ -221,9 +235,9 @@ namespace DLE.Patches
                 ?? StationController.GetStationByYardID(def?.chainData?.chainDestinationYardId)?.stationInfo;
 
             // A carless Company Haul carries a leading load task; the booklet mirrors it.
-            // Preloaded-era jobs (single unload task) keep the old 4-page layout, and the
-            // unload page reads its track from the right task either way (the old code
-            // always read task 0, which is the LOAD track on a carless job).
+            // Jobs whose cars ship pre-loaded (single unload task) keep the 4-page layout, and the
+            // unload page reads its track from the right task either way (task 0 is the
+            // LOAD track on a carless job, not the unload track).
             bool hasLoadStep = def?.includeLoadTask
                 ?? (job.tasksData != null && job.tasksData.Length > 1);
             string total = hasLoadStep ? "5" : "4";
@@ -231,8 +245,9 @@ namespace DLE.Patches
             var pages = new List<TemplatePaperData>
             {
                 new CoverPageTemplatePaperData(job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", total),
-                DirectHaulBooklet.BuildFrontPage(job, "2", total),
             };
+            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", total);
+            if (frontPage != null) pages.Add(frontPage);
 
             if (hasLoadStep)
             {

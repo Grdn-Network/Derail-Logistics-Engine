@@ -37,6 +37,9 @@ namespace DLE.Economy
 
         private void Start()
         {
+            // Fresh world, fresh sweep state: a coroutine that died mid-sweep in the old
+            // world must not wedge the single-flight guard forever.
+            Data.DleCarPool.SweepInFlight = false;
             StartCoroutine(TickLoop());
             StartCoroutine(OverviewSweepLoop());
         }
@@ -71,8 +74,18 @@ namespace DLE.Economy
                 for (int i = overviews.Count - 1; i >= 0; i--)
                 {
                     var ov = overviews[i];
-                    var id = ov?.job?.ID;
+                    // Unity's overloaded == catches destroyed components; `ov?.` would not,
+                    // and DestroyJobOverview does NOT remove itself from this list (vanilla
+                    // callers remove first), so prune AND remove here, or the next pass throws
+                    // MissingReferenceException and aborts the sweep.
+                    if (ov == null)
+                    {
+                        overviews.RemoveAt(i);
+                        continue;
+                    }
+                    var id = ov.job?.ID;
                     if (id == null || !Jobs.JobUtils.ManagedJobIds.Contains(id)) continue;
+                    overviews.RemoveAt(i);
                     ov.DestroyJobOverview();
                     removed++;
                 }
@@ -83,8 +96,8 @@ namespace DLE.Economy
 
         private IEnumerator TickLoop()
         {
-            // Let world streaming settle before the initial fill. Previously a slow load
-            // could skip the fill entirely; now we wait for the stations (up to a minute).
+            // Let world streaming settle before the initial fill: a slow load can otherwise
+            // skip the fill entirely, so wait for the stations (up to a minute).
             yield return new WaitForSeconds(15f);
             for (int i = 0; i < 45 && !WorldReady(); i++)
                 yield return new WaitForSeconds(1f);
@@ -100,7 +113,7 @@ namespace DLE.Economy
             yield return Data.DleCarPool.Instance.SeedOnceIfNeededRoutine();
 
             // A tick that throws must not kill the whole generation loop for the session
-            // (an NRE in job creation used to end all generation silently).
+            // (an unhandled NRE in job creation would end all generation silently).
             bool SafeTick()
             {
                 try { return DispatcherBrain.Current.TickOnce(); }

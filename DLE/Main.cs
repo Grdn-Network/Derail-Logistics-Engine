@@ -56,7 +56,7 @@ namespace DLE
             WorldStreamingInit.LoadingFinished += OnWorldLoaded;
 
             // Resolve DVMP API at load time (LoadAfter: ["Multiplayer"] guarantees
-            // MultiplayerAPI.dll is already in the AppDomain when we run).
+            // MultiplayerAPI.dll is already in the AppDomain by then).
             ResolveDvmpApi();
 
             LogAlways("[Main] Derail Logistics Engine loaded.");
@@ -82,7 +82,7 @@ namespace DLE
                 LogAlways($"[Main] Economy init failed: {ex.Message}");
             }
 
-            // Rebuild live Direct Haul jobs from our own save (they are filtered out of the
+            // Rebuild live Direct Haul jobs from DLE's own save data (they are filtered out of the
             // vanilla job save), restore assignments, and start the local HTTP API.
             // Host only; clients receive jobs from the host via DVMP.
             if (IsHostOrSingleplayer())
@@ -93,6 +93,7 @@ namespace DLE
                     if (data != null)
                     {
                         DleCarPool.Instance.LoadFrom(data);
+                        DleCarPool.Instance.PruneDeadGuids();
                         DleJobStore.RestoreFrom(data);
                         AssignmentStore.Instance.LoadFrom(data);
                         LogisticsBoard.Instance.LoadFrom(data);
@@ -109,7 +110,7 @@ namespace DLE
                 DleDirectorBehaviour.StartOnHost();
             }
 
-            // Subscribe to save event so we persist before the game writes to disk.
+            // Subscribe to the save event so DLE state persists before the game writes to disk.
             // Unsubscribe first: OnWorldLoaded fires on every save/load within a session;
             // without the unsub, each reload would add another handler and OnAboutToSave
             // would be called N times per save after N reloads.
@@ -182,7 +183,7 @@ namespace DLE
         public static void LogAlways(string message) => ModEntry?.Logger?.Log(message);
 
         /// <summary>
-        /// Returns true when we should run server-side logic.
+        /// Returns true when server-side logic should run here.
         /// In single-player this is always true; in multiplayer only the host.
         /// Uses reflection against the public DVMP MultiplayerAPI so there is no
         /// hard compile-time dependency on MultiplayerAPI.dll.

@@ -134,10 +134,23 @@ namespace DLE.Jobs
                 }
             }
 
+            // A restored consist that already carries cargo has finished its load step:
+            // rebuilding it WITH a load task re-checked that task into the origin machine
+            // on re-take, where nothing could ever complete or remove it, so the job was
+            // permanently un-turn-in-able.
+            int loadedCars = cars.Count(c => c.logicCar != null && c.logicCar.LoadedCargoAmount > 0f);
+            bool stillNeedsLoad = includeLoadTask && loadedCars == 0;
+
             bool ok = BuildChain(producer, consumer, cars, cargo, loadMachine, unloadMachine,
-                jobId, wage, bonusTime, spawnTrackDisplay, includeLoadTask, displayOverride, plannedCars);
-            if (ok) Main.Log($"[DirectHaul] rebuilt {jobId} over {cars.Count} existing car(s)" +
-                             (includeLoadTask && cars.Count == 0 ? " (carless, awaiting empties)" : "") + ".");
+                jobId, wage, bonusTime, spawnTrackDisplay, stillNeedsLoad, displayOverride, plannedCars);
+            if (ok)
+            {
+                if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var rebuilt))
+                    rebuilt.loadedCarloads = loadedCars;
+                Main.Log($"[DirectHaul] rebuilt {jobId} over {cars.Count} existing car(s)" +
+                         (stillNeedsLoad && cars.Count == 0 ? " (carless, awaiting empties)" : "") +
+                         (loadedCars > 0 ? $" ({loadedCars} loaded; load step done)" : "") + ".");
+            }
             return ok;
         }
 
