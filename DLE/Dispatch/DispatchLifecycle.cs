@@ -25,6 +25,34 @@ namespace DLE.Dispatch
             public static Result Done(string m) => new Result { Ok = true, Message = m };
         }
 
+        /// <summary>
+        /// Lock-on purge: every Available haul with no assignment expires. Their office
+        /// papers are already swept when the lock is on; the jobs follow the paper so the
+        /// board matches the world. Assigned or taken hauls survive: dispatch prepared
+        /// those on purpose. Expiry tears the chain down, which returns the job's
+        /// pre-allocated supply to the stockpile.
+        /// </summary>
+        public static int ExpireUnassignedAvailable()
+        {
+            var doomed = new System.Collections.Generic.List<Job>();
+            foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
+            {
+                var job = kv.Value?.LiveJob;
+                if (job == null || job.State != JobState.Available) continue;
+                if (AssignmentStore.Instance.Get(kv.Key) != null) continue;
+                doomed.Add(job);
+            }
+            int expired = 0;
+            foreach (var job in doomed)
+            {
+                try { job.ExpireJob(); expired++; }
+                catch (Exception ex) { Main.LogAlways($"[Dispatch] could not expire {job.ID}: {ex.Message}"); }
+            }
+            if (expired > 0)
+                Main.LogAlways($"[Dispatch] lock ON expired {expired} unassigned open booklet(s); supply returned.");
+            return expired;
+        }
+
         public static Result TakeJob(string jobId, string player)
         {
             if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");

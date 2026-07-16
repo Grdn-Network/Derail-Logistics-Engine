@@ -48,6 +48,15 @@ namespace DLE.Economy
                 return false;
             }
 
+            // While the assignment lock holds, operations are dispatch-run: the lock-on
+            // purge cleared the public board and no fresh public paper appears until the
+            // lock lifts. Dispatcher-created hauls (CreateSpecific) are unaffected.
+            if (Dispatch.AssignmentStore.Instance.LockEnabled)
+            {
+                Main.Log("[Director] assignment lock is on; no public hauls generated.");
+                return false;
+            }
+
             var econ = EconomyState.Instance;
             const int min = MinAutoHaulCarloads;
             const int max = MaxAutoHaulCars;

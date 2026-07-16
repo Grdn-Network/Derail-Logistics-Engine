@@ -255,7 +255,7 @@ async function refresh(){
   const snap=snapshotCrew();
   const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
   $('cAvail').textContent=av.length||'';$('cAcc').textContent=ac.length||'';
-  $('availCards').innerHTML=av.length?av.map(x=>jobCard(x,true)).join(''):`<div class='empty'>no open hauls; spawn one above or wait for the director</div>`;
+  $('availCards').innerHTML=av.length?av.map(x=>jobCard(x,true)).join(''):`<div class='empty'>${lockOn?'lock is on: the director is paused; create hauls above and assign them to crews':'no open hauls; spawn one above or wait for the director'}</div>`;
   $('accCards').innerHTML=ac.length?ac.map(x=>jobCard(x,false)).join(''):`<div class='empty'>nothing accepted yet</div>`;
   restoreCrew(snap)}
  for(const id of expanded)fillCars(id);
@@ -449,7 +449,7 @@ function renderPickPanel(id){
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}
 const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
-  toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF'));refresh()},
+  toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
  spawnHaul:async()=>{const b={origin:$('hOrigin').value,destination:$('hDest').value,
    cargo:$('hCargo').value,cars:parseInt($('hCars').value)};
   const r=await j('/api/v1/hauls','POST',b);

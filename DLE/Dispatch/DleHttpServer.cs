@@ -288,9 +288,18 @@ namespace DLE.Dispatch
                 if (method == "PUT" && path == "/api/v1/lock")
                 {
                     var req = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
+                    bool wasLocked = AssignmentStore.Instance.LockEnabled;
                     AssignmentStore.Instance.LockEnabled = req?.enabled ?? false;
                     Main.Log($"[Dispatch] lock {(AssignmentStore.Instance.LockEnabled ? "ENABLED" : "disabled")} via API.");
-                    Json(ctx, 200, new { ok = true, lockEnabled = AssignmentStore.Instance.LockEnabled });
+
+                    // Lock ON clears the public job board: the office papers are swept, so
+                    // the unassigned jobs behind them expire too. Dispatch-assigned work
+                    // survives, and the director stays paused while the lock holds.
+                    int purged = 0;
+                    if (!wasLocked && AssignmentStore.Instance.LockEnabled)
+                        purged = DispatchLifecycle.ExpireUnassignedAvailable();
+
+                    Json(ctx, 200, new { ok = true, lockEnabled = AssignmentStore.Instance.LockEnabled, purged });
                     return;
                 }
 
