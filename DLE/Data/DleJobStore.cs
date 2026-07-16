@@ -33,6 +33,7 @@ namespace DLE.Data
             public bool IncludeLoadTask;
             public int PlannedCars;
             public int LoadedCarloads;
+            public bool UnpaidMove;
         }
 
         [Serializable]
@@ -63,6 +64,7 @@ namespace DLE.Data
                     IncludeLoadTask = def.includeLoadTask,
                     PlannedCars = def.plannedCarCount,
                     LoadedCarloads = def.loadedCarloads,
+                    UnpaidMove = def.unpaidMove,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -74,10 +76,11 @@ namespace DLE.Data
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
             catch (Exception ex) { Main.LogAlways($"[JobStore] job save unreadable, skipping: {ex.Message}"); }
-            if (payload?.Jobs == null || payload.Jobs.Count == 0) return;
+            if (payload?.Jobs == null || payload.Jobs.Count == 0) { ReconcileReservations(); return; }
             if (payload.SchemaVersion != SchemaVersion)
             {
                 Main.Log($"[JobStore] job schema {payload.SchemaVersion} != {SchemaVersion}, skipping restore.");
+                ReconcileReservations();
                 return;
             }
 
@@ -99,12 +102,24 @@ namespace DLE.Data
                     Main.LogAlways($"[JobStore] {snap.JobId}: restore failed ({ex.GetType().Name}: {ex.Message}); skipped.");
                 }
             }
-            // Any supply promised to a job that did not survive the load returns.
-            Economy.EconomyState.Instance.ReleaseOrphanedReservations(
-                id => Jobs.StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(id));
+            ReconcileReservations();
 
             Main.Log($"[JobStore] restored {restored}/{payload.Jobs.Count} Direct Haul job(s). " +
                      "Previously taken jobs are available again at the origin office.");
+        }
+
+        /// <summary>
+        /// After any restore outcome (including none): supply promised to jobs that did
+        /// not survive returns, and surviving jobs come back as open paper whose holds
+        /// drop to soft; taking them re-hardens through the normal accept gate.
+        /// </summary>
+        private static void ReconcileReservations()
+        {
+            Economy.EconomyState.Instance.ReleaseOrphanedReservations(
+                id => StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(id));
+            Economy.EconomyState.Instance.SyncReservationTiers(id =>
+                StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(id, out var d) &&
+                (d.LiveJob == null || d.LiveJob.State == DV.ThingTypes.JobState.Available));
         }
 
         private static bool RestoreOne(JobSnapshot snap, Dictionary<string, TrainCar> byGuid)
@@ -140,13 +155,15 @@ namespace DLE.Data
             if (ok)
             {
                 JobUtils.EnsureCounterPast(snap.JobId);
-                // The saved tally outranks the rebuild's inference (cars may have been
-                // unloaded at the destination before the save, leaving them empty but
-                // legitimately delivered-in-progress).
-                if (snap.LoadedCarloads > 0 &&
-                    StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(snap.JobId, out var rebuilt) &&
-                    rebuilt.loadedCarloads < snap.LoadedCarloads)
-                    rebuilt.loadedCarloads = snap.LoadedCarloads;
+                if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(snap.JobId, out var rebuilt))
+                {
+                    // The saved tally outranks the rebuild's inference (cars may have been
+                    // unloaded at the destination before the save, leaving them empty but
+                    // legitimately delivered-in-progress).
+                    if (snap.LoadedCarloads > 0 && rebuilt.loadedCarloads < snap.LoadedCarloads)
+                        rebuilt.loadedCarloads = snap.LoadedCarloads;
+                    rebuilt.unpaidMove = snap.UnpaidMove;
+                }
             }
             return ok;
         }

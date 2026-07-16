@@ -165,6 +165,16 @@ namespace DLE.Patches
         /// </summary>
         internal static void CommitAttach(StaticDirectHaulJobDefinition def, Job job, List<Car> valid)
         {
+            // Backstop for takes that bypass the gated paths: a still-soft hold must
+            // harden before cars commit, or the debit below could draw supply that was
+            // already promised away and mint cargo out of thin air.
+            if (!EconomyState.Instance.HardenReservation(job.ID))
+            {
+                Main.LogAlways($"[LoadServicing] {job.ID}: attach refused, supply is gone (stale paper); expiring the job.");
+                try { job.ExpireJob(); } catch { }
+                return;
+            }
+
             var jobsManager = SingletonBehaviour<JobsManager>.Instance;
             foreach (var t in job.tasks)
             {

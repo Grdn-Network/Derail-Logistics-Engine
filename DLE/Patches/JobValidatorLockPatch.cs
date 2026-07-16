@@ -19,9 +19,19 @@ namespace DLE.Patches
         {
             var job = jobOverview?.job;
             if (job == null) return true;
-            if (!AssignmentStore.Instance.LockEnabled) return true;
             if (!JobUtils.ManagedJobIds.Contains(job.ID)) return true;
 
+            // Accept-time supply check (#67): paper whose supply went to other hauls
+            // since printing is stale; it expires in the crew's hand instead of taking.
+            if (job.State == DV.ThingTypes.JobState.Available &&
+                !Economy.EconomyState.Instance.HardenReservation(job.ID))
+            {
+                Main.LogAlways($"[Dispatch] {job.ID} rejected at validator: stale paper, supply is gone; expiring it.");
+                try { job.ExpireJob(); } catch { }
+                return false;
+            }
+
+            if (!AssignmentStore.Instance.LockEnabled) return true;
             if (AssignmentStore.Instance.Get(job.ID) == null)
             {
                 Main.Log($"[Dispatch] {job.ID} rejected at validator: lock is on and the job is unassigned.");

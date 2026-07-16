@@ -59,7 +59,8 @@ namespace DLE.Jobs
             StationController consumer,
             CargoType cargo,
             int carCount,
-            List<string> reservedCarIds = null)
+            List<string> reservedCarIds = null,
+            bool unpaidMove = false)
         {
             if (producer == null || consumer == null || carCount <= 0) return null;
 
@@ -104,7 +105,9 @@ namespace DLE.Jobs
 
             float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
             float bonusTime = JobPaymentCalculator.CalculateHaulBonusTimeLimit(distance);
-            float wage = JobPaymentCalculator.CalculateJobPayment(
+            // An unpaid move relocates imported goods: real work, no wage, per the
+            // pay-once rule (goods pay when produced stock is delivered, never per bounce).
+            float wage = unpaidMove ? 0f : JobPaymentCalculator.CalculateJobPayment(
                 JobType.Transport, distance,
                 new PaymentCalculationData(liveryCounts, new Dictionary<CargoType, int> { { cargo, carCount } }));
 
@@ -124,7 +127,10 @@ namespace DLE.Jobs
 
             // The job pre-allocates its supply; it comes back only if the booklet dies
             // before cars attach.
-            Economy.EconomyState.Instance.Reserve(jobId, producer.stationInfo.YardID, cargo, carCount);
+            Economy.EconomyState.Instance.Reserve(jobId, producer.stationInfo.YardID, cargo, carCount,
+                paid: !unpaidMove);
+            if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var newDef))
+                newDef.unpaidMove = unpaidMove;
 
             Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), carCount, jobId);
             Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +

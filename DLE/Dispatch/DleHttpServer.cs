@@ -132,9 +132,9 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
-                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason);
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason, out var unpaidMove);
                     if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
-                    Json(ctx, 201, new { ok = true, jobId });
+                    Json(ctx, 201, new { ok = true, jobId, unpaid = unpaidMove });
                     return;
                 }
 
@@ -394,6 +394,7 @@ namespace DLE.Dispatch
                 cargo = o.Cargo.ToString(),
                 stock = o.Stock,
                 consumers = o.Consumers,
+                unpaidOnly = o.UnpaidOnly,
             }).ToList();
 
         private static object StatePayload() => new
@@ -426,6 +427,7 @@ namespace DLE.Dispatch
                         amount = econ.GetStock(f.YardId, c),
                         cap = f.Cap(c),
                         reserved = econ.GetReserved(f.YardId, c),
+                        imported = econ.GetImported(f.YardId, c),
                         // Empty piles show when a recipe needs them: an idle factory's
                         // missing ingredient is information, an empty warehouse is noise.
                         required = f.Recipes.Any(r => r.Inputs.Any(i => i.Cargo == c)),
@@ -451,6 +453,7 @@ namespace DLE.Dispatch
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.deliveryPayment,
+                unpaid = kv.Value.unpaidMove,
                 tonnes = LoadedTrainTonnes(kv.Value),
                 loadedCars = kv.Value.carsToTransport?.Count(c => c.LoadedCargoAmount > 0f) ?? 0,
                 pickupTrack = kv.Value.spawnTrackDisplay,

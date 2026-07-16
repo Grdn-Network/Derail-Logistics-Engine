@@ -38,6 +38,8 @@ namespace DLE.Jobs
         /// destination actually accepts (nothing when it is full).
         /// </summary>
         public float deliveryPayment;
+        // Unpaid move: dispatch relocating imported goods; the booklet never pays.
+        public bool unpaidMove;
 
         /// <summary>
         /// Carloads that were actually LOADED onto this job's cars (staff load, terminal

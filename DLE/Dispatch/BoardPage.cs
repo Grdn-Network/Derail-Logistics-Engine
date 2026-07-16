@@ -214,10 +214,11 @@ function jobCard(x,avail){
  return `<div class='job'>
   <div class='jobtop'><span class='jid'>${esc(x.id)}</span>
    <span class='pill ${pillClass(x.state)}'>${esc(x.state)}</span>
+   ${x.unpaid?`<span class='pill other' title='Relocating received goods; delivery pays nothing'>unpaid move</span>`:''}
    ${x.awaitingEmpties?`<span class='tag'>awaiting empties</span>`:''}
    ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>=x.cars?`<span class='pill completed'>loaded</span>`:''}
    ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>0&&x.loadedCars<x.cars?`<span class='tag'>loading ${x.loadedCars}/${x.cars}</span>`:''}
-   <span class='wage num'>${money(x.wage)}</span></div>
+   <span class='wage num'${x.unpaid?` style='color:var(--dim)'`:''}>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>&#8594;</span><b>${esc(x.destination)}</b></div>
   <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
   <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'unassigned'}</div>
@@ -342,9 +343,10 @@ function renderLog(hist){
 function stockRow(s){
  const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
  const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
- return `<div class='stockrow'><span class='cname' title='held = committed to a live haul'>${esc(s.cargo)}</span>`+
+ const recv=s.imported>=1?` &middot; ${Math.round(s.imported)} received`:'';
+ return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed'>${esc(s.cargo)}</span>`+
   `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
-  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}</span></div>`;
+  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}${recv}</span></div>`;
 }
 function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
 function netMissing(n){const out=[];
@@ -488,7 +490,7 @@ const actions={
  spawnHaul:async()=>{const b={origin:$('hOrigin').value,destination:$('hDest').value,
    cargo:$('hCargo').value,cars:parseInt($('hCars').value)};
   const r=await j('/api/v1/hauls','POST',b);
-  r.jobId?toast('Created '+r.jobId):toast('Failed: '+(r.error||'see game log'),true);refresh()},
+  r.jobId?toast('Created '+r.jobId+(r.unpaid?' as an UNPAID move (produced stock is short; this relocates received goods)':'')):toast('Failed: '+(r.error||'see game log'),true);refresh()},
  netNode:(id,el)=>{const v=el.dataset.id;netSel=netSel===v?null:v;drawNet()},
  netEdge:(id,el)=>{const o=el.dataset.src,c=el.dataset.cargo,d=el.dataset.dst;
   const os=$('hOrigin');

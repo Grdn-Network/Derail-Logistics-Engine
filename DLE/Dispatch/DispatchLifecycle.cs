@@ -62,6 +62,15 @@ namespace DLE.Dispatch
             if (job.State != JobState.Available)
                 return Result.Fail($"job is {job.State}, not available");
 
+            // Accept-time supply check (#67): open paper holds soft; taking hardens the
+            // hold. Paper whose supply was promised away since printing is stale and
+            // expires here instead of lying to the crew.
+            if (!Economy.EconomyState.Instance.HardenReservation(jobId))
+            {
+                try { job.ExpireJob(); } catch (Exception ex) { Main.Log($"[Dispatch] stale-paper expire failed: {ex.Message}"); }
+                return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
+            }
+
             if (AssignmentStore.Instance.LockEnabled)
             {
                 var assignment = AssignmentStore.Instance.Get(jobId);
