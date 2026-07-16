@@ -57,9 +57,43 @@ namespace DLE.Economy
             {
                 yield return wait;
                 if (!Main.IsHostOrSingleplayer()) continue;
+
+                // Paper is just paperwork: a haul whose cargo stands unloaded at the
+                // destination closes itself, pays, and frees the consumer to consume.
+                // Covers staff, terminal and hand unloading alike; the board's Turn in
+                // button stays as a manual fallback.
+                try { AutoCloseDelivered(); }
+                catch (System.Exception ex) { Main.Log($"[Director] auto-close sweep failed: {ex.Message}"); }
+
                 if (!Dispatch.AssignmentStore.Instance.LockEnabled) continue;
                 try { DespawnManagedOverviews(); }
                 catch (System.Exception ex) { Main.Log($"[Director] overview sweep failed: {ex.Message}"); }
+            }
+        }
+
+        private static void AutoCloseDelivered()
+        {
+            var ids = new System.Collections.Generic.List<string>();
+            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+            {
+                var def = kv.Value;
+                var job = def?.LiveJob;
+                if (job == null || job.State != DV.ThingTypes.JobState.InProgress) continue;
+                if (def.carsToTransport == null || def.carsToTransport.Count == 0) continue;
+                if (def.loadedCarloads <= 0) continue;
+                bool anyLoaded = false;
+                foreach (var car in def.carsToTransport)
+                    if (car != null && car.LoadedCargoAmount > 0f) { anyLoaded = true; break; }
+                if (anyLoaded) continue;
+                ids.Add(kv.Key);
+            }
+            foreach (var id in ids)
+            {
+                // CompleteJob re-validates position (all cars in the destination yard)
+                // and refuses anything not truly delivered; a refusal here just means
+                // the cut has not arrived yet.
+                var r = Dispatch.DispatchLifecycle.CompleteJob(id);
+                if (r.Ok) Main.LogAlways($"[Dispatch] {id} closed automatically: cargo delivered.");
             }
         }
 

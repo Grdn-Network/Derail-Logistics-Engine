@@ -98,6 +98,30 @@ namespace DLE.Dispatch
             return Result.Done($"{jobId} faxed; printing in front of {name}");
         }
 
+        /// <summary>Every connected crew name (DVMP avatars via reflection). Empty in
+        /// singleplayer; the board uses it as assignment suggestions.</summary>
+        public static System.Collections.Generic.List<string> GetPlayerNames()
+        {
+            var names = new System.Collections.Generic.List<string>();
+            try
+            {
+                var type = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
+                    .FirstOrDefault(t => t != null);
+                if (type == null) return names;
+                var usernameProp = type.GetProperty("Username");
+                foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
+                    if (usernameProp?.GetValue(obj) is string username && !string.IsNullOrEmpty(username))
+                        names.Add(username);
+                names.Sort(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Fax] player roster lookup failed: {ex.Message}");
+            }
+            return names;
+        }
+
         /// <summary>
         /// Remote crews exist in the host's world as DVMP player avatars; find one by
         /// username via reflection so DLE keeps zero compile-time dependency on the

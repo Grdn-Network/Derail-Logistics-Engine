@@ -107,6 +107,7 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/players") { Json(ctx, 200, DispatchFax.GetPlayerNames()); return; }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);

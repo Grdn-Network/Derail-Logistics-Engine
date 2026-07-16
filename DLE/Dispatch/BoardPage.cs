@@ -194,6 +194,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 </main>
 <footer>Derail Logistics Engine &middot; local board on 127.0.0.1:7246 &middot; refreshes every 5s</footer>
 <div id='toasts'></div>
+<datalist id='crewNames'></datalist>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
@@ -226,7 +227,7 @@ function jobCard(x,avail){
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet to the named crew (blank = you)'>Fax</button>
    <button class='mini' data-act='cars' data-id='${esc(x.id)}'>${expanded.has(x.id)?'Hide cars':'Cars'}</button>
    <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
-   <input class='crew' id='a_${esc(x.id)}' placeholder='crew name'>
+   <input class='crew' id='a_${esc(x.id)}' placeholder='crew name' list='crewNames'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>&times;</button>
   </div>
@@ -242,11 +243,15 @@ function keepSelect(sel,items){const cur=sel.value;
  if([...sel.options].some(o=>o.value===cur))sel.value=cur}
 async function refresh(){
  let state,jobs,econ,logs,hist;
- try{[state,options,jobs,econ,logs,hist]=await Promise.all([
-  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60')]);
+ let crews;
+ try{[state,options,jobs,econ,logs,hist,crews]=await Promise.all([
+  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60'),j('/api/v1/players')]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
  lastJobs=jobs;
+ const cKey=JSON.stringify(crews||[]);
+ if(last.crews!==cKey){last.crews=cKey;
+  $('crewNames').innerHTML=(crews||[]).map(n=>`<option>${esc(n)}</option>`).join('')}
  lockOn=!!state.lockEnabled;
  $('bLock').textContent='LOCK '+(lockOn?'ON':'OFF');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
