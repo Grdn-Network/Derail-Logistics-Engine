@@ -218,13 +218,28 @@ namespace DLE.Dispatch
                     return;
                 }
 
-                // Dispatch servicing: load and unload a haul remotely (#43).
+                // Suitable empties for a carless haul, nearest to the loading track first,
+                // with positions so a picker can chain-sort by proximity to a chosen car.
+                if (method == "GET" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/candidates", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/candidates".Length);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+                    { Json(ctx, 404, new { error = $"unknown job '{jobId}'" }); return; }
+                    Json(ctx, 200, CandidatesPayload(def));
+                    return;
+                }
+
+                // Dispatch servicing: load and unload a haul remotely (#43). Body may name
+                // the exact cars to load; empty body keeps the automatic pick.
                 if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
                     path.EndsWith("/load", StringComparison.Ordinal))
                 {
                     var jobId = path.Substring(jobCarsPrefix.Length,
                         path.Length - jobCarsPrefix.Length - "/load".Length);
-                    var r = DispatchServicing.LoadJob(jobId);
+                    var req = JsonConvert.DeserializeObject<LoadRequest>(ReadBody(ctx) ?? "");
+                    var r = DispatchServicing.LoadJob(jobId, req?.cars);
                     Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
                     return;
                 }
@@ -295,6 +310,7 @@ namespace DLE.Dispatch
         private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
+        private class LoadRequest { public List<string> cars = null; }
         private class StatusRequest { public string status = null; }
 
         /// <summary>
@@ -461,6 +477,64 @@ namespace DLE.Dispatch
             ctx.Response.ContentLength64 = bytes.Length;
             ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
             ctx.Response.OutputStream.Close();
+        }
+
+        /// <summary>
+        /// Suitable empties for a carless haul with everything a picker needs: distance
+        /// to the loading track for the initial sort, world x/z so the client can re-sort
+        /// by proximity to the last chosen car, and the staff seconds-per-car so it can
+        /// estimate load time before committing.
+        /// </summary>
+        private static object CandidatesPayload(StaticDirectHaulJobDefinition def)
+        {
+            var originYard = def.chainData?.chainOriginYardId;
+            var sc = originYard != null ? StationController.GetStationByYardID(originYard) : null;
+            int wanted = def.plannedCarCount > 0 ? def.plannedCarCount : def.displayCars?.Count ?? 0;
+            float perCar = 45f;
+            if (originYard != null && EconomyState.Instance.Facilities.TryGetValue(originYard, out var fac))
+                perCar = fac.RemoteSecondsPerCar;
+
+            UnityEngine.Vector3? loadPos = null;
+            var loadTrack = def.loadMachine?.WarehouseTrack;
+            if (loadTrack != null && RailTrackRegistry.LogicToRailTrack.TryGetValue(loadTrack, out var loadRail))
+                loadPos = loadRail.transform.position;
+
+            var rows = new List<object>();
+            bool attached = (def.carsToTransport?.Count ?? 0) > 0;
+            var pool = (!attached && sc != null) ? DispatchServicing.AllLoadCandidates(def, sc) : null;
+            if (pool != null)
+            {
+                foreach (var car in pool)
+                {
+                    var tc = car.TrainCar();
+                    float meters = -1f;
+                    UnityEngine.Vector3 pos = default;
+                    if (tc != null)
+                    {
+                        pos = tc.transform.position;
+                        if (loadPos.HasValue) meters = UnityEngine.Vector3.Distance(pos, loadPos.Value);
+                    }
+                    rows.Add(new
+                    {
+                        carId = car.ID,
+                        type = tc?.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                        track = car.CurrentTrack?.ID?.FullDisplayID ?? "in motion",
+                        metersFromLoading = meters < 0f ? (float?)null : (float)Math.Round(meters),
+                        x = (float)Math.Round(pos.x, 1),
+                        z = (float)Math.Round(pos.z, 1),
+                    });
+                }
+            }
+            return new
+            {
+                jobId = def.LiveJob?.ID,
+                origin = originYard,
+                wanted,
+                perCarSeconds = perCar,
+                loadingTrack = loadTrack?.ID?.FullDisplayID,
+                carsAttached = attached,
+                cars = rows,
+            };
         }
 
         private static object JobCarsPayload(StaticDirectHaulJobDefinition def)

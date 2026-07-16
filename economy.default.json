@@ -18,6 +18,9 @@
     "HB": {
       "defaultCap": 200
     },
+    "MF": {
+      "defaultCap": 150
+    },
     "CW": {
       "defaultCap": 100
     },

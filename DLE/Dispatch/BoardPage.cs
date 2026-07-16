@@ -155,20 +155,6 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   <h2>Economy <span class='sub'>stock against storage cap</span></h2>
   <div class='econ' id='econGrid'></div>
  </section>
- <section class='card col12' id='finder'>
-  <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
-  <div class='formrow' style='margin-bottom:10px'>
-   <label>Cargo<select id='fCargo'></select></label>
-   <label>Yard<input id='fYard' style='width:70px' placeholder='any'></label>
-   <button class='primary' data-act='findCars'>Find</button>
-   <span class='meta' id='fSummary'></span>
-  </div>
-  <div class='tablewrap'><table id='tFleet'></table></div>
- </section>
- <section class='col12'>
-  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
-  <div class='cards' id='availCards'></div>
- </section>
  <section class='col12'>
   <h2>Accepted hauls <span class='count' id='cAcc'></span></h2>
   <div class='cards' id='accCards'></div>
@@ -185,13 +171,27 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   </div>
   <div class='tablewrap'><table id='tLog'></table></div>
  </section>
+ <section class='card col12' id='finder'>
+  <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
+  <div class='formrow' style='margin-bottom:10px'>
+   <label>Cargo<select id='fCargo'></select></label>
+   <label>Yard<input id='fYard' style='width:70px' placeholder='any'></label>
+   <button class='primary' data-act='findCars'>Find</button>
+   <span class='meta' id='fSummary'></span>
+  </div>
+  <div class='tablewrap'><table id='tFleet'></table></div>
+ </section>
+ <section class='col12'>
+  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
+  <div class='cards' id='availCards'></div>
+ </section>
 </main>
 <footer>Derail Logistics Engine &middot; local board on 127.0.0.1:7246 &middot; refreshes every 5s</footer>
 <div id='toasts'></div>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
-let options=[],lockOn=false,expanded=new Set(),last={},lastJobs=[];
+let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
 async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
 function toast(t,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');
  d.textContent=t;$('toasts').appendChild(d);setTimeout(()=>d.remove(),4200)}
@@ -202,7 +202,7 @@ function jobCard(x,avail){
  const cars=x.cars||x.plannedCars||0;
  const acts=avail
   ?`<button class='primary' data-act='take' data-id='${esc(x.id)}'>Take</button>`
-  :`<button data-act='load' data-id='${esc(x.id)}'>Load</button>
+  :`<button data-act='${x.awaitingEmpties?'pickCars':'load'}' data-id='${esc(x.id)}'>${x.awaitingEmpties?(pickOpen.has(x.id)?'Close picker':'Load&hellip;'):'Load'}</button>
     <button data-act='unload' data-id='${esc(x.id)}'>Unload</button>
     <button class='primary' data-act='complete' data-id='${esc(x.id)}'>Turn in</button>`;
  return `<div class='job'>
@@ -222,6 +222,7 @@ function jobCard(x,avail){
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>&times;</button>
   </div>
   ${expanded.has(x.id)?`<div class='carsbox' id='cars_${esc(x.id)}'>fetching&hellip;</div>`:''}
+  ${pickOpen.has(x.id)?`<div class='carsbox' id='pick_${esc(x.id)}'>fetching&hellip;</div>`:''}
  </div>`}
 function snapshotCrew(){const m={};document.querySelectorAll('.crew').forEach(i=>{if(i.value)m[i.id]=i.value});
  const f=document.activeElement;return{m,focus:f&&f.classList&&f.classList.contains('crew')?f.id:null}}
@@ -258,6 +259,7 @@ async function refresh(){
   $('accCards').innerHTML=ac.length?ac.map(x=>jobCard(x,false)).join(''):`<div class='empty'>nothing accepted yet</div>`;
   restoreCrew(snap)}
  for(const id of expanded)fillCars(id);
+ for(const id of pickOpen)fillPicker(id);
  const lKey=JSON.stringify(logs);
  if(last.logs!==lKey){last.logs=lKey;
   $('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
@@ -288,10 +290,10 @@ async function fillCars(id){
 }
 // Network diagram: nodes come from the live economy, edges from what is
 // shippable right now. Station layout follows the in-game network poster.
-const NET_POS={OWC:[72,245],OWN:[72,325],OR:[188,283],FRS:[72,430],FRC:[72,508],
- CMS:[155,680],CME:[258,680],IME:[360,680],IMW:[462,680],CP:[202,575],SM:[372,512],
- SW:[258,512],FM:[482,608],HB:[572,315],GF:[828,320],MF:[732,198],FF:[792,448],
- CW:[962,225],CS:[962,433],MB:[390,55],HMB:[535,55],MFMB:[462,132]};
+const NET_POS={IMW:[161,133],FF:[612,127],MB:[796,73],HMB:[860,105],MFMB:[830,143],
+ IME:[950,60],CME:[966,237],OWN:[740,218],OR:[421,232],MF:[176,246],GF:[822,243],
+ CP:[161,339],FRC:[379,350],FM:[394,447],OWC:[310,470],SM:[503,413],CW:[154,489],
+ HB:[834,594],FRS:[357,577],CMS:[552,594],CS:[638,690],SW:[113,644]};
 const NET_NAMES={OWC:'Oil Wells C',OWN:'Oil Wells N',OR:'Oil Refinery',FRS:'Forest S',
  FRC:'Forest C',CMS:'Coal Mine S',CME:'Coal Mine E',IME:'Iron Mine E',IMW:'Iron Mine W',
  CP:'Coal Power',SM:'Steel Mill',SW:'Sawmill',FM:'Farm',HB:'Harbour',GF:'Goods Factory',
@@ -334,7 +336,7 @@ function netPath(e,bidi){
  const curve=two?0.20:0.09;
  const sign=(!two||e.src<e.dst)?1:-1;
  const cx=mx+px*len*curve*sign,cy=my+py*len*curve*sign;
- const rA=27,rB=34;
+ const rA=33,rB=42;
  const dax=cx-A[0],day=cy-A[1],da=Math.sqrt(dax*dax+day*day)||1;
  const sx=A[0]+dax/da*rA,sy=A[1]+day/da*rA;
  const dbx=B[0]-cx,dby=B[1]-cy,db=Math.sqrt(dbx*dbx+dby*dby)||1;
@@ -364,12 +366,12 @@ function drawNet(){
   const cls=id==='HB'?'hub':((n.inputs||[]).length===0&&(n.outputs||[]).length>0?'source':((n.outputs||[]).length===0?'sink':'factory'));
   const st=NET_STYLE[cls];
   const miss=netMissing(n);
-  const r=cls==='hub'?30:24;
+  const r=cls==='hub'?36:30;
   const dim=sel&&id!==sel&&!edges.some(e=>(e.src===sel&&e.dst===id)||(e.dst===sel&&e.src===id));
   h+=`<g class='nnode' data-act='netNode' data-id='${esc(id)}' transform='translate(${p[0]},${p[1]})' opacity='${dim?0.25:1}'>
    <circle r='${r}' fill='${st.fill}' stroke='${miss.length?'#e07a6a':st.stroke}' stroke-width='${sel===id?3:1.5}'/>
-   <text y='1' text-anchor='middle' dominant-baseline='middle' fill='#eef2f8' font-size='12' font-weight='700'>${esc(id)}</text>
-   <text y='14' text-anchor='middle' fill='#8b95a5' font-size='7'>${esc(NET_NAMES[id]||'')}</text>
+   <text y='-1' text-anchor='middle' dominant-baseline='middle' fill='#eef2f8' font-size='14' font-weight='700'>${esc(id)}</text>
+   <text y='14' text-anchor='middle' fill='#8b95a5' font-size='8.5'>${esc(NET_NAMES[id]||'')}</text>
    <title>${esc(id)}${miss.length?': waiting on '+esc(miss.join(', ')):''}</title></g>`;
  }
  svg.innerHTML=h;
@@ -408,6 +410,42 @@ function renderFleet(r){
     `</td></tr>`}).join('')
   :`<tr><td class='empty' colspan='4'>no matching cars found</td></tr>`;
 }
+function fmtSecs(s){s=Math.round(s);const m=Math.floor(s/60);return m>0?m+'m '+(s%60)+'s':s+'s'}
+async function fillPicker(id){
+ if(!pickers[id]){
+  try{const r=await j('/api/v1/jobs/'+id+'/candidates');
+   if(r.error){toast(r.error,true);return}
+   pickers[id]={data:r,sel:[]}}
+  catch(e){return}}
+ renderPickPanel(id);
+}
+function renderPickPanel(id){
+ const box=$('pick_'+id);const p=pickers[id];
+ if(!box||!p)return;
+ const d=p.data;
+ if(d.carsAttached){box.innerHTML='cars are already attached; use Load on them';return}
+ if(!d.cars.length){box.innerHTML='no suitable empties at '+esc(d.origin)+'; use Find empties to locate cars elsewhere';return}
+ const selSet=new Set(p.sel);
+ const byId={};d.cars.forEach(c=>byId[c.carId]=c);
+ const lastSel=p.sel.length?byId[p.sel[p.sel.length-1]]:null;
+ const rest=d.cars.filter(c=>!selSet.has(c.carId));
+ rest.sort((a,b)=>{
+  const da=lastSel?Math.hypot(a.x-lastSel.x,a.z-lastSel.z):(a.metersFromLoading==null?1e9:a.metersFromLoading);
+  const db=lastSel?Math.hypot(b.x-lastSel.x,b.z-lastSel.z):(b.metersFromLoading==null?1e9:b.metersFromLoading);
+  return da-db});
+ const chip=(c,on)=>{
+  const dist=lastSel&&!on?Math.round(Math.hypot(c.x-lastSel.x,c.z-lastSel.z)):(c.metersFromLoading==null?null:Math.round(c.metersFromLoading));
+  return `<span class='carchip ${on?'ok':''}' data-act='pickCar' data-id='${esc(id)}' data-car='${esc(c.carId)}'
+   title='${esc(c.type)} on ${esc(c.track)}' style='cursor:pointer'>${on?'&#10003; ':''}${esc(c.carId)}${dist==null?'':' &middot; '+dist+'m'}</span>`};
+ const done=p.sel.length===d.wanted;
+ box.innerHTML=`<div style='margin-bottom:5px'>pick <b>${d.wanted}</b> car(s), sorted by ${lastSel?'distance to <b>'+esc(lastSel.carId)+'</b>':'distance to the loading track'}</div>`+
+  p.sel.map(cid=>chip(byId[cid],true)).join('')+rest.map(c=>chip(c,false)).join('')+
+  `<div style='margin-top:8px;display:flex;gap:8px;align-items:center'>
+   <button class='primary' data-act='loadPicked' data-id='${esc(id)}' ${done?'':'disabled'}>Start loading</button>
+   <button class='mini' data-act='pickAuto' data-id='${esc(id)}' title='Let the station pick the nearest suitable empties'>Auto-pick</button>
+   <span class='meta'>${p.sel.length}/${d.wanted} picked &middot; staff &#8776; ${fmtSecs(p.sel.length*d.perCarSeconds)} at ${d.perCarSeconds}s per car</span>
+  </div>`;
+}
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}
 const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
@@ -432,6 +470,23 @@ const actions={
   toast(r.message||'failed',!r.ok);refresh()},
  load:async id=>{const r=await j('/api/v1/jobs/'+id+'/load','POST');
   toast(r.message||'failed',!r.ok);setTimeout(refresh,1200)},
+ pickCars:id=>{if(pickOpen.has(id)){pickOpen.delete(id);delete pickers[id]}else pickOpen.add(id);
+  last.jobs=null;refresh()},
+ pickCar:(id,el)=>{const p=pickers[id];if(!p)return;
+  const car=el.dataset.car;const i=p.sel.indexOf(car);
+  if(i>=0)p.sel.splice(i,1);
+  else if(p.sel.length<p.data.wanted)p.sel.push(car);
+  else{toast('already picked '+p.data.wanted+'; unpick one first',true);return}
+  renderPickPanel(id)},
+ loadPicked:async id=>{const p=pickers[id];if(!p)return;
+  const r=await j('/api/v1/jobs/'+id+'/load','POST',{cars:p.sel});
+  toast(r.message||'failed',!r.ok);
+  if(r.ok){pickOpen.delete(id);delete pickers[id];last.jobs=null}
+  setTimeout(refresh,1200)},
+ pickAuto:async id=>{const r=await j('/api/v1/jobs/'+id+'/load','POST');
+  toast(r.message||'failed',!r.ok);
+  if(r.ok){pickOpen.delete(id);delete pickers[id];last.jobs=null}
+  setTimeout(refresh,1200)},
  unload:async id=>{const r=await j('/api/v1/jobs/'+id+'/unload','POST');
   toast(r.message||'failed',!r.ok);setTimeout(refresh,1200)},
  fax:async id=>{const r=await j('/api/v1/jobs/'+id+'/fax','POST',{player:crewVal(id)});

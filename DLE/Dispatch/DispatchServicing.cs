@@ -37,7 +37,7 @@ namespace DLE.Dispatch
             public static Result Done(string m) => new Result { Ok = true, Message = m };
         }
 
-        public static Result LoadJob(string jobId)
+        public static Result LoadJob(string jobId, List<string> pickedCarIds = null)
         {
             if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
             if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
@@ -55,6 +55,8 @@ namespace DLE.Dispatch
             List<Car> cars;
             if (attached)
             {
+                if (pickedCarIds != null && pickedCarIds.Count > 0)
+                    return Result.Fail("cars are already attached to this haul; loading works on those");
                 cars = def.carsToTransport.ToList();
                 if (cars.All(c => c.LoadedCargoAmount > 0f))
                     return Result.Fail("cargo is already loaded; haul it");
@@ -73,11 +75,32 @@ namespace DLE.Dispatch
                 if (sc == null) return Result.Fail($"origin {originYard} not loaded");
                 int wanted = def.plannedCarCount > 0 ? def.plannedCarCount : def.displayCars?.Count ?? 0;
                 if (wanted <= 0) return Result.Fail("job wants no cars");
-                cars = CollectCandidates(def, sc, wanted, out var have);
-                if (cars == null)
-                    return Result.Fail($"no car type carries {def.transportedCargo}");
-                if (cars.Count < wanted)
-                    return Result.Fail($"only {have}/{wanted} suitable empties at {originYard}");
+                if (pickedCarIds != null && pickedCarIds.Count > 0)
+                {
+                    // Dispatcher-picked cars: exactly the booklet's count, every one a
+                    // valid candidate (suitable, empty, jobless, unreserved, in the yard).
+                    if (pickedCarIds.Count != wanted)
+                        return Result.Fail($"job wants {wanted} car(s); {pickedCarIds.Count} picked");
+                    var eligible = AllLoadCandidates(def, sc);
+                    if (eligible == null)
+                        return Result.Fail($"no car type carries {def.transportedCargo}");
+                    var byId = eligible.ToDictionary(c => c.ID, c => c, StringComparer.Ordinal);
+                    cars = new List<Car>();
+                    foreach (var id in pickedCarIds)
+                    {
+                        if (!byId.TryGetValue(id, out var car))
+                            return Result.Fail($"{id} is not a usable empty at {originYard} (moved, loaded, on a job, or wrong type)");
+                        cars.Add(car);
+                    }
+                }
+                else
+                {
+                    cars = CollectCandidates(def, sc, wanted, out var have);
+                    if (cars == null)
+                        return Result.Fail($"no car type carries {def.transportedCargo}");
+                    if (cars.Count < wanted)
+                        return Result.Fail($"only {have}/{wanted} suitable empties at {originYard}");
+                }
             }
 
             var loadTrack = def.loadMachine?.WarehouseTrack;
@@ -173,14 +196,14 @@ namespace DLE.Dispatch
         }
 
         /// <summary>
-        /// Suitable empties for a carless job anywhere in the origin yard: right car
+        /// Every suitable empty for a carless job anywhere in the origin yard: right car
         /// family, jobless, empty, not reserved for another haul; this job's reserved
-        /// cars first, then cars already on the load track (cheapest to service).
+        /// cars first, then cars already on the load track (cheapest to service). Null
+        /// when no car type carries the cargo. The candidates API and the picker use the
+        /// full list; auto-collection takes the head of it.
         /// </summary>
-        private static List<Car> CollectCandidates(StaticDirectHaulJobDefinition def,
-            StationController sc, int wanted, out int have)
+        internal static List<Car> AllLoadCandidates(StaticDirectHaulJobDefinition def, StationController sc)
         {
-            have = 0;
             if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(def.transportedCargo, out var v2) ||
                 !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var loadable))
                 return null;
@@ -208,14 +231,20 @@ namespace DLE.Dispatch
                     pool.Add(car);
                 }
             }
-            have = pool.Count;
 
             var reserved = def.reservedCarIds ?? new List<string>();
             return pool
                 .OrderByDescending(c => reserved.Contains(c.ID))
                 .ThenByDescending(c => loadTrack != null && c.CurrentTrack == loadTrack)
-                .Take(wanted)
                 .ToList();
+        }
+
+        private static List<Car> CollectCandidates(StaticDirectHaulJobDefinition def,
+            StationController sc, int wanted, out int have)
+        {
+            var pool = AllLoadCandidates(def, sc);
+            have = pool?.Count ?? 0;
+            return pool?.Take(wanted).ToList();
         }
 
         /// <summary>
