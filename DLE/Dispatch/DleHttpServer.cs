@@ -410,11 +410,41 @@ namespace DLE.Dispatch
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.deliveryPayment,
+                tonnes = LoadedTrainTonnes(kv.Value),
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
                 reservedCars = kv.Value.reservedCarIds,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Loaded train mass in tonnes: tare plus cargo (capacity times the cargo's mass
+        /// per unit), from the attached cars when they exist, else from the booklet's
+        /// display cars. Same formula the vanilla booklet stats use.
+        /// </summary>
+        private static int LoadedTrainTonnes(StaticDirectHaulJobDefinition def)
+        {
+            try
+            {
+                float perUnit = 0f;
+                if (DV.Globals.G.Types.CargoType_to_v2.TryGetValue(def.transportedCargo, out var v2) && v2 != null)
+                    perUnit = v2.massPerUnit;
+
+                float kg = 0f;
+                if (def.carsToTransport != null && def.carsToTransport.Count > 0)
+                {
+                    foreach (var car in def.carsToTransport)
+                        kg += (car.carType?.parentType?.mass ?? 0f) + car.capacity * perUnit;
+                }
+                else if (def.displayCars != null)
+                {
+                    foreach (var cd in def.displayCars)
+                        kg += cd.carOnlyMass + cd.capacity * perUnit;
+                }
+                return (int)Math.Round(kg / 1000f);
+            }
+            catch { return 0; }
         }
 
         private static void Html(HttpListenerContext ctx, string html)

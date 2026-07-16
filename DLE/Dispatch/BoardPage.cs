@@ -200,7 +200,7 @@ function jobCard(x,avail){
    ${x.awaitingEmpties?`<span class='tag'>awaiting empties</span>`:''}
    <span class='wage num'>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>&#8594;</span><b>${esc(x.destination)}</b></div>
-  <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
+  <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
   <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'unassigned'}</div>
   <div class='acts'>${acts}
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet to the named crew (blank = you)'>Fax</button>
