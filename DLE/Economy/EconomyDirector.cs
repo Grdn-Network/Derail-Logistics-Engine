@@ -141,15 +141,20 @@ namespace DLE.Economy
         /// debited when the cars attach at the warehouse). Returns the job id or null.
         /// </summary>
         public static string CreateSpecific(string originYard, string destYard, CargoType cargo, int carCount,
-            List<string> reservedCarIds = null)
+            List<string> reservedCarIds, out string reason)
         {
-            if (!Main.IsHostOrSingleplayer()) return null;
+            reason = null;
+            if (!Main.IsHostOrSingleplayer()) { reason = "host or singleplayer only"; return null; }
 
             var econ = EconomyState.Instance;
             float stock = econ.GetAvailable(originYard, cargo);
             if (stock < carCount)
             {
-                Main.Log($"[Director] {originYard} has {stock:0.#} {cargo}, cannot ship {carCount}.");
+                float reserved = econ.GetReserved(originYard, cargo);
+                reason = $"{originYard} has {stock:0.#} unreserved {cargo}" +
+                    (reserved >= 1f ? $" ({reserved:0.#} already committed to other hauls)" : "") +
+                    $"; cannot ship {carCount}";
+                Main.Log($"[Director] {reason}");
                 return null;
             }
 
@@ -157,12 +162,31 @@ namespace DLE.Economy
             var consumerSc = StationController.GetStationByYardID(destYard);
             if (producerSc == null || consumerSc == null)
             {
-                Main.Log($"[Director] unknown yard ({originYard} or {destYard}).");
+                reason = $"unknown yard ({originYard} or {destYard})";
+                Main.Log($"[Director] {reason}");
+                return null;
+            }
+
+            // Name the blocking end when a warehouse cannot handle the cargo, instead of
+            // a generic failure after the fact.
+            var cargoList = new List<CargoType> { cargo };
+            if ((producerSc.logicStation?.yard?.GetWarehouseMachinesThatSupportCargoTypes(cargoList)?.Count ?? 0) == 0)
+            {
+                reason = $"{originYard} has no warehouse that handles {cargo}";
+                Main.Log($"[Director] {reason}");
+                return null;
+            }
+            if ((consumerSc.logicStation?.yard?.GetWarehouseMachinesThatSupportCargoTypes(cargoList)?.Count ?? 0) == 0)
+            {
+                reason = $"{destYard} has no warehouse that handles {cargo}";
+                Main.Log($"[Director] {reason}");
                 return null;
             }
 
             // Every haul is carless; dispatch can reserve specific cars for it (API).
-            return DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds);
+            var jobId = DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds);
+            if (jobId == null) reason = "job creation failed; see game log";
+            return jobId;
         }
 
         private static readonly Random _rng = new Random();

@@ -132,8 +132,8 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
-                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars);
-                    if (jobId == null) { Json(ctx, 409, new { error = "could not create haul; see game log" }); return; }
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason);
+                    if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
                     Json(ctx, 201, new { ok = true, jobId });
                     return;
                 }
@@ -388,7 +388,13 @@ namespace DLE.Dispatch
                 outputs = f.Outputs.Select(c => c.ToString()),
                 inputs = f.Inputs.Select(c => c.ToString()),
                 stock = f.Outputs.Concat(f.Inputs).Distinct()
-                    .Select(c => new { cargo = c.ToString(), amount = econ.GetStock(f.YardId, c), cap = f.Cap(c) })
+                    .Select(c => new
+                    {
+                        cargo = c.ToString(),
+                        amount = econ.GetStock(f.YardId, c),
+                        cap = f.Cap(c),
+                        reserved = econ.GetReserved(f.YardId, c),
+                    })
                     .Where(s => s.amount > 0f),
                 recipes = f.Recipes.Select(r => new
                 {

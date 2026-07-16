@@ -271,10 +271,7 @@ async function refresh(){
  if(last.econ!==eKey){last.econ=eKey;
   $('econGrid').innerHTML=econ.filter(e=>e.stock.length).map(e=>`<div class='yard'>`+
    `<div class='yhead'>${esc(e.yardId)}</div>`+
-   e.stock.map(s=>{const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
-    return `<div class='stockrow'><span class='cname'>${esc(s.cargo)}</span>`+
-     `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
-     `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}</span></div>`}).join('')+
+   e.stock.map(s=>stockRow(s)).join('')+
    `</div>`).join('')||`<div class='empty'>no stock anywhere yet</div>`}
 }
 async function fillCars(id){
@@ -314,6 +311,13 @@ function buildNet(econ,opts){
   if(!em[k].cargos.includes(o.cargo))em[k].cargos.push(o.cargo);
   em[k].stock+=o.stock}
  return {nodes,edges:Object.values(em)};
+}
+function stockRow(s){
+ const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
+ const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
+ return `<div class='stockrow'><span class='cname' title='held = committed to a live haul'>${esc(s.cargo)}</span>`+
+  `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
+  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}</span></div>`;
 }
 function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
 function netMissing(n){const out=[];
@@ -384,10 +388,7 @@ function renderNetDetail(nodes,edges,sel){
   h+=`<div class='nrecipe'>accepts <b>${esc(n.inputs.join(', '))}</b>; storage is the demand</div>`;
  const miss=netMissing(n);
  if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
- h+=(n.stock||[]).map(s=>{const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
-  return `<div class='stockrow'><span class='cname'>${esc(s.cargo)}</span>`+
-   `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
-   `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}</span></div>`}).join('');
+ h+=(n.stock||[]).map(s=>stockRow(s)).join('');
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
  if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
  if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.join(', '))}`).join(' &middot; ')+`</div>`;
