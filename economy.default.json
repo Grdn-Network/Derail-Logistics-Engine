@@ -5,7 +5,21 @@
     "directorTickSeconds": 120,
     "sourceProductionMinutes": 10,
     "poolTrackFillPercent": 90,
-    "maxPoolCars": 500
+    "maxPoolCars": 500,
+    "excludedCargos": [
+      "EmptySunOmni",
+      "EmptyIskar",
+      "EmptyObco",
+      "EmptyGoorsk",
+      "EmptyKrugmann",
+      "EmptyBrohm",
+      "EmptyAAG",
+      "EmptySperex",
+      "EmptyNovae",
+      "EmptyTraeg",
+      "EmptyChemlek",
+      "EmptyNeoGamma"
+    ]
   },
   "defaults": {
     "role": "both",

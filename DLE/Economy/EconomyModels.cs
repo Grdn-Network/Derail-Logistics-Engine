@@ -84,6 +84,17 @@ namespace DLE.Economy
         public int sourceProductionMinutes = 10;
         public int poolTrackFillPercent = 90;
         public int maxPoolCars = 500;
+
+        // Cargo kept out of the economy entirely (no stock, no demand, no hauls).
+        // Default: the branded empty-container returns; moving a station's own
+        // containers around is coordination work (logistics runs now, container
+        // contracts at 1.0), not production cargo.
+        public List<string> excludedCargos = new List<string>
+        {
+            "EmptySunOmni", "EmptyIskar", "EmptyObco", "EmptyGoorsk",
+            "EmptyKrugmann", "EmptyBrohm", "EmptyAAG", "EmptySperex",
+            "EmptyNovae", "EmptyTraeg", "EmptyChemlek", "EmptyNeoGamma",
+        };
     }
 
     // Global servicing defaults applied to every station before per-station overrides.

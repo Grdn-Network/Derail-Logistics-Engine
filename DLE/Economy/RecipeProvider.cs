@@ -78,7 +78,7 @@ namespace DLE.Economy
         {
             Tuning = new TuningDef();
             var path = Path.Combine(modPath, "economy.json");
-            if (!File.Exists(path)) return;
+            if (!File.Exists(path)) { ApplyExclusions(facilities); return; }
 
             EconomyOverlay overlay;
             try
@@ -88,11 +88,12 @@ namespace DLE.Economy
             catch (Exception ex)
             {
                 Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
+                ApplyExclusions(facilities);
                 return;
             }
-            if (overlay == null) return;
+            if (overlay == null) { ApplyExclusions(facilities); return; }
             if (overlay.settings != null) Tuning = overlay.settings;
-            if (overlay.stations == null && overlay.defaults == null) return;
+            if (overlay.stations == null && overlay.defaults == null) { ApplyExclusions(facilities); return; }
 
             // Global defaults first: the baseline for every facility.
             if (overlay.defaults != null)
@@ -142,7 +143,34 @@ namespace DLE.Economy
                     Main.LogAlways($"[Economy] {f.YardId}: role=load but it consumes " +
                                    $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
+            ApplyExclusions(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
+        }
+
+        /// <summary>
+        /// Strip excluded cargo (settings.excludedCargos) from every facility: outputs,
+        /// inputs, caps and recipes. A recipe left without inputs or outputs is removed;
+        /// the facility then behaves as the source or sink it really is.
+        /// </summary>
+        private static void ApplyExclusions(Dictionary<string, FacilityDef> facilities)
+        {
+            var excluded = new HashSet<CargoType>();
+            foreach (var name in Tuning.excludedCargos ?? new List<string>())
+                if (TryCargo(name, out var c)) excluded.Add(c);
+            if (excluded.Count == 0) return;
+            foreach (var f in facilities.Values)
+            {
+                f.Outputs.RemoveAll(excluded.Contains);
+                f.Inputs.RemoveAll(excluded.Contains);
+                foreach (var key in f.StorageCaps.Keys.Where(excluded.Contains).ToList())
+                    f.StorageCaps.Remove(key);
+                foreach (var r in f.Recipes)
+                {
+                    r.Inputs.RemoveAll(s => excluded.Contains(s.Cargo));
+                    r.Outputs.RemoveAll(s => excluded.Contains(s.Cargo));
+                }
+                f.Recipes.RemoveAll(r => r.Inputs.Count == 0 || r.Outputs.Count == 0);
+            }
         }
 
         private static void ApplyDefaults(FacilityDef f, OverlayDefaults d)
