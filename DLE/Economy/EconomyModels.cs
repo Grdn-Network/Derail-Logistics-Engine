@@ -48,6 +48,13 @@ namespace DLE.Economy
         public ServiceRole Role = ServiceRole.Both;
         public bool RemoteLoad = true;
         public bool RemoteUnload = true;
+
+        // Source industries (economy.json "source": true) produce on the clock with no
+        // required inputs; their deliveries act through Boosters instead: any one cargo
+        // of a booster entry in stock multiplies production speed and is slowly consumed
+        // per carload produced. Multiple active boosters stack multiplicatively.
+        public bool IsSource;
+        public List<BoosterDef> Boosters = new List<BoosterDef>();
         public float RemoteSecondsPerCar = 45f;
 
         public bool Consumes(CargoType cargo) => Inputs.Contains(cargo);
@@ -98,11 +105,27 @@ namespace DLE.Economy
         public bool? remoteLoad;
         public bool? remoteUnload;
         public float? remoteSecondsPerCar;
+        public bool? source;                // produces on the clock, inputs become boosters
+        public List<BoosterOverlay> boosters;
     }
 
     public class RecipeOverlay
     {
         public Dictionary<string, float> inputs;
         public Dictionary<string, float> outputs;
+    }
+
+    public class BoosterDef
+    {
+        public List<CargoType> Cargo = new List<CargoType>();
+        public float Speedup = 2f;
+        public float ConsumedPerCarload = 0.05f;
+    }
+
+    public class BoosterOverlay
+    {
+        public List<string> cargo;
+        public float? speedup;
+        public float? consumedPerCarload;
     }
 }

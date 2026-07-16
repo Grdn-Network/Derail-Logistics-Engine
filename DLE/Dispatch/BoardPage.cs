@@ -171,6 +171,10 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   </div>
   <div class='tablewrap'><table id='tLog'></table></div>
  </section>
+ <section class='card col12'>
+  <h2>Dispatch log <span class='sub'>production, conversion, loading, deliveries; newest first</span></h2>
+  <div id='dlog' style='max-height:260px;overflow-y:auto;font-size:12.5px'></div>
+ </section>
  <section class='card col12' id='finder'>
   <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
   <div class='formrow' style='margin-bottom:10px'>
@@ -209,6 +213,8 @@ function jobCard(x,avail){
   <div class='jobtop'><span class='jid'>${esc(x.id)}</span>
    <span class='pill ${pillClass(x.state)}'>${esc(x.state)}</span>
    ${x.awaitingEmpties?`<span class='tag'>awaiting empties</span>`:''}
+   ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>=x.cars?`<span class='pill completed'>loaded</span>`:''}
+   ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>0&&x.loadedCars<x.cars?`<span class='tag'>loading ${x.loadedCars}/${x.cars}</span>`:''}
    <span class='wage num'>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>&#8594;</span><b>${esc(x.destination)}</b></div>
   <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
@@ -232,9 +238,9 @@ function keepSelect(sel,items){const cur=sel.value;
  sel.innerHTML=items.map(v=>`<option>${esc(v)}</option>`).join('');
  if([...sel.options].some(o=>o.value===cur))sel.value=cur}
 async function refresh(){
- let state,jobs,econ,logs;
- try{[state,options,jobs,econ,logs]=await Promise.all([
-  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics')]);
+ let state,jobs,econ,logs,hist;
+ try{[state,options,jobs,econ,logs,hist]=await Promise.all([
+  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60')]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
  lastJobs=jobs;
@@ -269,6 +275,8 @@ async function refresh(){
     `<button class='mini' data-act='logDone' data-id='${esc(o.Id)}'>Done</button>`+
     `<button class='mini' data-act='logDel' data-id='${esc(o.Id)}'>&times;</button></td></tr>`).join('')
    :`<tr><td class='empty' colspan='7'>no runs posted</td></tr>`)}
+ const hKey=JSON.stringify(hist);
+ if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
  const eKey=JSON.stringify(econ);
  if(last.econ!==eKey){last.econ=eKey;
   $('econGrid').innerHTML=econ.filter(e=>e.stock.length).map(e=>`<div class='yard'>`+
@@ -313,6 +321,15 @@ function buildNet(econ,opts){
   if(!em[k].cargos.includes(o.cargo))em[k].cargos.push(o.cargo);
   em[k].stock+=o.stock}
  return {nodes,edges:Object.values(em)};
+}
+function renderLog(hist){
+ const box=$('dlog');if(!box)return;
+ if(!hist||!hist.length){box.innerHTML=`<div class='empty'>nothing has happened yet</div>`;return}
+ const verb={production:'produced',converted:'made',delivered:'received',loaded:'loaded',unloaded:'unloaded',haul_created:'posted a haul for'};
+ box.innerHTML=[...hist].reverse().map(e=>{
+  const t=e.Utc?new Date(e.Utc).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
+  const amt=e.Amount?Math.round(e.Amount*10)/10:'';
+  return `<div style='padding:2px 0;border-bottom:1px solid var(--line)'><span class='meta num'>${t}</span> <b>${esc(e.Yard||'')}</b> ${verb[e.Type]||esc(e.Type)} ${amt} ${esc(e.Cargo||'')}${e.JobId?` <span class='meta'>(${esc(e.JobId)})</span>`:''}</div>`}).join('');
 }
 function stockRow(s){
  const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
@@ -390,6 +407,8 @@ function renderNetDetail(nodes,edges,sel){
   h+=`<div class='nrecipe'>accepts <b>${esc(n.inputs.join(', '))}</b>; storage is the demand</div>`;
  const miss=netMissing(n);
  if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
+ for(const b of (n.boosters||[]))
+  h+=`<div class='nrecipe' style='color:${b.active?'var(--green)':'var(--dim)'}'>${b.active?'boosted &#215;'+b.speedup:'runs &#215;'+b.speedup+' faster with'}: ${esc([...b.cargo].join(', '))} (any one)</div>`;
  h+=(n.stock||[]).map(s=>stockRow(s)).join('');
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
  if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;

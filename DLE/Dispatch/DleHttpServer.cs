@@ -410,8 +410,15 @@ namespace DLE.Dispatch
             return econ.Facilities.Values.Select(f => new
             {
                 yardId = f.YardId,
+                source = f.IsSource,
                 outputs = f.Outputs.Select(c => c.ToString()),
                 inputs = f.Inputs.Select(c => c.ToString()),
+                boosters = f.Boosters.Select(b => new
+                {
+                    cargo = b.Cargo.Select(c => c.ToString()),
+                    speedup = b.Speedup,
+                    active = b.Cargo.Any(c => econ.GetStock(f.YardId, c) >= 1f),
+                }),
                 stock = f.Outputs.Concat(f.Inputs).Distinct()
                     .Select(c => new
                     {
@@ -442,6 +449,7 @@ namespace DLE.Dispatch
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.deliveryPayment,
                 tonnes = LoadedTrainTonnes(kv.Value),
+                loadedCars = kv.Value.carsToTransport?.Count(c => c.LoadedCargoAmount > 0f) ?? 0,
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,

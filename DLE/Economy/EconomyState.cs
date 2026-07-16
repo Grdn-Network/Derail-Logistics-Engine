@@ -50,20 +50,40 @@ namespace DLE.Economy
         }
 
         /// <summary>
-        /// Source industries (no inputs: mines, forests, wells) produce over time; that is
-        /// where cargo enters the world. Factories only gain stock from real deliveries.
+        /// Source industries produce over time with no required inputs; that is where
+        /// cargo enters the world. Factories only gain stock from real deliveries.
+        /// A source is any facility flagged in economy.json, or one with outputs and no
+        /// inputs at all. Boosters multiply the rate: any one in-stock cargo of a booster
+        /// entry activates it (one tool brand is enough), active boosters stack, and each
+        /// is slowly consumed per carload produced.
         /// </summary>
         public void TickSourceProduction(float carloads)
         {
             if (carloads <= 0f) return;
             foreach (var f in _facilities.Values)
             {
-                if (f.Inputs.Count > 0 || f.Outputs.Count == 0) continue;
+                if (f.Outputs.Count == 0) continue;
+                if (!f.IsSource && f.Inputs.Count > 0) continue;
+
+                float mult = 1f;
+                var active = new List<(BoosterDef def, CargoType cargo)>();
+                foreach (var b in f.Boosters)
+                    foreach (var c in b.Cargo)
+                        if (GetStock(f.YardId, c) >= 1f)
+                        {
+                            mult *= b.Speedup;
+                            active.Add((b, c));
+                            break;
+                        }
+
+                float made = carloads * mult;
                 foreach (var cargo in f.Outputs)
                 {
-                    Credit(f.YardId, cargo, carloads);
-                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), carloads);
+                    Credit(f.YardId, cargo, made);
+                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), made);
                 }
+                foreach (var (b, c) in active)
+                    Debit(f.YardId, c, b.ConsumedPerCarload * made);
             }
         }
 

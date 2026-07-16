@@ -119,7 +119,17 @@ namespace DLE.Economy
                     if (so.remoteLoad.HasValue) facility.RemoteLoad = so.remoteLoad.Value;
                     if (so.remoteUnload.HasValue) facility.RemoteUnload = so.remoteUnload.Value;
                     if (so.remoteSecondsPerCar.HasValue) facility.RemoteSecondsPerCar = so.remoteSecondsPerCar.Value;
+                    if (so.source.HasValue) facility.IsSource = so.source.Value;
+                    if (so.boosters != null)
+                        facility.Boosters = so.boosters.Select(ToBooster).Where(b => b != null && b.Cargo.Count > 0).ToList();
                 }
+
+            // A source produces on the clock with no required inputs: whatever recipe was
+            // auto-derived from its cargo groups (tools in, ore out) would gate production
+            // on deliveries, so it goes. Its inputs act through Boosters instead.
+            foreach (var f in facilities.Values)
+                if (f.IsSource && f.Recipes.Count > 0)
+                    f.Recipes.Clear();
 
             // Warn when a role contradicts the station's derived economy, so a config
             // typo that silently strands stock or starves inputs is visible in the log.
@@ -157,6 +167,17 @@ namespace DLE.Economy
                     Main.Log($"[Economy] unknown role '{s}' in economy.json, using {fallback}.");
                     return fallback;
             }
+        }
+
+        private static BoosterDef ToBooster(BoosterOverlay bo)
+        {
+            if (bo?.cargo == null) return null;
+            var def = new BoosterDef();
+            foreach (var name in bo.cargo)
+                if (TryCargo(name, out var cargo)) def.Cargo.Add(cargo);
+            if (bo.speedup.HasValue) def.Speedup = Math.Max(1f, bo.speedup.Value);
+            if (bo.consumedPerCarload.HasValue) def.ConsumedPerCarload = Math.Max(0f, bo.consumedPerCarload.Value);
+            return def;
         }
 
         private static RecipeDef ToRecipe(RecipeOverlay ro)

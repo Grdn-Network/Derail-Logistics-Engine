@@ -334,6 +334,7 @@ namespace DLE.Dispatch
                 var loadTask = job.tasks.OfType<WarehouseTask>()
                     .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Loading);
                 if (loadTask != null) def.loadMachine?.RemoveWarehouseTask(loadTask);
+                EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId, def.transportedCargo.ToString(), loaded, job.ID);
                 Main.LogAlways($"[Servicing] {job.ID}: staff loaded {loaded} {def.transportedCargo} at {def.chainData?.chainOriginYardId}.");
             }
             catch (Exception ex)
@@ -383,6 +384,7 @@ namespace DLE.Dispatch
                 var unloadTask = job.tasks.OfType<WarehouseTask>()
                     .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Unloading);
                 if (unloadTask != null) def.unloadMachine?.RemoveWarehouseTask(unloadTask);
+                EconomyHistory.Record("unloaded", def.chainData?.chainDestinationYardId, def.transportedCargo.ToString(), unloaded, job.ID);
                 Main.LogAlways($"[Servicing] {job.ID}: staff unloaded {unloaded} car(s) at {def.chainData?.chainDestinationYardId}. Turn the haul in to get paid.");
             }
             catch (Exception ex)
