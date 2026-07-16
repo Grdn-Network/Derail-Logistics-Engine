@@ -449,15 +449,20 @@ function renderPickPanel(id){
  const lastSel=p.sel.length?byId[p.sel[p.sel.length-1]]:null;
  const rest=d.cars.filter(c=>!selSet.has(c.carId));
  rest.sort((a,b)=>{
-  const da=lastSel?Math.hypot(a.x-lastSel.x,a.z-lastSel.z):(a.metersFromLoading==null?1e9:a.metersFromLoading);
-  const db=lastSel?Math.hypot(b.x-lastSel.x,b.z-lastSel.z):(b.metersFromLoading==null?1e9:b.metersFromLoading);
+  if(lastSel){
+   const ta=a.track===lastSel.track?0:1,tb=b.track===lastSel.track?0:1;
+   if(ta!==tb)return ta-tb;
+   return Math.hypot(a.x-lastSel.x,a.z-lastSel.z)-Math.hypot(b.x-lastSel.x,b.z-lastSel.z)}
+  const da=a.metersFromLoading==null?1e9:a.metersFromLoading;
+  const db=b.metersFromLoading==null?1e9:b.metersFromLoading;
   return da-db});
  const chip=(c,on)=>{
   const dist=lastSel&&!on?Math.round(Math.hypot(c.x-lastSel.x,c.z-lastSel.z)):(c.metersFromLoading==null?null:Math.round(c.metersFromLoading));
+  const sameTrack=lastSel&&!on&&c.track===lastSel.track;
   return `<span class='carchip ${on?'ok':''}' data-act='pickCar' data-id='${esc(id)}' data-car='${esc(c.carId)}'
-   title='${esc(c.type)} on ${esc(c.track)}' style='cursor:pointer'>${on?'&#10003; ':''}${esc(c.carId)}${dist==null?'':' &middot; '+dist+'m'}</span>`};
+   title='${esc(c.type)} on ${esc(c.track)}' style='cursor:pointer${sameTrack?';border-color:#3d78b8':''}'>${on?'&#10003; ':''}${esc(c.carId)} &middot; ${esc(c.track)}${dist==null?'':' &middot; '+dist+'m'}</span>`};
  const done=p.sel.length===d.wanted;
- box.innerHTML=`<div style='margin-bottom:5px'>pick <b>${d.wanted}</b> car(s), sorted by ${lastSel?'distance to <b>'+esc(lastSel.carId)+'</b>':'distance to the loading track'}</div>`+
+ box.innerHTML=`<div style='margin-bottom:5px'>pick <b>${d.wanted}</b> car(s), ${lastSel?'same track as <b>'+esc(lastSel.carId)+'</b> (<b>'+esc(lastSel.track)+'</b>) first, then nearest elsewhere':'sorted by distance to the loading track'}</div>`+
   p.sel.map(cid=>chip(byId[cid],true)).join('')+rest.map(c=>chip(c,false)).join('')+
   `<div style='margin-top:8px;display:flex;gap:8px;align-items:center'>
    <button class='primary' data-act='loadPicked' data-id='${esc(id)}' ${done?'':'disabled'}>Start loading</button>
