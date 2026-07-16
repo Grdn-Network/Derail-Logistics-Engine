@@ -85,20 +85,53 @@ namespace DLE.Economy
                 foreach (var (b, c) in active)
                     Debit(f.YardId, c, b.ConsumedPerCarload * made);
             }
+
+            // Factories chew their input buffers on the same clock: at most one batch per
+            // recipe per interval, so seeded or stockpiled ingredients drain at a visible
+            // rate. Deliveries still convert immediately (InstantConversion), which only
+            // matters when the paced clock has left a backlog.
+            foreach (var f in _facilities.Values)
+                if (f.Recipes.Count > 0)
+                    ConvertBatches(f.YardId, (int)carloads);
         }
 
-        /// <summary>New game: give each facility a starting stock of its output cargo.</summary>
+        /// <summary>Run each recipe at a station at most a set number of times.</summary>
+        public void ConvertBatches(string yardId, int batches)
+        {
+            if (batches <= 0 || !_facilities.TryGetValue(yardId, out var facility)) return;
+            foreach (var recipe in facility.Recipes)
+            {
+                if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
+                for (int n = 0; n < batches; n++)
+                {
+                    if (!HasInputs(yardId, recipe) || !HasOutputRoom(yardId, facility, recipe)) break;
+                    foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
+                    foreach (var o in recipe.Outputs)
+                    {
+                        Credit(yardId, o.Cargo, o.Amount);
+                        EconomyHistory.Record("converted", yardId, o.Cargo.ToString(), o.Amount);
+                    }
+                    Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}] (paced).");
+                }
+            }
+        }
+
+        /// <summary>
+        /// New game: give each facility a starting stock of its outputs AND its inputs.
+        /// The input side is the working buffer: a sawmill spawns with logs to consume,
+        /// so conversion runs from the first tick instead of waiting on a delivery.
+        /// </summary>
         public void SeedInitialStock(int amount)
         {
             if (amount <= 0) return;
             int seeded = 0;
             foreach (var f in _facilities.Values)
-                foreach (var cargo in f.Outputs)
+                foreach (var cargo in f.Outputs.Concat(f.Inputs).Distinct())
                 {
                     Credit(f.YardId, cargo, amount);
                     seeded++;
                 }
-            Main.Log($"[Economy] seeded {amount} carloads into {seeded} output stockpile(s).");
+            Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) (outputs and inputs).");
         }
 
         public void ReloadRecipes(string modPath)

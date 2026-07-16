@@ -426,8 +426,11 @@ namespace DLE.Dispatch
                         amount = econ.GetStock(f.YardId, c),
                         cap = f.Cap(c),
                         reserved = econ.GetReserved(f.YardId, c),
+                        // Empty piles show when a recipe needs them: an idle factory's
+                        // missing ingredient is information, an empty warehouse is noise.
+                        required = f.Recipes.Any(r => r.Inputs.Any(i => i.Cargo == c)),
                     })
-                    .Where(s => s.amount > 0f),
+                    .Where(s => s.amount > 0f || s.required),
                 recipes = f.Recipes.Select(r => new
                 {
                     inputs = r.Inputs.Select(i => new { cargo = i.Cargo.ToString(), amount = i.Amount }),

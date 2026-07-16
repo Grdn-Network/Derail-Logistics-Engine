@@ -108,6 +108,8 @@ border:1px solid var(--line);border-radius:8px}
 .nrecipe b{font-weight:600}
 .nmiss{color:var(--red)}
 .econ{display:grid;gap:12px}
+.sublab{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+color:var(--dim);margin:4px 0 2px}
 .yard .yhead{font-weight:700;margin-bottom:5px}
 .stockrow{display:grid;grid-template-columns:110px 1fr 84px;gap:10px;
 align-items:center;padding:2px 0;font-size:12.5px}
@@ -279,10 +281,16 @@ async function refresh(){
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
  const eKey=JSON.stringify(econ);
  if(last.econ!==eKey){last.econ=eKey;
-  $('econGrid').innerHTML=econ.filter(e=>e.stock.length).map(e=>`<div class='yard'>`+
-   `<div class='yhead'>${esc(e.yardId)}</div>`+
-   e.stock.map(s=>stockRow(s)).join('')+
-   `</div>`).join('')||`<div class='empty'>no stock anywhere yet</div>`}
+  const capOf=e=>e.stock.reduce((t,s)=>t+(s.cap||0),0);
+  $('econGrid').innerHTML=econ.filter(e=>e.stock.length)
+   .sort((a,b)=>capOf(b)-capOf(a)||a.yardId.localeCompare(b.yardId))
+   .map(e=>{
+    const prod=e.stock.filter(s=>(e.outputs||[]).includes(s.cargo));
+    const cons=e.stock.filter(s=>!(e.outputs||[]).includes(s.cargo));
+    return `<div class='yard'><div class='yhead'>${esc(e.yardId)}</div>`+
+     (prod.length?`<div class='sublab'>producer storage</div>`+prod.map(s=>stockRow(s)).join(''):'')+
+     (cons.length?`<div class='sublab'>consumer storage</div>`+cons.map(s=>stockRow(s)).join(''):'')+
+     `</div>`}).join('')||`<div class='empty'>no stock anywhere yet</div>`}
 }
 async function fillCars(id){
  const box=$('cars_'+id);if(!box)return;
@@ -409,7 +417,10 @@ function renderNetDetail(nodes,edges,sel){
  if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
  for(const b of (n.boosters||[]))
   h+=`<div class='nrecipe' style='color:${b.active?'var(--green)':'var(--dim)'}'>${b.active?'boosted &#215;'+b.speedup:'runs &#215;'+b.speedup+' faster with'}: ${esc([...b.cargo].join(', '))} (any one)</div>`;
- h+=(n.stock||[]).map(s=>stockRow(s)).join('');
+ const dprod=(n.stock||[]).filter(s=>(n.outputs||[]).includes(s.cargo));
+ const dcons=(n.stock||[]).filter(s=>!(n.outputs||[]).includes(s.cargo));
+ if(dprod.length)h+=`<div class='sublab'>producer storage</div>`+dprod.map(s=>stockRow(s)).join('');
+ if(dcons.length)h+=`<div class='sublab'>consumer storage</div>`+dcons.map(s=>stockRow(s)).join('');
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
  if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
  if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.join(', '))}`).join(' &middot; ')+`</div>`;
