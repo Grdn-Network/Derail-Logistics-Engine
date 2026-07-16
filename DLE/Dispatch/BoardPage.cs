@@ -97,6 +97,16 @@ padding:8px 10px;font-size:12.5px}
 padding:1px 7px;margin:2px 4px 2px 0;font-size:12px;cursor:default}
 .carchip.ok{border-color:#2c5c3f;color:var(--green)}
 .carchip.busy{color:var(--dim)}
+#net{background:radial-gradient(circle,#1b2430 1px,transparent 1px);background-size:26px 26px;
+border:1px solid var(--line);border-radius:8px}
+#net text{font-family:inherit;user-select:none;pointer-events:none}
+.nnode{cursor:pointer}
+.nedge{cursor:pointer}
+.netdetail{display:none;border-top:1px solid var(--line);margin-top:10px;padding-top:9px;font-size:12.5px}
+.netdetail.show{display:block}
+.nrecipe{margin:4px 0}
+.nrecipe b{font-weight:600}
+.nmiss{color:var(--red)}
 .econ{display:grid;gap:12px}
 .yard .yhead{font-weight:700;margin-bottom:5px}
 .stockrow{display:grid;grid-template-columns:110px 1fr 84px;gap:10px;
@@ -126,7 +136,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   title='When ON, crews can only accept hauls assigned to them and Company Haul papers leave the station offices. Faxed booklets still work.'>LOCK &middot; &hellip;</button>
 </header>
 <main>
- <section class='card col5'>
+ <section class='card col12'>
   <h2>Create a haul</h2>
   <div class='formrow'>
    <label>Origin<select id='hOrigin'></select></label>
@@ -137,8 +147,13 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   </div>
  </section>
  <section class='card col7'>
-  <h2>Shippable now <span class='sub'>click a row to fill the form</span></h2>
-  <div class='tablewrap'><table id='tOptions'></table></div>
+  <h2>Network <span class='sub'>live chains; click a station for its recipe, click a route to fill the form</span></h2>
+  <svg id='net' viewBox='0 0 1040 760' style='width:100%;height:auto'></svg>
+  <div id='netDetail' class='netdetail'></div>
+ </section>
+ <section class='card col5'>
+  <h2>Economy <span class='sub'>stock against storage cap</span></h2>
+  <div class='econ' id='econGrid'></div>
  </section>
  <section class='card col12' id='finder'>
   <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
@@ -158,7 +173,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   <h2>Accepted hauls <span class='count' id='cAcc'></span></h2>
   <div class='cards' id='accCards'></div>
  </section>
- <section class='card col6'>
+ <section class='card col12'>
   <h2>Logistics runs <span class='sub'>unpaid coordination, no booklet</span></h2>
   <div class='formrow' style='margin-bottom:10px'>
    <label>From<input id='lFrom' style='width:64px'></label>
@@ -169,10 +184,6 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <button data-act='postRun'>Post run</button>
   </div>
   <div class='tablewrap'><table id='tLog'></table></div>
- </section>
- <section class='card col6'>
-  <h2>Economy <span class='sub'>stock against storage cap</span></h2>
-  <div class='econ' id='econGrid'></div>
  </section>
 </main>
 <footer>Derail Logistics Engine &middot; local board on 127.0.0.1:7246 &middot; refreshes every 5s</footer>
@@ -235,12 +246,9 @@ async function refresh(){
  keepSelect($('hOrigin'),[...new Set(options.map(o=>o.origin))]);
  originChanged();
  keepSelect($('fCargo'),['any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
- const oKey=JSON.stringify(options);
- if(last.opt!==oKey){last.opt=oKey;
-  $('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
-   (options.length?options.map(o=>`<tr class='pick' data-act='ship' data-o='${esc(o.origin)}' data-c='${esc(o.cargo)}'>`+
-    `<td>${esc(o.origin)}</td><td>${esc(o.cargo)}</td><td class='num'>${o.stock}</td><td>${esc(o.consumers.join(', '))}</td></tr>`).join('')
-   :`<tr><td class='empty'>nothing shippable: no producer has unreserved stock</td></tr>`)}
+ lastEconData=econ;
+ const netKey=JSON.stringify(options)+JSON.stringify(econ);
+ if(last.net!==netKey){last.net=netKey;drawNet()}
  const jKey=JSON.stringify(jobs)+[...expanded].join();
  if(last.jobs!==jKey){last.jobs=jKey;
   const snap=snapshotCrew();
@@ -281,6 +289,110 @@ async function fillCars(id){
   if(box.innerHTML!==html)box.innerHTML=html}
  catch(e){box.textContent='car view failed'}
 }
+// Network diagram: nodes come from the live economy, edges from what is
+// shippable right now. Station layout follows the in-game network poster.
+const NET_POS={OWC:[72,245],OWN:[72,325],OR:[188,283],FRS:[72,430],FRC:[72,508],
+ CMS:[155,680],CME:[258,680],IME:[360,680],IMW:[462,680],CP:[202,575],SM:[372,512],
+ SW:[258,512],FM:[482,608],HB:[572,315],GF:[828,320],MF:[732,198],FF:[792,448],
+ CW:[962,225],CS:[962,433],MB:[390,55],HMB:[535,55],MFMB:[462,132]};
+const NET_NAMES={OWC:'Oil Wells C',OWN:'Oil Wells N',OR:'Oil Refinery',FRS:'Forest S',
+ FRC:'Forest C',CMS:'Coal Mine S',CME:'Coal Mine E',IME:'Iron Mine E',IMW:'Iron Mine W',
+ CP:'Coal Power',SM:'Steel Mill',SW:'Sawmill',FM:'Farm',HB:'Harbour',GF:'Goods Factory',
+ MF:'Machine Factory',FF:'Food Factory',CW:'City West',CS:'City South'};
+const NET_STYLE={source:{fill:'#0f1a2a',stroke:'#3d78b8'},factory:{fill:'#141026',stroke:'#7a63d8'},
+ sink:{fill:'#0f2020',stroke:'#2a9d8f'},hub:{fill:'#0a1230',stroke:'#4a8ae0'}};
+let netSel=null,lastEconData=[];
+function buildNet(econ,opts){
+ const nodes={};let fx=940,fy=560;
+ for(const e of econ){nodes[e.yardId]=e;
+  if(!NET_POS[e.yardId]){NET_POS[e.yardId]=[fx,fy];fy+=64}}
+ const em={};
+ for(const o of opts)for(const d of o.consumers){
+  if(!nodes[o.origin]||!nodes[d])continue;
+  const k=o.origin+'|'+d;
+  if(!em[k])em[k]={src:o.origin,dst:d,cargos:[],stock:0};
+  if(!em[k].cargos.includes(o.cargo))em[k].cargos.push(o.cargo);
+  em[k].stock+=o.stock}
+ return {nodes,edges:Object.values(em)};
+}
+function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
+function netMissing(n){const out=[];
+ for(const r of (n.recipes||[]))for(const i of (r.inputs||[]))
+  if(stockAmt(n,i.cargo)<i.amount&&!out.includes(i.cargo))out.push(i.cargo);
+ return out}
+function netPath(e,bidi){
+ const A=NET_POS[e.src],B=NET_POS[e.dst];
+ const mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2;
+ const dx=B[0]-A[0],dy=B[1]-A[1];
+ const len=Math.sqrt(dx*dx+dy*dy)||1;
+ const px=-dy/len,py=dx/len;
+ const two=bidi.has(e.dst+'|'+e.src);
+ const curve=two?0.20:0.09;
+ const sign=(!two||e.src<e.dst)?1:-1;
+ const cx=mx+px*len*curve*sign,cy=my+py*len*curve*sign;
+ const rA=27,rB=34;
+ const dax=cx-A[0],day=cy-A[1],da=Math.sqrt(dax*dax+day*day)||1;
+ const sx=A[0]+dax/da*rA,sy=A[1]+day/da*rA;
+ const dbx=B[0]-cx,dby=B[1]-cy,db=Math.sqrt(dbx*dbx+dby*dby)||1;
+ const ex=B[0]-dbx/db*rB,ey=B[1]-dby/db*rB;
+ return `M${sx},${sy} Q${cx},${cy} ${ex},${ey}`;
+}
+function drawNet(){
+ const svg=$('net');if(!svg)return;
+ const {nodes,edges}=buildNet(lastEconData,options);
+ const bidi=new Set(edges.map(e=>e.src+'|'+e.dst));
+ const sel=netSel&&nodes[netSel]?netSel:null;
+ let h=`<defs>
+  <marker id='arw' markerWidth='7' markerHeight='6' refX='6' refY='3' orient='auto' markerUnits='userSpaceOnUse'><path d='M0,0 L0,6 L7,3 z' fill='#3d5a7a'/></marker>
+  <marker id='arwB' markerWidth='7' markerHeight='6' refX='6' refY='3' orient='auto' markerUnits='userSpaceOnUse'><path d='M0,0 L0,6 L7,3 z' fill='#8fb8e8'/></marker>
+ </defs>`;
+ for(const e of edges){
+  const on=!sel||e.src===sel||e.dst===sel;
+  const w=1+Math.min(3,e.stock/10);
+  h+=`<path class='nedge' data-act='netEdge' data-src='${esc(e.src)}' data-dst='${esc(e.dst)}' data-cargo='${esc(e.cargos[0])}'
+   d='${netPath(e,bidi)}' fill='none' stroke='${on&&sel?'#8fb8e8':'#3d5a7a'}'
+   stroke-opacity='${sel?(on?0.95:0.05):0.5}' stroke-width='${sel&&on?w+1.5:w}'
+   marker-end='url(#${sel&&on?'arwB':'arw'})'>
+   <title>${esc(e.src)} to ${esc(e.dst)}: ${esc(e.cargos.join(', '))} (${Math.round(e.stock)} shippable)</title></path>`;
+ }
+ for(const id in nodes){
+  const n=nodes[id];const p=NET_POS[id];
+  const cls=id==='HB'?'hub':((n.inputs||[]).length===0&&(n.outputs||[]).length>0?'source':((n.outputs||[]).length===0?'sink':'factory'));
+  const st=NET_STYLE[cls];
+  const miss=netMissing(n);
+  const r=cls==='hub'?30:24;
+  const dim=sel&&id!==sel&&!edges.some(e=>(e.src===sel&&e.dst===id)||(e.dst===sel&&e.src===id));
+  h+=`<g class='nnode' data-act='netNode' data-id='${esc(id)}' transform='translate(${p[0]},${p[1]})' opacity='${dim?0.25:1}'>
+   <circle r='${r}' fill='${st.fill}' stroke='${miss.length?'#e07a6a':st.stroke}' stroke-width='${sel===id?3:1.5}'/>
+   <text y='1' text-anchor='middle' dominant-baseline='middle' fill='#eef2f8' font-size='12' font-weight='700'>${esc(id)}</text>
+   <text y='14' text-anchor='middle' fill='#8b95a5' font-size='7'>${esc(NET_NAMES[id]||'')}</text>
+   <title>${esc(id)}${miss.length?': waiting on '+esc(miss.join(', ')):''}</title></g>`;
+ }
+ svg.innerHTML=h;
+ renderNetDetail(nodes,edges,sel);
+}
+function renderNetDetail(nodes,edges,sel){
+ const d=$('netDetail');if(!d)return;
+ if(!sel){d.className='netdetail';d.innerHTML='';return}
+ const n=nodes[sel];
+ let h=`<b>${esc(sel)}</b> <span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
+ if((n.recipes||[]).length)
+  h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+i.cargo)).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+o.cargo)).join(' + ')}</div>`).join('');
+ else if((n.inputs||[]).length===0&&(n.outputs||[]).length>0)
+  h+=`<div class='nrecipe'>produces <b>${esc(n.outputs.join(', '))}</b> over time</div>`;
+ else if((n.outputs||[]).length===0)
+  h+=`<div class='nrecipe'>accepts <b>${esc(n.inputs.join(', '))}</b>; storage is the demand</div>`;
+ const miss=netMissing(n);
+ if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
+ h+=(n.stock||[]).map(s=>{const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
+  return `<div class='stockrow'><span class='cname'>${esc(s.cargo)}</span>`+
+   `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
+   `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}</span></div>`}).join('');
+ const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
+ if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
+ if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.join(', '))}`).join(' &middot; ')+`</div>`;
+ d.className='netdetail show';d.innerHTML=h;
+}
 function renderFleet(r){
  $('fSummary').textContent=r.total+' car(s), '+r.usable+' usable now';
  const groups={};
@@ -303,8 +415,16 @@ const actions={
    cargo:$('hCargo').value,cars:parseInt($('hCars').value)};
   const r=await j('/api/v1/hauls','POST',b);
   r.jobId?toast('Created '+r.jobId):toast('Failed: '+(r.error||'see game log'),true);refresh()},
- ship:(id,el)=>{$('hOrigin').value=el.dataset.o;originChanged();
-  $('hCargo').value=el.dataset.c;cargoChanged()},
+ netNode:(id,el)=>{const v=el.dataset.id;netSel=netSel===v?null:v;drawNet()},
+ netEdge:(id,el)=>{const o=el.dataset.src,c=el.dataset.cargo,d=el.dataset.dst;
+  const os=$('hOrigin');
+  if(![...os.options].some(x=>x.value===o)){toast('nothing shippable from '+o+' right now',true);return}
+  os.value=o;originChanged();
+  const cs=$('hCargo');
+  if([...cs.options].some(x=>x.value===c)){cs.value=c;cargoChanged()}
+  const ds=$('hDest');
+  if([...ds.options].some(x=>x.value===d))ds.value=d;
+  toast('Form filled: '+o+' '+c+' to '+d)},
  take:async id=>{const r=await j('/api/v1/jobs/'+id+'/take','POST',{player:crewVal(id)});
   toast(r.message||'failed',!r.ok);refresh()},
  complete:async id=>{const r=await j('/api/v1/jobs/'+id+'/complete','POST');
