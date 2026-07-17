@@ -199,7 +199,14 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
-async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
+async function j(u,m,b){
+ const mk=()=>{const h={};const k=localStorage.getItem('dleKey');if(k)h['X-DLE-Key']=k;
+  return {method:m||'GET',body:b?JSON.stringify(b):undefined,headers:h}};
+ let r=await fetch(u,mk());
+ if(r.status===401){
+  const p=prompt('Board password');
+  if(p){localStorage.setItem('dleKey',p);r=await fetch(u,mk())}}
+ return r.json()}
 function toast(t,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');
  d.textContent=t;$('toasts').appendChild(d);setTimeout(()=>d.remove(),4200)}
 function pillClass(s){s=(s||'').toLowerCase();
