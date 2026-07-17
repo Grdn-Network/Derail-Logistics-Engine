@@ -13,13 +13,20 @@ namespace DLE.Economy
     public class EconomyState
     {
         private const string SaveKey = "DLE_Economy_v1";
-        private const int SchemaVersion = 1;
+        private const int SchemaVersion = 2;
 
         public static readonly EconomyState Instance = new EconomyState();
         private EconomyState() { }
 
-        // yardId -> (cargo -> carloads on hand)
+        // yardId -> (cargo -> carloads on hand). _stock is the TOTAL pile; _imported
+        // tracks the portion of it that arrived by delivery and has not been consumed
+        // (invariant: 0 <= imported <= stock). Produced = stock - imported. Paid hauls
+        // draw produced only; imported goods move payless until conversion consumes them
+        // and credits produced outputs, so a unit of goods pays once per production
+        // stage instead of once per bounce (#64).
         private Dictionary<string, Dictionary<CargoType, float>> _stock =
+            new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
+        private Dictionary<string, Dictionary<CargoType, float>> _imported =
             new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
 
         private Dictionary<string, FacilityDef> _facilities =
@@ -46,6 +53,7 @@ namespace DLE.Economy
         public void ResetToDefault(int amount)
         {
             _stock.Clear();
+            _imported.Clear();
             SeedInitialStock(amount);
         }
 
@@ -83,7 +91,7 @@ namespace DLE.Economy
                     EconomyHistory.Record("production", f.YardId, cargo.ToString(), made);
                 }
                 foreach (var (b, c) in active)
-                    Debit(f.YardId, c, b.ConsumedPerCarload * made);
+                    ConsumeImportedFirst(f.YardId, c, b.ConsumedPerCarload * made);
             }
 
             // Factories chew their input buffers on the same clock: at most one batch per
@@ -105,7 +113,7 @@ namespace DLE.Economy
                 for (int n = 0; n < batches; n++)
                 {
                     if (!HasInputs(yardId, recipe) || !HasOutputRoom(yardId, facility, recipe)) break;
-                    foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
+                    foreach (var i in recipe.Inputs) ConsumeImportedFirst(yardId, i.Cargo, i.Amount);
                     foreach (var o in recipe.Outputs)
                     {
                         Credit(yardId, o.Cargo, o.Amount);
@@ -129,6 +137,10 @@ namespace DLE.Economy
                 foreach (var cargo in f.Outputs.Concat(f.Inputs).Distinct())
                 {
                     Credit(f.YardId, cargo, amount);
+                    // Input buffers seed as imported: consumables to work through, not
+                    // local product, so shipping the seed around cannot mint pay.
+                    if (!f.Produces(cargo))
+                        MarkImported(f.YardId, cargo, amount);
                     seeded++;
                 }
             Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) (outputs and inputs).");
@@ -144,9 +156,51 @@ namespace DLE.Economy
         public float GetStock(string yardId, CargoType cargo) =>
             _stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v) ? v : 0f;
 
-        // Supply reservations: a spawned job pre-allocates its supply. The reservation is
-        // consumed when cars attach (real debit) or released when the booklet dies
-        // (expire, abandon, delete), returning the supply to the available pool.
+        public float GetImported(string yardId, CargoType cargo) =>
+            _imported.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v)
+                ? Math.Min(v, GetStock(yardId, cargo)) : 0f;
+
+        public float GetProduced(string yardId, CargoType cargo) =>
+            GetStock(yardId, cargo) - GetImported(yardId, cargo);
+
+        private void MarkImported(string yardId, CargoType cargo, float amount)
+        {
+            if (amount <= 0f) return;
+            if (!_imported.TryGetValue(yardId, out var m))
+                _imported[yardId] = m = new Dictionary<CargoType, float>();
+            m.TryGetValue(cargo, out var cur);
+            m[cargo] = Math.Min(GetStock(yardId, cargo), cur + amount);
+        }
+
+        /// <summary>Consume drawing the imported portion down first: conversion inputs,
+        /// booster wear and unpaid moves all eat delivered goods before local product.</summary>
+        private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount)
+        {
+            if (amount <= 0f) return;
+            float imp = GetImported(yardId, cargo);
+            if (imp > 0f && _imported.TryGetValue(yardId, out var m))
+                m[cargo] = Math.Max(0f, imp - amount);
+            Consume(yardId, cargo, amount);
+        }
+
+        /// <summary>Consume local product only; the imported portion stays intact.</summary>
+        private void ConsumeProduced(string yardId, CargoType cargo, float amount)
+        {
+            if (amount <= 0f) return;
+            Consume(yardId, cargo, amount);
+            // Re-clamp: produced may not cover it all (defensive), never let imported
+            // exceed the remaining pile.
+            if (_imported.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var imp))
+                m[cargo] = Math.Min(imp, GetStock(yardId, cargo));
+        }
+
+        // Supply reservations (#67, two tiers). Open (un-taken) paper holds SOFT: it
+        // counts only against the auto-director's own generation, so paper never freezes
+        // stock against dispatchers or crews. Taking a booklet hardens the hold after a
+        // stock check; stale paper (supply promised away since printing) expires instead
+        // of lying. The hold is consumed when cars attach or released when the booklet
+        // dies. Paid reservations draw the produced pot; unpaid moves draw the pile as
+        // a whole.
 
         [Serializable]
         public class Reservation
@@ -154,24 +208,45 @@ namespace DLE.Economy
             public string YardId;
             public string Cargo;
             public float Amount;
+            public bool Soft;
+            public bool Paid = true;
         }
 
         private Dictionary<string, Reservation> _reservations =
             new Dictionary<string, Reservation>(StringComparer.Ordinal);
 
-        public float GetReserved(string yardId, CargoType cargo)
+        private float SumReservations(string yardId, CargoType cargo, bool includeSoft, bool? paid = null)
         {
             float total = 0f;
             var name = cargo.ToString();
             foreach (var r in _reservations.Values)
-                if (r.YardId == yardId && r.Cargo == name)
-                    total += r.Amount;
+            {
+                if (r.YardId != yardId || r.Cargo != name) continue;
+                if (r.Soft && !includeSoft) continue;
+                if (paid.HasValue && r.Paid != paid.Value) continue;
+                total += r.Amount;
+            }
             return total;
         }
 
-        /// <summary>Stock a new job could still claim: on hand minus already promised.</summary>
+        /// <summary>Hard holds only: what taken hauls have promised away.</summary>
+        public float GetReserved(string yardId, CargoType cargo) =>
+            SumReservations(yardId, cargo, includeSoft: false);
+
+        /// <summary>Dispatch view: produced stock minus hard paid holds. Open paper does
+        /// not block a dispatcher; taking that paper later is what gets refused if the
+        /// supply is really gone.</summary>
         public float GetAvailable(string yardId, CargoType cargo) =>
-            GetStock(yardId, cargo) - GetReserved(yardId, cargo);
+            GetProduced(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: false, paid: true);
+
+        /// <summary>Director view: produced minus every paid hold including open paper,
+        /// so generation never double-books a pile across booklets.</summary>
+        public float GetDirectorAvailable(string yardId, CargoType cargo) =>
+            GetProduced(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: true, paid: true);
+
+        /// <summary>Unpaid-move view: the whole pile minus every hard hold.</summary>
+        public float GetUnpaidAvailable(string yardId, CargoType cargo) =>
+            GetStock(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: false);
 
         /// <summary>
         /// Storage room left for a cargo at a station: its cap minus what is on hand. A
@@ -187,11 +262,48 @@ namespace DLE.Economy
         public bool HasRoomFor(string yardId, CargoType cargo, float amount) =>
             GetRoom(yardId, cargo) >= amount;
 
-        public void Reserve(string jobId, string yardId, CargoType cargo, float amount)
+        public void Reserve(string jobId, string yardId, CargoType cargo, float amount, bool paid = true)
         {
-            _reservations[jobId] = new Reservation { YardId = yardId, Cargo = cargo.ToString(), Amount = amount };
-            Main.Log($"[Economy] {jobId} reserved {amount:0.#} {cargo} at {yardId} " +
-                     $"(available now {GetAvailable(yardId, cargo):0.#}).");
+            _reservations[jobId] = new Reservation
+            {
+                YardId = yardId,
+                Cargo = cargo.ToString(),
+                Amount = amount,
+                Soft = true,
+                Paid = paid,
+            };
+            Main.Log($"[Economy] {jobId} soft-reserved {amount:0.#} {cargo} at {yardId}" +
+                     $"{(paid ? "" : " (unpaid move)")}.");
+        }
+
+        /// <summary>
+        /// Taking a booklet converts its soft hold to a hard one, validated against what
+        /// is genuinely left. Returns false when the supply was promised away since the
+        /// paper printed; the caller expires the stale booklet.
+        /// </summary>
+        public bool HardenReservation(string jobId)
+        {
+            if (!_reservations.TryGetValue(jobId, out var r)) return true; // attached or legacy
+            if (!r.Soft) return true;
+            if (!Enum.TryParse<CargoType>(r.Cargo, out var cargo)) return true;
+            float free = r.Paid ? GetAvailable(r.YardId, cargo) : GetUnpaidAvailable(r.YardId, cargo);
+            if (free + 0.001f < r.Amount)
+            {
+                Main.LogAlways($"[Economy] {jobId} is stale paper: needs {r.Amount:0.#} {r.Cargo} " +
+                               $"at {r.YardId}, only {free:0.#} remains unpromised.");
+                return false;
+            }
+            r.Soft = false;
+            Main.Log($"[Economy] {jobId} hardened its hold: {r.Amount:0.#} {r.Cargo} at {r.YardId}.");
+            return true;
+        }
+
+        /// <summary>Align reservation tiers with job reality after a world load: open
+        /// paper holds soft, taken hauls hold hard.</summary>
+        public void SyncReservationTiers(Func<string, bool> isOpenPaper)
+        {
+            foreach (var kv in _reservations)
+                kv.Value.Soft = isOpenPaper(kv.Key);
         }
 
         /// <summary>The booklet died before cars attached: the supply returns.</summary>
@@ -202,11 +314,14 @@ namespace DLE.Economy
             Main.Log($"[Economy] {jobId} released its reservation: {r.Amount:0.#} {r.Cargo} back at {r.YardId}.");
         }
 
-        /// <summary>Cars attached: the promised supply physically leaves the stockpile.</summary>
+        /// <summary>Cars attached: the promised supply physically leaves the stockpile.
+        /// Paid hauls take local product; unpaid moves take the imported portion first.</summary>
         public void ConsumeReservation(string jobId, string yardId, CargoType cargo, float actualAmount)
         {
+            bool paid = !_reservations.TryGetValue(jobId, out var r) || r.Paid;
             _reservations.Remove(jobId);
-            Debit(yardId, cargo, actualAmount);
+            if (paid) ConsumeProduced(yardId, cargo, actualAmount);
+            else ConsumeImportedFirst(yardId, cargo, actualAmount);
         }
 
         /// <summary>
@@ -227,6 +342,7 @@ namespace DLE.Economy
                 return 0;
             }
             Credit(yardId, cargo, accepted);
+            MarkImported(yardId, cargo, accepted);
             EconomyHistory.Record("delivered", yardId, cargo.ToString(), accepted);
             Main.Log($"[Economy] {yardId} received {accepted}/{carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
             Conversion.Current.OnDelivered(this, yardId);
@@ -275,7 +391,7 @@ namespace DLE.Economy
                 int guard = 0;
                 while (HasInputs(yardId, recipe) && HasOutputRoom(yardId, facility, recipe) && guard++ < 1000)
                 {
-                    foreach (var i in recipe.Inputs) Consume(yardId, i.Cargo, i.Amount);
+                    foreach (var i in recipe.Inputs) ConsumeImportedFirst(yardId, i.Cargo, i.Amount);
                     foreach (var o in recipe.Outputs)
                     {
                         Credit(yardId, o.Cargo, o.Amount);
@@ -315,7 +431,29 @@ namespace DLE.Economy
         {
             public int SchemaVersion;
             public Dictionary<string, Dictionary<string, float>> Stock;
+            public Dictionary<string, Dictionary<string, float>> Imported;
             public Dictionary<string, Reservation> Reservations;
+        }
+
+        private static Dictionary<string, Dictionary<string, float>> Pack(
+            Dictionary<string, Dictionary<CargoType, float>> map) =>
+            map.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value.ToDictionary(c => c.Key.ToString(), c => c.Value));
+
+        private static Dictionary<string, Dictionary<CargoType, float>> Unpack(
+            Dictionary<string, Dictionary<string, float>> packed)
+        {
+            var map = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
+            if (packed == null) return map;
+            foreach (var yard in packed)
+            {
+                var m = new Dictionary<CargoType, float>();
+                foreach (var c in yard.Value)
+                    if (Enum.TryParse<CargoType>(c.Key, out var cargo)) m[cargo] = c.Value;
+                map[yard.Key] = m;
+            }
+            return map;
         }
 
         public void SaveTo(SaveGameData data)
@@ -323,9 +461,8 @@ namespace DLE.Economy
             var payload = new SaveData
             {
                 SchemaVersion = SchemaVersion,
-                Stock = _stock.ToDictionary(
-                    kv => kv.Key,
-                    kv => kv.Value.ToDictionary(c => c.Key.ToString(), c => c.Value)),
+                Stock = Pack(_stock),
+                Imported = Pack(_imported),
                 Reservations = _reservations,
             };
             data.SetObject(SaveKey, payload);
@@ -335,30 +472,35 @@ namespace DLE.Economy
         public void LoadFrom(SaveGameData data)
         {
             _stock = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
+            _imported = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
             _reservations = new Dictionary<string, Reservation>(StringComparer.Ordinal);
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
             catch (Exception ex) { Main.LogAlways($"[Economy] stock save unreadable, starting empty: {ex.Message}"); }
 
             if (payload?.Stock == null) return;
-            if (payload.SchemaVersion != SchemaVersion)
+            if (payload.SchemaVersion > SchemaVersion)
             {
-                Main.Log($"[Economy] stock schema {payload.SchemaVersion} != {SchemaVersion}, starting empty.");
+                Main.Log($"[Economy] stock schema {payload.SchemaVersion} is newer than {SchemaVersion}, starting empty.");
                 return;
             }
 
-            foreach (var yard in payload.Stock)
-            {
-                var m = new Dictionary<CargoType, float>();
-                foreach (var c in yard.Value)
-                    if (Enum.TryParse<CargoType>(c.Key, out var cargo)) m[cargo] = c.Value;
-                _stock[yard.Key] = m;
-            }
+            _stock = Unpack(payload.Stock);
+            _imported = Unpack(payload.Imported);
 
             // Reservations for jobs that no longer exist after the load are released by
             // the job restore pass (the surviving jobs re-register via their save entries).
             if (payload.Reservations != null)
                 _reservations = payload.Reservations;
+
+            if (payload.SchemaVersion < 2)
+            {
+                // v1: one pot, reservations without tiers. Existing stock counts as
+                // produced (generous once, correct forever after) and every old
+                // reservation was created by the paid path.
+                foreach (var r in _reservations.Values) { r.Paid = true; r.Soft = false; }
+                Main.LogAlways("[Economy] migrated v1 economy save: stock counted as produced.");
+            }
         }
 
         /// <summary>Drop reservations whose job did not survive the load; supply returns.</summary>
@@ -376,7 +518,13 @@ namespace DLE.Economy
             foreach (var yard in _stock.OrderBy(k => k.Key))
             {
                 var line = string.Join(", ", yard.Value.Where(c => c.Value > 0f)
-                    .Select(c => $"{c.Value:0.#} {c.Key}"));
+                    .Select(c =>
+                    {
+                        float imp = GetImported(yard.Key, c.Key);
+                        return imp >= 0.5f
+                            ? $"{c.Value:0.#} {c.Key} ({imp:0.#} imported)"
+                            : $"{c.Value:0.#} {c.Key}";
+                    }));
                 if (!string.IsNullOrEmpty(line)) Main.Log($"[Economy]   {yard.Key}: {line}");
             }
         }

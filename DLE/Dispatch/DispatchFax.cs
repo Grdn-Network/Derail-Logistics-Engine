@@ -32,6 +32,19 @@ namespace DLE.Dispatch
             if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
                 return Result.Fail($"unknown job '{jobId}'");
 
+            // No name given: the assigned crew is the natural target; only an
+            // unassigned job faxes to the local player.
+            bool viaAssignment = false;
+            if (string.IsNullOrEmpty(player))
+            {
+                var assignment = AssignmentStore.Instance.Get(jobId);
+                if (!string.IsNullOrEmpty(assignment?.Player))
+                {
+                    player = assignment.Player;
+                    viaAssignment = true;
+                }
+            }
+
             Transform target;
             bool isLocal;
             string name;
@@ -46,7 +59,9 @@ namespace DLE.Dispatch
                 target = FindNetworkedPlayer(player, out name);
                 isLocal = false;
                 if (target == null)
-                    return Result.Fail($"player '{player}' not found in this session");
+                    return Result.Fail(viaAssignment
+                        ? $"assigned crew '{player}' is not in this session; type a name to fax someone else"
+                        : $"player '{player}' not found in this session");
             }
             if (target == null) return Result.Fail("no player to fax to");
 
@@ -94,8 +109,40 @@ namespace DLE.Dispatch
             try { SingletonBehaviour<StorageController>.Instance?.AddItemToWorldStorageAfterOneFrame(booklet); }
             catch (Exception ex) { Main.Log($"[Fax] world storage registration failed: {ex.Message}"); }
 
+            // Handing someone paper is handing them the work: a fax to a named crew
+            // assigns the job if nothing else has.
+            if (!isLocal && !viaAssignment && AssignmentStore.Instance.Get(jobId) == null)
+            {
+                AssignmentStore.Instance.Assign(jobId, name, "fax");
+                Main.Log($"[Fax] {jobId} assigned to {name} by fax.");
+            }
+
             Main.LogAlways($"[Fax] {jobId} faxed; printed in front of {name}.");
             return Result.Done($"{jobId} faxed; printing in front of {name}");
+        }
+
+        /// <summary>Every connected crew name (DVMP avatars via reflection). Empty in
+        /// singleplayer; the board uses it as assignment suggestions.</summary>
+        public static System.Collections.Generic.List<string> GetPlayerNames()
+        {
+            var names = new System.Collections.Generic.List<string>();
+            try
+            {
+                var type = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
+                    .FirstOrDefault(t => t != null);
+                if (type == null) return names;
+                var usernameProp = type.GetProperty("Username");
+                foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
+                    if (usernameProp?.GetValue(obj) is string username && !string.IsNullOrEmpty(username))
+                        names.Add(username);
+                names.Sort(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Fax] player roster lookup failed: {ex.Message}");
+            }
+            return names;
         }
 
         /// <summary>

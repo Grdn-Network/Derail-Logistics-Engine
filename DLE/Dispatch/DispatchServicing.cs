@@ -349,7 +349,8 @@ namespace DLE.Dispatch
         private static IEnumerator StaffUnloadRoutine(StaticDirectHaulJobDefinition def, Job job,
             List<Car> cars, float perCar)
         {
-            var destSc = StationController.GetStationByYardID(def.chainData?.chainDestinationYardId);
+            var destYard = def.chainData?.chainDestinationYardId;
+            var destSc = StationController.GetStationByYardID(destYard);
             var allowed = StationTracks(destSc, def.unloadMachine?.WarehouseTrack);
 
             int unloaded = 0;
@@ -363,6 +364,19 @@ namespace DLE.Dispatch
                         Main.LogAlways($"[Servicing] {job.ID}: job is {job.State}; staff unload stopped at {unloaded}.");
                         yield break;
                     }
+
+                    // Nothing is ever destroyed: cargo beyond the destination's storage
+                    // room stays aboard until consumption frees space; another unload
+                    // pass finishes the job then.
+                    int room = (int)Math.Floor(EconomyState.Instance.GetRoom(destYard, def.transportedCargo) + 0.001f);
+                    int stillLoaded = cars.Count(x => x != null && x.LoadedCargoAmount > 0f);
+                    int unloadedSoFar = Math.Max(0, def.loadedCarloads - stillLoaded);
+                    if (unloadedSoFar >= room)
+                    {
+                        Main.LogAlways($"[Servicing] {job.ID}: {destYard} storage is full; {stillLoaded} car(s) keep their cargo aboard until room frees.");
+                        yield break;
+                    }
+
                     var c = cars[i];
                     if (c == null || c.LoadedCargoAmount <= 0f) continue;
                     if (c.CurrentTrack == null || !allowed.Contains(c.CurrentTrack))

@@ -194,11 +194,19 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 </main>
 <footer>Derail Logistics Engine &middot; local board on 127.0.0.1:7246 &middot; refreshes every 5s</footer>
 <div id='toasts'></div>
+<datalist id='crewNames'></datalist>
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
-async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
+async function j(u,m,b){
+ const mk=()=>{const h={};const k=localStorage.getItem('dleKey');if(k)h['X-DLE-Key']=k;
+  return {method:m||'GET',body:b?JSON.stringify(b):undefined,headers:h}};
+ let r=await fetch(u,mk());
+ if(r.status===401){
+  const p=prompt('Board password');
+  if(p){localStorage.setItem('dleKey',p);r=await fetch(u,mk())}}
+ return r.json()}
 function toast(t,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');
  d.textContent=t;$('toasts').appendChild(d);setTimeout(()=>d.remove(),4200)}
 function pillClass(s){s=(s||'').toLowerCase();
@@ -214,18 +222,19 @@ function jobCard(x,avail){
  return `<div class='job'>
   <div class='jobtop'><span class='jid'>${esc(x.id)}</span>
    <span class='pill ${pillClass(x.state)}'>${esc(x.state)}</span>
+   ${x.unpaid?`<span class='pill other' title='Relocating received goods; delivery pays nothing'>unpaid move</span>`:''}
    ${x.awaitingEmpties?`<span class='tag'>awaiting empties</span>`:''}
    ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>=x.cars?`<span class='pill completed'>loaded</span>`:''}
    ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>0&&x.loadedCars<x.cars?`<span class='tag'>loading ${x.loadedCars}/${x.cars}</span>`:''}
-   <span class='wage num'>${money(x.wage)}</span></div>
+   <span class='wage num'${x.unpaid?` style='color:var(--dim)'`:''}>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>&#8594;</span><b>${esc(x.destination)}</b></div>
   <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
   <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'unassigned'}</div>
   <div class='acts'>${acts}
-   <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet to the named crew (blank = you)'>Fax</button>
+   <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name first, else the assigned crew, else you'>Fax</button>
    <button class='mini' data-act='cars' data-id='${esc(x.id)}'>${expanded.has(x.id)?'Hide cars':'Cars'}</button>
    <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
-   <input class='crew' id='a_${esc(x.id)}' placeholder='crew name'>
+   <input class='crew' id='a_${esc(x.id)}' placeholder='crew name' list='crewNames'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>&times;</button>
   </div>
@@ -241,11 +250,15 @@ function keepSelect(sel,items){const cur=sel.value;
  if([...sel.options].some(o=>o.value===cur))sel.value=cur}
 async function refresh(){
  let state,jobs,econ,logs,hist;
- try{[state,options,jobs,econ,logs,hist]=await Promise.all([
-  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60')]);
+ let crews;
+ try{[state,options,jobs,econ,logs,hist,crews]=await Promise.all([
+  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60'),j('/api/v1/players')]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
  lastJobs=jobs;
+ const cKey=JSON.stringify(crews||[]);
+ if(last.crews!==cKey){last.crews=cKey;
+  $('crewNames').innerHTML=(crews||[]).map(n=>`<option>${esc(n)}</option>`).join('')}
  lockOn=!!state.lockEnabled;
  $('bLock').textContent='LOCK '+(lockOn?'ON':'OFF');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
@@ -342,9 +355,10 @@ function renderLog(hist){
 function stockRow(s){
  const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
  const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
- return `<div class='stockrow'><span class='cname' title='held = committed to a live haul'>${esc(s.cargo)}</span>`+
+ const recv=s.imported>=1?` &middot; ${Math.round(s.imported)} received`:'';
+ return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed'>${esc(s.cargo)}</span>`+
   `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
-  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}</span></div>`;
+  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}${recv}</span></div>`;
 }
 function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
 function netMissing(n){const out=[];
@@ -488,7 +502,7 @@ const actions={
  spawnHaul:async()=>{const b={origin:$('hOrigin').value,destination:$('hDest').value,
    cargo:$('hCargo').value,cars:parseInt($('hCars').value)};
   const r=await j('/api/v1/hauls','POST',b);
-  r.jobId?toast('Created '+r.jobId):toast('Failed: '+(r.error||'see game log'),true);refresh()},
+  r.jobId?toast('Created '+r.jobId+(r.unpaid?' as an UNPAID move (produced stock is short; this relocates received goods)':'')):toast('Failed: '+(r.error||'see game log'),true);refresh()},
  netNode:(id,el)=>{const v=el.dataset.id;netSel=netSel===v?null:v;drawNet()},
  netEdge:(id,el)=>{const o=el.dataset.src,c=el.dataset.cargo,d=el.dataset.dst;
   const os=$('hOrigin');

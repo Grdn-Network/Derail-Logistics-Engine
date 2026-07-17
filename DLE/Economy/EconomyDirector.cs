@@ -31,6 +31,7 @@ namespace DLE.Economy
             {
                 var state = kv.Value.LiveJob?.State;
                 if (state != null && state != JobState.Available) continue;
+                if (kv.Value.unpaidMove) continue; // dispatch work, not public paper
                 total++;
                 var origin = kv.Value.chainData?.chainOriginYardId;
                 if (origin == null) continue;
@@ -72,7 +73,7 @@ namespace DLE.Economy
                 if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;
                 foreach (var cargo in producer.Outputs)
                 {
-                    float stock = econ.GetAvailable(producer.YardId, cargo);
+                    float stock = econ.GetDirectorAvailable(producer.YardId, cargo);
                     if (stock < min) continue;
 
                     var consumer = FindConsumer(econ, cargo, producer.YardId);
@@ -116,7 +117,12 @@ namespace DLE.Economy
                 if (!producer.CanLoad) continue;
                 foreach (var cargo in producer.Outputs)
                 {
-                    float stock = econ.GetAvailable(producer.YardId, cargo);
+                    // Paid options draw produced stock; a pile that is all imported still
+                    // offers an unpaid relocation so the form never hides movable goods.
+                    float paidStock = econ.GetAvailable(producer.YardId, cargo);
+                    float unpaidStock = econ.GetUnpaidAvailable(producer.YardId, cargo);
+                    bool unpaidOnly = paidStock < 1f;
+                    float stock = unpaidOnly ? unpaidStock : paidStock;
                     if (stock < 1f) continue;
                     var consumers = econ.Facilities.Values
                         .Where(f => f.YardId != producer.YardId && f.CanUnload && f.Consumes(cargo)
@@ -130,6 +136,7 @@ namespace DLE.Economy
                         Cargo = cargo,
                         Stock = stock,
                         Consumers = consumers,
+                        UnpaidOnly = unpaidOnly,
                     });
                 }
             }
@@ -142,6 +149,7 @@ namespace DLE.Economy
             public CargoType Cargo;
             public float Stock;
             public List<string> Consumers;
+            public bool UnpaidOnly;
         }
 
         /// <summary>
@@ -150,21 +158,29 @@ namespace DLE.Economy
         /// debited when the cars attach at the warehouse). Returns the job id or null.
         /// </summary>
         public static string CreateSpecific(string originYard, string destYard, CargoType cargo, int carCount,
-            List<string> reservedCarIds, out string reason)
+            List<string> reservedCarIds, out string reason, out bool unpaidMove)
         {
             reason = null;
+            unpaidMove = false;
             if (!Main.IsHostOrSingleplayer()) { reason = "host or singleplayer only"; return null; }
 
             var econ = EconomyState.Instance;
-            float stock = econ.GetAvailable(originYard, cargo);
-            if (stock < carCount)
+            // Paid when produced stock covers it; otherwise fall back to an unpaid move
+            // of imported goods (relocation is legitimate work, it just cannot pay twice).
+            float paidStock = econ.GetAvailable(originYard, cargo);
+            if (paidStock < carCount)
             {
-                float reserved = econ.GetReserved(originYard, cargo);
-                reason = $"{originYard} has {stock:0.#} unreserved {cargo}" +
-                    (reserved >= 1f ? $" ({reserved:0.#} already committed to other hauls)" : "") +
-                    $"; cannot ship {carCount}";
-                Main.Log($"[Director] {reason}");
-                return null;
+                float total = econ.GetUnpaidAvailable(originYard, cargo);
+                if (total < carCount)
+                {
+                    float reserved = econ.GetReserved(originYard, cargo);
+                    reason = $"{originYard} has {paidStock:0.#} produced and {total:0.#} total {cargo} unpromised" +
+                        (reserved >= 1f ? $" ({reserved:0.#} committed to taken hauls)" : "") +
+                        $"; cannot ship {carCount}";
+                    Main.Log($"[Director] {reason}");
+                    return null;
+                }
+                unpaidMove = true;
             }
 
             var producerSc = StationController.GetStationByYardID(originYard);
@@ -193,7 +209,7 @@ namespace DLE.Economy
             }
 
             // Every haul is carless; dispatch can reserve specific cars for it (API).
-            var jobId = DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds);
+            var jobId = DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds, unpaidMove);
             if (jobId == null) reason = "job creation failed; see game log";
             return jobId;
         }

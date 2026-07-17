@@ -43,8 +43,18 @@ Array per live Direct Haul:
 ### GET /api/v1/options
 What could be shipped right now:
 ```json
-{ "origin": "FRS", "cargo": "Logs", "stock": 8.0, "consumers": ["SW"] }
+{ "origin": "FRS", "cargo": "Logs", "stock": 8.0, "consumers": ["SW"], "unpaidOnly": false }
 ```
+`stock` is produced stock net of hard holds. When a pile is all received goods,
+the row appears with `unpaidOnly: true`: creating from it makes an unpaid move.
+
+### Economy semantics (0.4)
+Every pile splits into produced (made here) and imported (delivered here, not
+yet consumed). Paid hauls draw produced only; imported goods relocate as unpaid
+moves; conversion consumes imported first and credits produced, so a unit of
+goods pays once per production stage. Open (un-taken) booklets hold their
+supply softly: only the auto-director counts them. Taking a booklet hardens the
+hold after a stock check; stale paper expires instead of taking.
 
 ### GET /api/v1/fleet?cargo=Logs&yard=FRS
 Every freight car in the world with its track and availability. Both query
@@ -78,7 +88,8 @@ Create a dispatcher-picked haul.
 ```json
 { "origin": "FRS", "destination": "SW", "cargo": "Logs", "cars": 4 }
 ```
-201 with `{ "ok": true, "jobId": "FRS-SW-02", "finiteMode": false }`,
+201 with `{ "ok": true, "jobId": "FRS-SW-02", "unpaid": false }`; `unpaid` is
+true when produced stock was short and the haul was created as an unpaid move,
 400 on bad input, 409 when stock or tracks do not allow it (see game log).
 Default mode spawns a pre-loaded consist and debits stock; finite mode creates
 a carless job and debits stock when empties attach at the warehouse.

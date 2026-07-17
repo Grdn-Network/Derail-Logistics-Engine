@@ -52,18 +52,38 @@ namespace DLE.Dispatch
 
         private void Start()
         {
+            bool remote = Main.Settings?.RemoteBoard == true &&
+                          !string.IsNullOrEmpty(Main.Settings?.BoardPassword);
+            // Network binding needs a Windows URL reservation; when that is missing the
+            // whole listener refuses to start, so fall back to host-only and say how to
+            // grant it rather than dying silently.
+            if (remote && !TryStart(networkWide: true))
+            {
+                Main.LogAlways($"[Http] network binding refused (run once as admin: netsh http add urlacl url=http://+:{Port}/ user=Everyone); falling back to host-only.");
+                remote = false;
+            }
+            if (_listener == null && !TryStart(networkWide: false))
+                return;
+            Main.Log($"[Http] listening on {(remote ? "the network" : "127.0.0.1")}:{Port}.");
+            StartCoroutine(ListenLoop());
+        }
+
+        private bool TryStart(bool networkWide)
+        {
             try
             {
                 _listener = new HttpListener();
                 _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
+                if (networkWide) _listener.Prefixes.Add($"http://+:{Port}/");
                 _listener.Start();
-                Main.Log($"[Http] listening on 127.0.0.1:{Port}.");
-                StartCoroutine(ListenLoop());
+                return true;
             }
             catch (Exception ex)
             {
-                Main.LogAlways($"[Http] failed to start on port {Port}: {ex.Message}");
+                if (!networkWide) Main.LogAlways($"[Http] failed to start on port {Port}: {ex.Message}");
+                try { _listener?.Close(); } catch { }
                 _listener = null;
+                return false;
             }
         }
 
@@ -102,11 +122,17 @@ namespace DLE.Dispatch
                 if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx))
                 { Json(ctx, 403, new { error = "cross-origin request refused" }); return; }
 
+                // Network callers must present the board password on every API call; the
+                // page itself is public chrome, every fact and lever sits behind the key.
+                if (!ctx.Request.IsLocal && path.StartsWith("/api/", StringComparison.Ordinal) && !Authorized(ctx))
+                { Json(ctx, 401, new { error = "password required" }); return; }
+
                 if (method == "GET" && (path == "" || path == "/")) { Html(ctx, BoardPage.Html); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/players") { Json(ctx, 200, DispatchFax.GetPlayerNames()); return; }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -132,9 +158,9 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
-                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason);
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason, out var unpaidMove);
                     if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
-                    Json(ctx, 201, new { ok = true, jobId });
+                    Json(ctx, 201, new { ok = true, jobId, unpaid = unpaidMove });
                     return;
                 }
 
@@ -394,6 +420,7 @@ namespace DLE.Dispatch
                 cargo = o.Cargo.ToString(),
                 stock = o.Stock,
                 consumers = o.Consumers,
+                unpaidOnly = o.UnpaidOnly,
             }).ToList();
 
         private static object StatePayload() => new
@@ -426,6 +453,7 @@ namespace DLE.Dispatch
                         amount = econ.GetStock(f.YardId, c),
                         cap = f.Cap(c),
                         reserved = econ.GetReserved(f.YardId, c),
+                        imported = econ.GetImported(f.YardId, c),
                         // Empty piles show when a recipe needs them: an idle factory's
                         // missing ingredient is information, an empty warehouse is noise.
                         required = f.Recipes.Any(r => r.Inputs.Any(i => i.Cargo == c)),
@@ -451,6 +479,7 @@ namespace DLE.Dispatch
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.deliveryPayment,
+                unpaid = kv.Value.unpaidMove,
                 tonnes = LoadedTrainTonnes(kv.Value),
                 loadedCars = kv.Value.carsToTransport?.Count(c => c.LoadedCargoAmount > 0f) ?? 0,
                 pickupTrack = kv.Value.spawnTrackDisplay,
@@ -608,7 +637,18 @@ namespace DLE.Dispatch
         {
             var origin = ctx.Request.Headers["Origin"];
             if (string.IsNullOrEmpty(origin)) return false;
-            return origin != $"http://127.0.0.1:{Port}" && origin != $"http://localhost:{Port}";
+            if (origin == $"http://127.0.0.1:{Port}" || origin == $"http://localhost:{Port}") return false;
+            // A remote dispatcher's browser sends the board's own host as its origin.
+            var host = ctx.Request.Headers["Host"];
+            return string.IsNullOrEmpty(host) || origin != $"http://{host}";
+        }
+
+        private static bool Authorized(HttpListenerContext ctx)
+        {
+            var s = Main.Settings;
+            if (s == null || !s.RemoteBoard || string.IsNullOrEmpty(s.BoardPassword)) return false;
+            var key = ctx.Request.Headers["X-DLE-Key"] ?? ctx.Request.QueryString["key"];
+            return string.Equals(key, s.BoardPassword, StringComparison.Ordinal);
         }
 
         private static void Json(HttpListenerContext ctx, int status, object payload)

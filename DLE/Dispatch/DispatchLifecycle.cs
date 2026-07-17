@@ -62,6 +62,19 @@ namespace DLE.Dispatch
             if (job.State != JobState.Available)
                 return Result.Fail($"job is {job.State}, not available");
 
+            // Accept-time supply check (#67): open paper holds soft; taking hardens the
+            // hold. Paper whose supply was promised away since printing is stale and
+            // expires here instead of lying to the crew.
+            if (!Economy.EconomyState.Instance.HardenReservation(jobId))
+            {
+                try { job.ExpireJob(); } catch (Exception ex) { Main.Log($"[Dispatch] stale-paper expire failed: {ex.Message}"); }
+                return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
+            }
+
+            // Unpaid moves are dispatch-run: taking one names the crew, which assigns it.
+            if (def.unpaidMove && AssignmentStore.Instance.Get(jobId) == null && string.IsNullOrEmpty(player))
+                return Result.Fail("unpaid moves are dispatch-assigned; enter the crew name to take it");
+
             if (AssignmentStore.Instance.LockEnabled)
             {
                 var assignment = AssignmentStore.Instance.Get(jobId);
@@ -110,6 +123,14 @@ namespace DLE.Dispatch
             if (notDelivered.Count > 0)
                 return Result.Fail($"{notDelivered.Count}/{cars.Count} car(s) not unloaded at " +
                                    $"{def.chainData?.chainDestinationYardId} yet ({string.Join(", ", notDelivered.Take(4).Select(c => c.ID))})");
+
+            // Nothing is ever destroyed: closing with less room than cargo would eat
+            // the excess unpaid, so the job waits (the auto-close sweep retries) until
+            // consumption frees space at the destination.
+            int deliverable = Math.Min(cars.Count, def.loadedCarloads);
+            float room = Economy.EconomyState.Instance.GetRoom(def.chainData?.chainDestinationYardId, def.transportedCargo);
+            if (room + 0.001f < deliverable)
+                return Result.Fail($"{def.chainData?.chainDestinationYardId} has room for {(int)Math.Floor(room + 0.001f)} of {deliverable} carload(s); waiting for the station to consume");
 
             var state = SingletonBehaviour<JobsManager>.Instance.TryToCompleteAJob(job);
             if (state != JobState.Completed)
