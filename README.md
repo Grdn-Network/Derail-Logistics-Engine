@@ -1,7 +1,8 @@
 # Derail Logistics Engine
 
-DLE turns Derail Valley multiplayer into a finite logistics operation run by a
-dispatcher. Cargo is real: sources produce it slowly, factories convert it by
+DLE turns Derail Valley into a finite logistics operation run by a dispatcher,
+in single player or multiplayer alike (one host-only install; clients need
+nothing). Cargo is real: sources produce it slowly, factories convert it by
 recipe, stations can only hold so much, and money is only made when real cargo
 reaches real demand. Cars are a persistent, finite fleet. When stock runs dry
 or empties are in the wrong yard, that is not a bug; that is the job.
