@@ -13,21 +13,32 @@ cargo was real?"
 
 **Crews** see Company Haul jobs: paperwork that says what to bring and where.
 Bring suitable empties to the producer, load at the warehouse terminal (or let
-station staff do it slowly), haul to the destination, unload, turn in. The
-booklet itself pays nothing; the delivery is what pays, and only for cargo the
-destination actually has room to accept.
+station staff do it slowly), haul to the destination, unload. That is the whole
+loop: there is no turn-in, the job closes itself the moment the cargo is off
+the cars at the destination. The booklet itself pays nothing; the delivery is
+what pays, exactly once per production stage: delivered goods relocate payless
+until a factory consumes them and makes something new. A full destination
+never destroys cargo; the remainder waits aboard until room frees.
 
-**Dispatchers** run the board at `http://127.0.0.1:7246/` on the host: create
-hauls from live stock, assign crews, take and turn in jobs remotely, fax
-booklets to specific players (every loco has a fax machine), and trigger
-loading or unloading through the station's own terminal or its staff. With the
-assignment lock ON, Company Haul paperwork disappears from station offices and
-operations run entirely from the board: crews drive, dispatch decides.
+**Dispatchers** run the board at `http://127.0.0.1:7246/` on the host, or from
+any machine on the network behind a password (mod settings). It opens on a live
+map of the economy: every station's recipe, stock and boosters, with arrows for
+what is shippable right now; click a route and the create form fills itself.
+Create hauls from live stock, assign crews (names autocomplete from the
+session), fax booklets (faxing a named crew assigns them the job; every loco
+has a fax machine), pick the exact cars staff will load with a distance-sorted
+car picker, and watch the dispatch log tick as the world produces, converts,
+loads and delivers. With the assignment lock ON, public paper expires, the
+generator pauses, and operations run entirely from the board: crews drive,
+dispatch decides.
 
 **The economy** breathes on its own: a director generates hauls from real
-stockpiles, production ticks at the sources, deliveries convert inputs into
-outputs at factories, and full consumers stop paying until they drain. Harbor
-is the big storage hub; a handful of major stations hold more than the rest.
+produced stock, sources run on the production clock (tools delivered to them
+act as boosters: any one brand speeds production and slowly wears out),
+factories chew their input buffers by recipe, and full consumers stop paying
+until they drain. Open paper never freezes stock: holds harden when a booklet
+is taken, and stale paper expires instead of lying. Harbor is the big storage
+hub; a handful of major stations hold more than the rest.
 
 ## Servicing: terminal or staff
 
@@ -63,7 +74,9 @@ reload from the mod settings.
 
 | Key | Meaning |
 | --- | --- |
+| `settings` | World tuning: starting stock, production and generation clocks, pool packing and cap, excluded cargos |
 | `defaults` | Baseline for every station: `role`, `remoteLoad`, `remoteUnload`, `remoteSecondsPerCar`, `defaultCap` |
+| `stations.<YARD>.source` / `boosters` | Source industries produce on the clock; boosters multiply their rate |
 | `stations.<YARD>.recipes` | Input and output carloads for that station's conversion |
 | `stations.<YARD>.defaultCap` / `caps` | Storage capacity (also the demand cap) |
 | `stations.<YARD>.role` | `load`, `unload`, or `both` |
@@ -71,12 +84,13 @@ reload from the mod settings.
 | `stations.<YARD>.remoteSecondsPerCar` | Staff time per car |
 
 Default storage tiers: small pickup yards 25, standard stations 50, major
-industry (FF, CW, GF, SM) 100, harbor 200.
+industry (FF, CW, GF) 100, Steel Mill 100, Machine Factory 150, harbor 200.
 
-Mod settings add the generation knobs (starting stock, haul sizes, tick rate,
-hard cap on pool cars) and console recovery commands exist for bad days:
+Mod settings hold the host preferences (public booklet caps, network board and
+its password, verbose logging); everything about the world lives in
+`economy.json` and hot-reloads. Console recovery commands exist for bad days:
 `company.respawn` rebuilds the car pools and clears wreckage, and
-`company.resupply` resets stockpiles.
+`company.resupply` resets stockpiles, input buffers included.
 
 ## API
 
