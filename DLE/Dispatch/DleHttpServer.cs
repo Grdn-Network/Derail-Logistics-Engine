@@ -102,11 +102,18 @@ namespace DLE.Dispatch
                 if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx))
                 { Json(ctx, 403, new { error = "cross-origin request refused" }); return; }
 
-                if (method == "GET" && (path == "" || path == "/")) { Html(ctx, DashboardPage); return; }
+                if (method == "GET" && (path == "" || path == "/")) { Html(ctx, BoardPage.Html); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
+                if (method == "GET" && path == "/api/v1/fleet")
+                {
+                    var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
+                    if (payload == null) { Json(ctx, 400, new { error = fleetError }); return; }
+                    Json(ctx, 200, payload);
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/history")
                 {
                     int limit = 200;
@@ -125,8 +132,8 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
-                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars);
-                    if (jobId == null) { Json(ctx, 409, new { error = "could not create haul; see game log" }); return; }
+                    var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason);
+                    if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
                     Json(ctx, 201, new { ok = true, jobId });
                     return;
                 }
@@ -211,13 +218,28 @@ namespace DLE.Dispatch
                     return;
                 }
 
-                // Dispatch servicing: load and unload a haul remotely (#43).
+                // Suitable empties for a carless haul, nearest to the loading track first,
+                // with positions so a picker can chain-sort by proximity to a chosen car.
+                if (method == "GET" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/candidates", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/candidates".Length);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+                    { Json(ctx, 404, new { error = $"unknown job '{jobId}'" }); return; }
+                    Json(ctx, 200, CandidatesPayload(def));
+                    return;
+                }
+
+                // Dispatch servicing: load and unload a haul remotely (#43). Body may name
+                // the exact cars to load; empty body keeps the automatic pick.
                 if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
                     path.EndsWith("/load", StringComparison.Ordinal))
                 {
                     var jobId = path.Substring(jobCarsPrefix.Length,
                         path.Length - jobCarsPrefix.Length - "/load".Length);
-                    var r = DispatchServicing.LoadJob(jobId);
+                    var req = JsonConvert.DeserializeObject<LoadRequest>(ReadBody(ctx) ?? "");
+                    var r = DispatchServicing.LoadJob(jobId, req?.cars);
                     Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
                     return;
                 }
@@ -266,9 +288,18 @@ namespace DLE.Dispatch
                 if (method == "PUT" && path == "/api/v1/lock")
                 {
                     var req = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
+                    bool wasLocked = AssignmentStore.Instance.LockEnabled;
                     AssignmentStore.Instance.LockEnabled = req?.enabled ?? false;
                     Main.Log($"[Dispatch] lock {(AssignmentStore.Instance.LockEnabled ? "ENABLED" : "disabled")} via API.");
-                    Json(ctx, 200, new { ok = true, lockEnabled = AssignmentStore.Instance.LockEnabled });
+
+                    // Lock ON clears the public job board: the office papers are swept, so
+                    // the unassigned jobs behind them expire too. Dispatch-assigned work
+                    // survives, and the director stays paused while the lock holds.
+                    int purged = 0;
+                    if (!wasLocked && AssignmentStore.Instance.LockEnabled)
+                        purged = DispatchLifecycle.ExpireUnassignedAvailable();
+
+                    Json(ctx, 200, new { ok = true, lockEnabled = AssignmentStore.Instance.LockEnabled, purged });
                     return;
                 }
 
@@ -288,7 +319,73 @@ namespace DLE.Dispatch
         private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
+        private class LoadRequest { public List<string> cars = null; }
         private class StatusRequest { public string status = null; }
+
+        /// <summary>
+        /// Every freight car in the world with its track and availability, optionally
+        /// narrowed to the car types that can load a given cargo and to one yard. A car
+        /// is usable when it is empty, jobless, unreserved and not player-spawned.
+        /// </summary>
+        private static object FleetPayload(string cargoFilter, string yardFilter, out string error)
+        {
+            error = null;
+            List<DV.ThingTypes.TrainCarType_v2> loadable = null;
+            if (!string.IsNullOrEmpty(cargoFilter))
+            {
+                if (!Enum.TryParse<DV.ThingTypes.CargoType>(cargoFilter, out var cargoType))
+                { error = $"unknown cargo '{cargoFilter}'"; return null; }
+                if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargoType, out var v2) ||
+                    !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out loadable))
+                { error = $"no car type carries {cargoType}"; return null; }
+            }
+
+            var reservedBy = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
+                if (kv.Value?.reservedCarIds != null)
+                    foreach (var rid in kv.Value.reservedCarIds)
+                        reservedBy[rid] = kv.Key;
+
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            var rows = new List<(string sortKey, object row)>();
+            int usable = 0;
+            foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+            {
+                var car = pair.Key;
+                var tc = pair.Value;
+                if (car == null || tc == null || tc.IsLoco) continue;
+                if (loadable != null && (car.carType?.parentType == null || !loadable.Contains(car.carType.parentType))) continue;
+
+                var trackId = car.CurrentTrack?.ID;
+                if (!string.IsNullOrEmpty(yardFilter) &&
+                    !string.Equals(trackId?.yardId, yardFilter, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var jobOfCar = jobsManager != null ? jobsManager.GetJobOfCar(car) : null;
+                reservedBy.TryGetValue(car.ID, out var holder);
+                bool free = car.LoadedCargoAmount == 0f && jobOfCar == null && holder == null && !car.playerSpawnedCar;
+                if (free) usable++;
+                rows.Add(($"{trackId?.yardId}|{trackId?.FullDisplayID}|{car.ID}", new
+                {
+                    carId = car.ID,
+                    type = tc.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                    yard = trackId?.yardId,
+                    track = trackId?.FullDisplayID ?? "in motion",
+                    loadedCargo = car.LoadedCargoAmount > 0f ? car.CurrentCargoTypeInCar.ToString() : null,
+                    jobId = jobOfCar?.ID,
+                    reservedBy = holder,
+                    playerSpawned = car.playerSpawnedCar,
+                    usable = free,
+                }));
+            }
+            rows.Sort((a, b) => string.CompareOrdinal(a.sortKey, b.sortKey));
+            return new
+            {
+                cargo = string.IsNullOrEmpty(cargoFilter) ? null : cargoFilter,
+                total = rows.Count,
+                usable,
+                cars = rows.Select(r => r.row).ToList(),
+            };
+        }
 
         private static object OptionsPayload() =>
             EconomyDirector.GetOptions().Select(o => new
@@ -313,11 +410,27 @@ namespace DLE.Dispatch
             return econ.Facilities.Values.Select(f => new
             {
                 yardId = f.YardId,
+                source = f.IsSource,
                 outputs = f.Outputs.Select(c => c.ToString()),
                 inputs = f.Inputs.Select(c => c.ToString()),
+                boosters = f.Boosters.Select(b => new
+                {
+                    cargo = b.Cargo.Select(c => c.ToString()),
+                    speedup = b.Speedup,
+                    active = b.Cargo.Any(c => econ.GetStock(f.YardId, c) >= 1f),
+                }),
                 stock = f.Outputs.Concat(f.Inputs).Distinct()
-                    .Select(c => new { cargo = c.ToString(), amount = econ.GetStock(f.YardId, c), cap = f.Cap(c) })
-                    .Where(s => s.amount > 0f),
+                    .Select(c => new
+                    {
+                        cargo = c.ToString(),
+                        amount = econ.GetStock(f.YardId, c),
+                        cap = f.Cap(c),
+                        reserved = econ.GetReserved(f.YardId, c),
+                        // Empty piles show when a recipe needs them: an idle factory's
+                        // missing ingredient is information, an empty warehouse is noise.
+                        required = f.Recipes.Any(r => r.Inputs.Any(i => i.Cargo == c)),
+                    })
+                    .Where(s => s.amount > 0f || s.required),
                 recipes = f.Recipes.Select(r => new
                 {
                     inputs = r.Inputs.Select(i => new { cargo = i.Cargo.ToString(), amount = i.Amount }),
@@ -338,11 +451,42 @@ namespace DLE.Dispatch
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
                 wage = kv.Value.deliveryPayment,
+                tonnes = LoadedTrainTonnes(kv.Value),
+                loadedCars = kv.Value.carsToTransport?.Count(c => c.LoadedCargoAmount > 0f) ?? 0,
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
                 reservedCars = kv.Value.reservedCarIds,
             }).ToList();
+        }
+
+        /// <summary>
+        /// Loaded train mass in tonnes: tare plus cargo (capacity times the cargo's mass
+        /// per unit), from the attached cars when they exist, else from the booklet's
+        /// display cars. Same formula the vanilla booklet stats use.
+        /// </summary>
+        private static int LoadedTrainTonnes(StaticDirectHaulJobDefinition def)
+        {
+            try
+            {
+                float perUnit = 0f;
+                if (DV.Globals.G.Types.CargoType_to_v2.TryGetValue(def.transportedCargo, out var v2) && v2 != null)
+                    perUnit = v2.massPerUnit;
+
+                float kg = 0f;
+                if (def.carsToTransport != null && def.carsToTransport.Count > 0)
+                {
+                    foreach (var car in def.carsToTransport)
+                        kg += (car.carType?.parentType?.mass ?? 0f) + car.capacity * perUnit;
+                }
+                else if (def.displayCars != null)
+                {
+                    foreach (var cd in def.displayCars)
+                        kg += cd.carOnlyMass + cd.capacity * perUnit;
+                }
+                return (int)Math.Round(kg / 1000f);
+            }
+            catch { return 0; }
         }
 
         private static void Html(HttpListenerContext ctx, string html)
@@ -355,106 +499,63 @@ namespace DLE.Dispatch
             ctx.Response.OutputStream.Close();
         }
 
-        // Minimal built-in dispatch board so the economy is fully manageable without
-        // RemoteDispatch. RD integration supersedes this later.
-        private const string DashboardPage = @"<!doctype html><html><head><meta charset='utf-8'>
-<title>DLE Dispatch</title>
-<style>
-body{font-family:Segoe UI,Arial,sans-serif;background:#1b1d21;color:#ddd;margin:16px}
-h1{font-size:20px;color:#b58ee0} h2{font-size:15px;margin:18px 0 6px;color:#9fc2e8}
-table{border-collapse:collapse;width:100%;font-size:13px}
-td,th{border:1px solid #333;padding:4px 8px;text-align:left}
-th{background:#26282e} tr:nth-child(even){background:#22242a}
-button{background:#5a3f78;color:#fff;border:0;padding:4px 10px;cursor:pointer;border-radius:3px}
-input,select{background:#26282e;color:#ddd;border:1px solid #444;padding:3px 6px}
-#msg{color:#8fd18f;min-height:18px}
-</style></head><body>
-<h1>Derail Logistics Engine: dispatch board</h1><div id='msg'></div>
-<h2>Create a haul</h2>
-<div>Origin <select id='hOrigin'></select> Cargo <select id='hCargo'></select>
-Destination <select id='hDest'></select> Cars <input id='hCars' type='number' value='4' min='1' max='20' style='width:60px'>
-<button onclick='createHaul()'>Spawn haul</button></div>
-<h2>Shippable now (options)</h2><table id='tOptions'></table>
-<h2>Available hauls (not yet accepted)</h2><table id='tAvail'></table>
-<h2>Accepted hauls <button onclick='toggleLock()' id='bLock' title='When ON, the job validator rejects hauls that are not assigned to the accepting crew. Assign players below, then lock.'>Assignment lock: ?</button></h2><table id='tJobs'></table>
-<pre id='carsOut' style='background:#22242a;padding:6px;display:none'></pre>
-<h2>Logistics runs (unpaid, no booklet)</h2>
-<div>From <input id='lFrom' style='width:50px'> To <input id='lTo' style='width:50px'>
-Cars <input id='lCars' type='number' value='4' min='1' style='width:55px'>
-For cargo <input id='lCargo' style='width:110px'> Note <input id='lNote' style='width:220px'>
-<button onclick='createLog()'>Post run</button></div>
-<table id='tLog'></table>
-<h2>Economy</h2><table id='tEcon'></table>
-<script>
-let options=[];let lockOn=false;
-async function j(u,m,b){const r=await fetch(u,{method:m||'GET',body:b?JSON.stringify(b):undefined});return r.json()}
-function msg(t){document.getElementById('msg').textContent=t;setTimeout(()=>msg2(t),4000)}
-function msg2(t){const m=document.getElementById('msg');if(m.textContent===t)m.textContent=''}
-async function refresh(){
- const state=await j('/api/v1/state');lockOn=state.lockEnabled;
- document.getElementById('bLock').textContent='Assignment lock: '+(lockOn?'ON':'off');
- options=await j('/api/v1/options');
- const jobs=await j('/api/v1/jobs'); const econ=await j('/api/v1/economy'); const logs=await j('/api/v1/logistics');
- const oSel=document.getElementById('hOrigin');const cur=oSel.value;
- oSel.innerHTML=options.map(o=>`<option>${o.origin}</option>`).join('');
- if([...oSel.options].some(x=>x.value===cur))oSel.value=cur;
- originChanged();
- document.getElementById('tOptions').innerHTML='<tr><th>Origin</th><th>Cargo</th><th>Stock</th><th>Consumers</th></tr>'+
-  options.map(o=>`<tr><td>${o.origin}</td><td>${o.cargo}</td><td>${o.stock}</td><td>${o.consumers.join(', ')}</td></tr>`).join('');
- const jobHdr='<tr><th>Job</th><th>Route</th><th>Cargo</th><th>Cars</th><th>Wage</th><th>Pickup</th><th>State</th><th>Assigned</th><th></th></tr>';
- const jobRow=(x,av)=>`<tr><td>${x.id}</td><td>${x.origin} to ${x.destination}</td><td>${x.cargo}</td><td>${x.cars||x.plannedCars}</td><td>$${Math.round(x.wage)}</td><td>${x.pickupTrack||''}</td><td>${x.state}</td><td>${x.assignedTo||''}</td>`+
-  `<td><input id='a_${x.id}' placeholder='player' style='width:90px'><button onclick=""assign('${x.id}')"">Assign</button><button onclick=""unassign('${x.id}')"">X</button>`+
-  (av?`<button onclick=""takeJob('${x.id}')"">Take</button>`:`<button onclick=""loadJob('${x.id}')"">Load</button><button onclick=""unloadJob('${x.id}')"">Unload</button><button onclick=""completeJob('${x.id}')"">Turn in</button>`)+
-  `<button onclick=""faxJob('${x.id}')"" title='Fax the booklet to the named player (blank = you)'>Fax</button><button onclick=""showCars('${x.id}')"">Cars</button></td></tr>`;
- document.getElementById('tAvail').innerHTML=jobHdr+jobs.filter(x=>x.state==='Available').map(x=>jobRow(x,true)).join('');
- document.getElementById('tJobs').innerHTML=jobHdr+jobs.filter(x=>x.state!=='Available').map(x=>jobRow(x,false)).join('');
- document.getElementById('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
-  logs.map(o=>`<tr><td>${o.Id}</td><td>${o.FromYardId} to ${o.ToYardId}</td><td>${o.CarCount}</td><td>${o.Cargo||''}</td><td>${o.Note||''}</td><td>${o.Status}</td>`+
-   `<td><button onclick=""logStatus('${o.Id}','InProgress')"">Start</button><button onclick=""logStatus('${o.Id}','Done')"">Done</button><button onclick=""logDel('${o.Id}')"">Del</button></td></tr>`).join('');
- document.getElementById('tEcon').innerHTML='<tr><th>Yard</th><th>Stock</th></tr>'+
-  econ.filter(e=>e.stock.length).map(e=>`<tr><td>${e.yardId}</td><td>${e.stock.map(s=>s.amount+' '+s.cargo).join(', ')}</td></tr>`).join('');
-}
-async function assign(id){const p=document.getElementById('a_'+id).value;if(!p){msg('enter a player name');return}
- const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});msg(r.ok?('Assigned '+id+' to '+p):'assign failed');refresh()}
-async function unassign(id){await j('/api/v1/assignments/'+id,'DELETE');msg('Unassigned '+id);refresh()}
-async function takeJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/take','POST',{player:p||null});msg(r.message||'failed');refresh()}
-async function completeJob(id){const r=await j('/api/v1/jobs/'+id+'/complete','POST');msg(r.message||'failed');refresh()}
-async function loadJob(id){const r=await j('/api/v1/jobs/'+id+'/load','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
-async function unloadJob(id){const r=await j('/api/v1/jobs/'+id+'/unload','POST');msg(r.message||'failed');setTimeout(refresh,1200)}
-async function faxJob(id){const p=document.getElementById('a_'+id).value;const r=await j('/api/v1/jobs/'+id+'/fax','POST',{player:p||null});msg(r.message||'failed')}
-async function toggleLock(){const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});msg('Assignment lock now '+(r.lockEnabled?'ON':'off'));refresh()}
-async function createLog(){const b={from:lFrom.value,to:lTo.value,cars:parseInt(lCars.value),cargo:lCargo.value||null,note:lNote.value||null};
- if(!b.from||!b.to){msg('from and to required');return}
- const r=await j('/api/v1/logistics','POST',b);msg(r.Id?('Posted '+r.Id):'failed');refresh()}
-async function logStatus(id,s){await j('/api/v1/logistics/'+id,'PUT',{status:s});refresh()}
-async function showCars(id){
- const r=await j('/api/v1/jobs/'+id+'/cars');const o=document.getElementById('carsOut');
- o.style.display='block';
- o.textContent=id+' loading track: '+(r.loadingTrack||'?')+'\n'+
-  (r.cars.length?r.cars.map(c=>`${c.carId}  ${c.type}  ${c.loaded?'LOADED':'empty'}  on ${c.track}`+(c.metersFromLoading!=null?`  ${c.metersFromLoading}m from loading`:''))
-   .join('\n'):'no cars attached yet (bring empties to the loading track)');}
-async function logDel(id){await j('/api/v1/logistics/'+id,'DELETE');refresh()}
-function originChanged(){
- const o=document.getElementById('hOrigin').value;
- const mine=options.filter(x=>x.origin===o);
- document.getElementById('hCargo').innerHTML=mine.map(x=>`<option>${x.cargo}</option>`).join('');
- cargoChanged();
-}
-function cargoChanged(){
- const o=document.getElementById('hOrigin').value;const c=document.getElementById('hCargo').value;
- const opt=options.find(x=>x.origin===o&&x.cargo===c);
- document.getElementById('hDest').innerHTML=(opt?opt.consumers:[]).map(x=>`<option>${x}</option>`).join('');
-}
-document.getElementById('hOrigin').addEventListener('change',originChanged);
-document.getElementById('hCargo').addEventListener('change',cargoChanged);
-async function createHaul(){
- const b={origin:hOrigin.value,destination:hDest.value,cargo:hCargo.value,cars:parseInt(hCars.value)};
- const r=await j('/api/v1/hauls','POST',b);
- msg(r.jobId?('Created '+r.jobId):('Failed: '+(r.error||'see game log')));
- refresh();
-}
-refresh();setInterval(refresh,5000);
-</script></body></html>";
+        /// <summary>
+        /// Suitable empties for a carless haul with everything a picker needs: distance
+        /// to the loading track for the initial sort, world x/z so the client can re-sort
+        /// by proximity to the last chosen car, and the staff seconds-per-car so it can
+        /// estimate load time before committing.
+        /// </summary>
+        private static object CandidatesPayload(StaticDirectHaulJobDefinition def)
+        {
+            var originYard = def.chainData?.chainOriginYardId;
+            var sc = originYard != null ? StationController.GetStationByYardID(originYard) : null;
+            int wanted = def.plannedCarCount > 0 ? def.plannedCarCount : def.displayCars?.Count ?? 0;
+            float perCar = 45f;
+            if (originYard != null && EconomyState.Instance.Facilities.TryGetValue(originYard, out var fac))
+                perCar = fac.RemoteSecondsPerCar;
+
+            UnityEngine.Vector3? loadPos = null;
+            var loadTrack = def.loadMachine?.WarehouseTrack;
+            if (loadTrack != null && RailTrackRegistry.LogicToRailTrack.TryGetValue(loadTrack, out var loadRail))
+                loadPos = loadRail.transform.position;
+
+            var rows = new List<object>();
+            bool attached = (def.carsToTransport?.Count ?? 0) > 0;
+            var pool = (!attached && sc != null) ? DispatchServicing.AllLoadCandidates(def, sc) : null;
+            if (pool != null)
+            {
+                foreach (var car in pool)
+                {
+                    var tc = car.TrainCar();
+                    float meters = -1f;
+                    UnityEngine.Vector3 pos = default;
+                    if (tc != null)
+                    {
+                        pos = tc.transform.position;
+                        if (loadPos.HasValue) meters = UnityEngine.Vector3.Distance(pos, loadPos.Value);
+                    }
+                    rows.Add(new
+                    {
+                        carId = car.ID,
+                        type = tc?.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                        track = car.CurrentTrack?.ID?.FullDisplayID ?? "in motion",
+                        metersFromLoading = meters < 0f ? (float?)null : (float)Math.Round(meters),
+                        x = (float)Math.Round(pos.x, 1),
+                        z = (float)Math.Round(pos.z, 1),
+                    });
+                }
+            }
+            return new
+            {
+                jobId = def.LiveJob?.ID,
+                origin = originYard,
+                wanted,
+                perCarSeconds = perCar,
+                loadingTrack = loadTrack?.ID?.FullDisplayID,
+                carsAttached = attached,
+                cars = rows,
+            };
+        }
 
         private static object JobCarsPayload(StaticDirectHaulJobDefinition def)
         {

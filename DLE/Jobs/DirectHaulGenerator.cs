@@ -16,6 +16,44 @@ namespace DLE.Jobs
     /// </summary>
     public static class DirectHaulGenerator
     {
+        /// <summary>
+        /// Length, tare and cargo capacity for a livery, read from its prefab's TrainCar
+        /// exactly the way InitializeNewLogicCar builds real logic cars (length is the
+        /// inter-coupler distance, tare is the parent type's mass). Cached per livery;
+        /// falls back to the spawner's length math and capacity 1 if the prefab read
+        /// fails, so the booklet degrades to approximate stats instead of dying.
+        /// </summary>
+        private static readonly Dictionary<TrainCarLivery, (float length, float tare, float capacity)>
+            _liveryDisplayData = new Dictionary<TrainCarLivery, (float, float, float)>();
+
+        private static (float length, float tare, float capacity) LiveryDisplayData(TrainCarLivery livery)
+        {
+            if (_liveryDisplayData.TryGetValue(livery, out var cached)) return cached;
+            float length = 0f, capacity = 1f;
+            try
+            {
+                var proto = livery.prefab != null ? livery.prefab.GetComponent<TrainCar>() : null;
+                if (proto != null)
+                {
+                    length = proto.InterCouplerDistance;
+                    capacity = proto.cargoCapacity;
+                }
+            }
+            catch { }
+            if (length <= 0f)
+            {
+                try
+                {
+                    length = CarSpawner.Instance.GetTotalCarLiveriesLength(
+                        new List<TrainCarLivery> { livery }, false);
+                }
+                catch { }
+            }
+            var data = (length, livery.parentType?.mass ?? 0f, capacity);
+            _liveryDisplayData[livery] = data;
+            return data;
+        }
+
         public static string TryCreateCarless(
             StationController producer,
             StationController consumer,
@@ -50,13 +88,16 @@ namespace DLE.Jobs
             }
 
             // Synthetic display cars: the booklet shows what to bring before cars attach.
+            // Real length, tare and capacity make the booklet's length/mass/value stats
+            // and the board's tonnage read true instead of zero.
             var displayCars = new List<Car_data>();
             var liveryCounts = new Dictionary<TrainCarLivery, int>();
             for (int i = 0; i < carCount; i++)
             {
                 var shownType = usableTypes[i % usableTypes.Count];
                 var livery = shownType.liveries[i % shownType.liveries.Count];
-                displayCars.Add(new Car_data("?", livery, false, false, 0f, 0f, 0f));
+                var (length, tare, capacity) = LiveryDisplayData(livery);
+                displayCars.Add(new Car_data("?", livery, false, false, length, tare, capacity));
                 liveryCounts.TryGetValue(livery, out var n);
                 liveryCounts[livery] = n + 1;
             }

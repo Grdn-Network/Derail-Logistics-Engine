@@ -14,12 +14,23 @@ namespace DLE.Economy
     /// </summary>
     public static class EconomyDirector
     {
-        /// <summary>Count live hauls once per sweep: total plus per-origin, one pass.</summary>
-        private static int CountActiveHauls(Dictionary<string, int> perOrigin)
+        // Auto-generation sizing. Dispatcher-picked hauls (CreateSpecific) are bound only
+        // by stock and track length, never by these.
+        private const int MinAutoHaulCarloads = 3;
+        private const int MaxAutoHaulCars = 6;
+
+        /// <summary>
+        /// Count open booklets once per sweep: total plus per-origin, one pass. Only
+        /// not-yet-taken hauls count toward the generation caps, so a map full of crews
+        /// running work keeps offering fresh paper; the caps limit un-taken paper only.
+        /// </summary>
+        private static int CountOpenBooklets(Dictionary<string, int> perOrigin)
         {
             int total = 0;
             foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
             {
+                var state = kv.Value.LiveJob?.State;
+                if (state != null && state != JobState.Available) continue;
                 total++;
                 var origin = kv.Value.chainData?.chainOriginYardId;
                 if (origin == null) continue;
@@ -37,14 +48,23 @@ namespace DLE.Economy
                 return false;
             }
 
+            // While the assignment lock holds, operations are dispatch-run: the lock-on
+            // purge cleared the public board and no fresh public paper appears until the
+            // lock lifts. Dispatcher-created hauls (CreateSpecific) are unaffected.
+            if (Dispatch.AssignmentStore.Instance.LockEnabled)
+            {
+                Main.Log("[Director] assignment lock is on; no public hauls generated.");
+                return false;
+            }
+
             var econ = EconomyState.Instance;
-            int min = Math.Max(1, Main.Settings?.MinShipCarloads ?? 3);
-            int max = Math.Max(min, Main.Settings?.MaxCarsPerHaul ?? 6);
-            int perStation = Math.Max(1, Main.Settings?.MaxHaulsPerStation ?? 4);
-            int total = Math.Max(1, Main.Settings?.MaxHaulsTotal ?? 40);
+            const int min = MinAutoHaulCarloads;
+            const int max = MaxAutoHaulCars;
+            int perStation = Math.Max(1, Main.Settings?.MaxOpenBookletsPerStation ?? 10);
+            int total = Math.Max(1, Main.Settings?.MaxOpenBookletsTotal ?? 60);
 
             var perOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
-            if (CountActiveHauls(perOrigin) >= total) return false;
+            if (CountOpenBooklets(perOrigin) >= total) return false;
 
             foreach (var producer in econ.Facilities.Values)
             {
@@ -130,15 +150,20 @@ namespace DLE.Economy
         /// debited when the cars attach at the warehouse). Returns the job id or null.
         /// </summary>
         public static string CreateSpecific(string originYard, string destYard, CargoType cargo, int carCount,
-            List<string> reservedCarIds = null)
+            List<string> reservedCarIds, out string reason)
         {
-            if (!Main.IsHostOrSingleplayer()) return null;
+            reason = null;
+            if (!Main.IsHostOrSingleplayer()) { reason = "host or singleplayer only"; return null; }
 
             var econ = EconomyState.Instance;
             float stock = econ.GetAvailable(originYard, cargo);
             if (stock < carCount)
             {
-                Main.Log($"[Director] {originYard} has {stock:0.#} {cargo}, cannot ship {carCount}.");
+                float reserved = econ.GetReserved(originYard, cargo);
+                reason = $"{originYard} has {stock:0.#} unreserved {cargo}" +
+                    (reserved >= 1f ? $" ({reserved:0.#} already committed to other hauls)" : "") +
+                    $"; cannot ship {carCount}";
+                Main.Log($"[Director] {reason}");
                 return null;
             }
 
@@ -146,12 +171,31 @@ namespace DLE.Economy
             var consumerSc = StationController.GetStationByYardID(destYard);
             if (producerSc == null || consumerSc == null)
             {
-                Main.Log($"[Director] unknown yard ({originYard} or {destYard}).");
+                reason = $"unknown yard ({originYard} or {destYard})";
+                Main.Log($"[Director] {reason}");
+                return null;
+            }
+
+            // Name the blocking end when a warehouse cannot handle the cargo, instead of
+            // a generic failure after the fact.
+            var cargoList = new List<CargoType> { cargo };
+            if ((producerSc.logicStation?.yard?.GetWarehouseMachinesThatSupportCargoTypes(cargoList)?.Count ?? 0) == 0)
+            {
+                reason = $"{originYard} has no warehouse that handles {cargo}";
+                Main.Log($"[Director] {reason}");
+                return null;
+            }
+            if ((consumerSc.logicStation?.yard?.GetWarehouseMachinesThatSupportCargoTypes(cargoList)?.Count ?? 0) == 0)
+            {
+                reason = $"{destYard} has no warehouse that handles {cargo}";
+                Main.Log($"[Director] {reason}");
                 return null;
             }
 
             // Every haul is carless; dispatch can reserve specific cars for it (API).
-            return DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds);
+            var jobId = DirectHaulGenerator.TryCreateCarless(producerSc, consumerSc, cargo, carCount, reservedCarIds);
+            if (jobId == null) reason = "job creation failed; see game log";
+            return jobId;
         }
 
         private static readonly Random _rng = new Random();

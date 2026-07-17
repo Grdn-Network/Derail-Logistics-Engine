@@ -68,6 +68,11 @@ namespace DLE.Patches
             if (jobId == null) return;
             if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
                 def.loadedCarloads = Math.Min(def.carsToTransport?.Count ?? int.MaxValue, def.loadedCarloads + 1);
+                // One event when the terminal finishes the last car; staff loads record
+                // their own event in the servicing wrap-up.
+                if (def.loadedCarloads == (def.carsToTransport?.Count ?? -1))
+                    Economy.EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId,
+                        def.transportedCargo.ToString(), def.loadedCarloads, def.LiveJob?.ID);
         }
     }
 

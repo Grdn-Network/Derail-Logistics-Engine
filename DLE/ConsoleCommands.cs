@@ -31,8 +31,38 @@ namespace DLE
         public static void Resupply(CommandArg[] args)
         {
             if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.resupply: host or singleplayer only."); return; }
-            EconomyState.Instance.ResetToDefault(Main.Settings?.InitialStock ?? 6);
+            EconomyState.Instance.ResetToDefault(RecipeProvider.Tuning.initialStock);
             Debug.Log("company.resupply: stockpiles reset to starting stock.");
+        }
+
+        [RegisterCommand("company.haul",
+            Help = "DLE: generate one haul from current stock, exactly like a director tick.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void Haul(CommandArg[] args)
+        {
+            if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.haul: host or singleplayer only."); return; }
+            Debug.Log(EconomyDirector.GenerateOne()
+                ? "company.haul: haul created; see the board."
+                : "company.haul: nothing to haul (stock, room or booklet caps).");
+        }
+
+        [RegisterCommand("company.dump",
+            Help = "DLE debug: dump every facility's stock and recipes to the log.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void Dump(CommandArg[] args)
+        {
+            EconomyState.Instance.DumpToLog();
+            Debug.Log("company.dump: economy written to the log.");
+        }
+
+        [RegisterCommand("company.testdelivery",
+            Help = "DLE debug: simulate a delivery with no train to exercise the economy.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void TestDelivery(CommandArg[] args)
+        {
+            if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.testdelivery: host or singleplayer only."); return; }
+            Jobs.DebugEconomy.SimulateDelivery();
+            Debug.Log("company.testdelivery: done; see the log.");
         }
     }
 }

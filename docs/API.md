@@ -46,6 +46,23 @@ What could be shipped right now:
 { "origin": "FRS", "cargo": "Logs", "stock": 8.0, "consumers": ["SW"] }
 ```
 
+### GET /api/v1/fleet?cargo=Logs&yard=FRS
+Every freight car in the world with its track and availability. Both query
+parameters are optional: `cargo` narrows to the car types that can load that
+cargo, `yard` narrows to one station's tracks.
+```json
+{
+  "cargo": "Logs", "total": 12, "usable": 7,
+  "cars": [
+    { "carId": "FLT-021", "type": "FlatbedStakes", "yard": "FRS",
+      "track": "FRS-3-SP", "loadedCargo": null, "jobId": null,
+      "reservedBy": null, "playerSpawned": false, "usable": true }
+  ]
+}
+```
+`usable` means empty, jobless, not reserved by a haul and not player-spawned.
+Cars between stations report `"track": "in motion"`. 400 on an unknown cargo.
+
 ### GET /api/v1/history?limit=200
 Session telemetry ring buffer (max 600), oldest first:
 ```json

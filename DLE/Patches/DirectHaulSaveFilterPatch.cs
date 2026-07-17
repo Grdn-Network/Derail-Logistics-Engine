@@ -2,14 +2,16 @@ using DLE.Jobs;
 using DV.Logic.Job;
 using HarmonyLib;
 using System;
+using System.Linq;
 
 namespace DLE.Patches
 {
     /// <summary>
-    /// Phase 1: keep DLE's Direct Haul chains out of the vanilla save. The save collector
-    /// drops any chain whose GetJobChainSaveData returns null, so we skip the original for
-    /// our own chains. This stops the vanilla serialiser from writing a ComplexTransport
-    /// chain it cannot reload. DLE gains its own job persistence in a later commit.
+    /// Keeps DLE's Direct Haul chains out of the vanilla save: the vanilla serialiser
+    /// cannot reload a ComplexTransport chain, so GetJobChainSaveData returns null for
+    /// managed chains. The vanilla collector adds that null to the saved array
+    /// unfiltered; DirectHaulSaveNullScrubPatch below strips it. DLE persists these
+    /// jobs in its own store and rebuilds them on load.
     /// </summary>
     [HarmonyPatch(typeof(JobChainController), "GetJobChainSaveData")]
     public static class DirectHaulSaveFilterPatch
@@ -43,6 +45,38 @@ namespace DLE.Patches
                 return null;
             }
             return __exception;
+        }
+    }
+
+    /// <summary>
+    /// JobSaveManager.GetJobsSaveGameData adds every chain's save data to its list with
+    /// no null check, so a chain that serialises to null (a DLE chain, or a ghost chain
+    /// hit by the finalizer above) becomes a null entry in the saved jobChains array.
+    /// JobSaveManager.LoadJobChain dereferences each entry immediately, and one null
+    /// there makes the loader delete every car and job in the world as its cleanup
+    /// response. Nulls are stripped on save, and stripped again on load so saves
+    /// already written with null entries load instead of resetting the world.
+    /// </summary>
+    [HarmonyPatch(typeof(JobSaveManager))]
+    public static class DirectHaulSaveNullScrubPatch
+    {
+        [HarmonyPostfix]
+        [HarmonyPatch("GetJobsSaveGameData")]
+        public static void ScrubOnSave(JobsSaveGameData __result) => Scrub(__result, "save");
+
+        [HarmonyPrefix]
+        [HarmonyPatch("LoadJobSaveGameData")]
+        public static void ScrubOnLoad(JobsSaveGameData saveData) => Scrub(saveData, "load");
+
+        private static void Scrub(JobsSaveGameData data, string where)
+        {
+            if (data?.jobChains == null || data.jobChains.Length == 0) return;
+            var clean = data.jobChains.Where(c => c != null).ToArray();
+            if (clean.Length != data.jobChains.Length)
+            {
+                Main.LogAlways($"[DirectHaul] Scrubbed {data.jobChains.Length - clean.Length} null job chain entries on {where}.");
+                data.jobChains = clean;
+            }
         }
     }
 }

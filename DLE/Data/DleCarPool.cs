@@ -96,7 +96,7 @@ namespace DLE.Data
             }
             // A single haul's worth of leftovers is not a pool: expired vanilla jobs leave
             // that much lying around. Require several hauls' worth before adopting.
-            int threshold = Math.Max(2, Main.Settings?.MaxCarsPerHaul ?? 6) * 3;
+            int threshold = 18; // three typical hauls' worth
             if (found.Count < threshold) return false;
 
             foreach (var tc in found)
@@ -121,7 +121,7 @@ namespace DLE.Data
             // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
             // pool past it. An unbounded pool degrades physics, saves and MP sync; the cap
             // is the backstop if a bug ever compounds the fleet.
-            int cap = Math.Max(0, Main.Settings?.MaxPoolCars ?? 500);
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             int room = cap - _guids.Count;
             if (room <= 0)
             {
@@ -156,11 +156,34 @@ namespace DLE.Data
             // guarantee against stacking is the logic layer: a track with zero cars on it
             // and no claim from this sweep cannot hold anything to stack onto. Stations
             // with more outputs than free storage tracks shortfall and say so.
-            var fitting = station.logicStation.yard.StorageTracks
-                .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
-                .Where(t => ClaimedOn(claimed, t) <= 0f)
-                .Where(t => t.length - 10.0 > length)
-                .ToList();
+            System.Collections.Generic.List<Track> FittingTracks(float len) =>
+                station.logicStation.yard.StorageTracks
+                    .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                    .Where(t => ClaimedOn(claimed, t) <= 0f)
+                    .Where(t => t.length - 10.0 > len)
+                    .ToList();
+
+            var fitting = FittingTracks(length);
+
+            // A station whose remaining empty tracks are all short loses the whole output
+            // when the full cut cannot fit anywhere; half a cut on a short track beats
+            // zero cars for that cargo.
+            if (fitting.Count == 0 && count > 2)
+            {
+                int half = Math.Max(2, count / 2);
+                var halfLiveries = liveries.Take(half).ToList();
+                float halfLength = CarSpawner.Instance.GetTotalCarLiveriesLength(halfLiveries, true);
+                var halfFitting = FittingTracks(halfLength);
+                if (halfFitting.Count > 0)
+                {
+                    Main.Log($"[CarPool] {station.stationInfo.YardID}: no track fits {count} cars ({length:F0}m); spawning {half} instead.");
+                    count = half;
+                    liveries = halfLiveries;
+                    length = halfLength;
+                    fitting = halfFitting;
+                }
+            }
+
             if (fitting.Count == 0)
             {
                 Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no empty storage track fits {count} empt{(count == 1 ? "y" : "ies")} ({length:F0}m); nothing spawned.");
@@ -408,6 +431,12 @@ namespace DLE.Data
                 if (jobsManager.GetJobOfCar(car) != null) continue;
                 freeCars.Add(tc);
                 if (IsWreck(tc)) targets.Add(tc);
+
+                // Pool-registered cars are DLE's own fleet: a jobless empty pool car is
+                // recoverable wherever it stands, not only in a yard. Strays left outside
+                // yards otherwise survive every respawn and eat the pool cap while the
+                // repack shortfalls. Loaded cars and cars on jobs never reach this line.
+                if (car.carGuid != null && _guids.Contains(car.carGuid)) targets.Add(tc);
             }
 
             // Mine sweep: interpenetrating pairs among the free cars. Positions are
@@ -480,7 +509,6 @@ namespace DLE.Data
             }
             SweepInFlight = true;
             int totalSpawned = 0;
-            int perOutput = Math.Max(1, Main.Settings?.MaxCarsPerHaul ?? 6);
             var claimed = new Dictionary<JobTrack, float>();
 
             if (deleteFirst)
@@ -490,25 +518,59 @@ namespace DLE.Data
                 yield return new WaitForSeconds(0.5f);
             }
 
-            var spawnedCars = new List<TrainCar>();
+            // Guids of cars that died since load (any cause) otherwise count against the
+            // cap and shrink the repack by exactly that many phantom cars.
+            PruneDeadGuids();
+
+            // Each producer offers its empty storage tracks, longest first; each track is
+            // packed with a random mix of the cargos that producer ships. Consumers with
+            // no outputs offer nothing and stay clear for deliveries.
+            var offers = new List<(StationController sc, Economy.FacilityDef facility, Queue<JobTrack> tracks)>();
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
+                if (facility.Outputs.Count == 0) continue;
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
+                var empties = sc.logicStation.yard.StorageTracks
+                    .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                    .OrderByDescending(t => t.length)
+                    .ToList();
+                if (empties.Count > 0)
+                    offers.Add((sc, facility, new Queue<JobTrack>(empties)));
+            }
 
-                foreach (var cargo in facility.Outputs)
+            // One track per station per round, so the pool cap lands evenly across the
+            // map instead of starving whichever stations iterate last.
+            var spawnedCars = new List<TrainCar>();
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
+            bool capHit = false;
+            for (bool any = offers.Count > 0; any && !capHit;)
+            {
+                any = false;
+                foreach (var offer in offers)
                 {
+                    if (offer.tracks.Count == 0) continue;
+                    any = true;
+                    var track = offer.tracks.Dequeue();
+
                     // One failed station must not kill the whole map's respawn: a silent
                     // coroutine death here is exactly what left stacked cuts unvalidated.
-                    try { totalSpawned += SpawnEmpties(sc, cargo, perOutput, claimed, spawnedCars); }
+                    try { totalSpawned += PackTrack(offer.sc, offer.facility, track, claimed, spawnedCars); }
                     catch (Exception ex)
                     {
-                        Main.LogAlways($"[CarPool] {facility.YardId}: spawning {cargo} failed: {ex.GetType().Name}: {ex.Message}");
+                        Main.LogAlways($"[CarPool] {offer.facility.YardId}: packing {track.ID?.FullDisplayID} failed: {ex.GetType().Name}: {ex.Message}");
                     }
-                }
 
-                // One station per frame-slice: spread the cost, let physics settle.
-                yield return null;
+                    if (_guids.Count >= cap)
+                    {
+                        Main.LogAlways($"[CarPool] pool cap ({cap}) reached mid-respawn; remaining tracks stay empty.");
+                        capHit = true;
+                        break;
+                    }
+
+                    // One track per frame-slice: spread the cost, let physics settle.
+                    yield return null;
+                }
             }
 
             // Quarantine anything that spawned derailed and sleep the healthy cars.
@@ -519,6 +581,87 @@ namespace DLE.Data
             SweepInFlight = false;
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             onDone?.Invoke(totalSpawned);
+        }
+
+        /// <summary>
+        /// Fill one empty storage track with a random mix of empty cars matching the
+        /// producer's outputs, up to the configured fill fraction of the track and the
+        /// pool cap. The track was empty when collected and is re-checked here; the cut
+        /// spawns Strict from the low anchor, trimming itself shorter if the spawner
+        /// refuses, so a partially blocked track yields a shorter cut instead of nothing.
+        /// </summary>
+        private int PackTrack(StationController station, Economy.FacilityDef facility,
+            JobTrack track, IDictionary<JobTrack, float> claimed, List<TrainCar> collector)
+        {
+            int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
+            int room = cap - _guids.Count;
+            if (room < 2) return 0;
+            if ((track.GetCarsFullyOnTrack()?.Count ?? 0) != 0 || ClaimedOn(claimed, track) > 0f)
+                return 0;
+
+            // Livery pools per output cargo; outputs nothing can carry are skipped.
+            var perCargo = new List<System.Collections.Generic.IList<TrainCarLivery>>();
+            foreach (var cargo in facility.Outputs)
+                if (DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) &&
+                    DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) &&
+                    carTypes.Count > 0 && carTypes[0].liveries != null && carTypes[0].liveries.Count > 0)
+                    perCargo.Add(carTypes[0].liveries);
+            if (perCargo.Count == 0) return 0;
+
+            int fillPercent = Mathf.Clamp(Economy.RecipeProvider.Tuning.poolTrackFillPercent, 10, 100);
+            double usable = track.length * fillPercent / 100.0 - 10.0;
+            if (usable <= 0) return 0;
+
+            // Draw random cars until the next one no longer fits the fill target.
+            var liveries = new List<TrainCarLivery>();
+            while (liveries.Count < room)
+            {
+                var set = perCargo[UnityEngine.Random.Range(0, perCargo.Count)];
+                liveries.Add(set[UnityEngine.Random.Range(0, set.Count)]);
+                if (CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true) > usable)
+                {
+                    liveries.RemoveAt(liveries.Count - 1);
+                    break;
+                }
+            }
+
+            // Spawn Strict, trimming the cut when the spawner refuses: a physically
+            // blocked stretch costs cars, not the whole track.
+            const double margin = 5.0;
+            List<TrainCar> spawned = null;
+            var railTrack = RailTrackRegistry.LogicToRailTrack[track];
+            while (liveries.Count >= 2)
+            {
+                float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
+                double maxStart = track.length - length - margin;
+                if (maxStart >= margin)
+                {
+                    for (int attempt = 0; attempt < 5 && (spawned == null || spawned.Count == 0); attempt++)
+                    {
+                        double startSpan = margin + (maxStart - margin) * attempt / 4.0;
+                        spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
+                            liveries, railTrack, true, true, startSpan, false, true, false);
+                    }
+                    if (spawned != null && spawned.Count > 0) break;
+                }
+                liveries.RemoveRange(liveries.Count - Math.Max(1, liveries.Count / 4), Math.Max(1, liveries.Count / 4));
+            }
+            if (spawned == null || spawned.Count == 0)
+            {
+                Main.Log($"[CarPool] {station.stationInfo.YardID}: no clear spot on {track.ID?.FullDisplayID}; track skipped.");
+                return 0;
+            }
+
+            foreach (var tc in spawned)
+                if (tc.logicCar?.carGuid != null)
+                    _guids.Add(tc.logicCar.carGuid);
+            claimed[track] = ClaimedOn(claimed, track) + CarSpawner.Instance.GetTotalCarLiveriesLength(
+                spawned.Select(tc => tc.carLivery).ToList(), true);
+            collector?.AddRange(spawned);
+
+            Main.Log($"[CarPool] packed {spawned.Count} empties at {station.stationInfo.YardID} " +
+                     $"track {track.ID?.FullDisplayID} (pool now {_guids.Count}).");
+            return spawned.Count;
         }
 
         [Serializable]
@@ -569,6 +712,25 @@ namespace DLE.Data
                 // Older saves have no flag and deserialize as false: they seed once, by design.
                 PoolsSeeded = payload.PoolsSeeded;
             }
+            _loadedFrom = data;
+        }
+
+        private SaveGameData _loadedFrom;
+
+        /// <summary>
+        /// Arm the pool from the current save if it has not been read yet. The game
+        /// decides which jobless cars to delete DURING world load, before OnWorldLoaded
+        /// fires; a guard that waits for OnWorldLoaded is armed after the kill list is
+        /// already made and the whole fleet is condemned on every load. Reference
+        /// comparison keeps the fast path allocation-free; a new world means a new
+        /// SaveGameData instance and triggers a fresh read.
+        /// </summary>
+        public void EnsureLoaded()
+        {
+            var data = SaveGameManager.Instance?.data;
+            if (data == null || ReferenceEquals(_loadedFrom, data)) return;
+            LoadFrom(data);
+            Main.LogAlways($"[CarPool] pool armed early from save data: {_guids.Count} guid(s).");
         }
     }
 }

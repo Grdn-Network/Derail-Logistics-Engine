@@ -70,10 +70,15 @@ namespace DLE.Economy
             return set;
         }
 
+        /// <summary>World tuning from economy.json's "settings" block; defaults when the
+        /// file or block is absent. Refreshed by every ApplyOverlay (load and reload).</summary>
+        public static TuningDef Tuning { get; private set; } = new TuningDef();
+
         public static void ApplyOverlay(Dictionary<string, FacilityDef> facilities, string modPath)
         {
+            Tuning = new TuningDef();
             var path = Path.Combine(modPath, "economy.json");
-            if (!File.Exists(path)) return;
+            if (!File.Exists(path)) { ApplyExclusions(facilities); return; }
 
             EconomyOverlay overlay;
             try
@@ -83,9 +88,12 @@ namespace DLE.Economy
             catch (Exception ex)
             {
                 Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
+                ApplyExclusions(facilities);
                 return;
             }
-            if (overlay == null || (overlay.stations == null && overlay.defaults == null)) return;
+            if (overlay == null) { ApplyExclusions(facilities); return; }
+            if (overlay.settings != null) Tuning = overlay.settings;
+            if (overlay.stations == null && overlay.defaults == null) { ApplyExclusions(facilities); return; }
 
             // Global defaults first: the baseline for every facility.
             if (overlay.defaults != null)
@@ -112,7 +120,17 @@ namespace DLE.Economy
                     if (so.remoteLoad.HasValue) facility.RemoteLoad = so.remoteLoad.Value;
                     if (so.remoteUnload.HasValue) facility.RemoteUnload = so.remoteUnload.Value;
                     if (so.remoteSecondsPerCar.HasValue) facility.RemoteSecondsPerCar = so.remoteSecondsPerCar.Value;
+                    if (so.source.HasValue) facility.IsSource = so.source.Value;
+                    if (so.boosters != null)
+                        facility.Boosters = so.boosters.Select(ToBooster).Where(b => b != null && b.Cargo.Count > 0).ToList();
                 }
+
+            // A source produces on the clock with no required inputs: whatever recipe was
+            // auto-derived from its cargo groups (tools in, ore out) would gate production
+            // on deliveries, so it goes. Its inputs act through Boosters instead.
+            foreach (var f in facilities.Values)
+                if (f.IsSource && f.Recipes.Count > 0)
+                    f.Recipes.Clear();
 
             // Warn when a role contradicts the station's derived economy, so a config
             // typo that silently strands stock or starves inputs is visible in the log.
@@ -125,7 +143,34 @@ namespace DLE.Economy
                     Main.LogAlways($"[Economy] {f.YardId}: role=load but it consumes " +
                                    $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
+            ApplyExclusions(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
+        }
+
+        /// <summary>
+        /// Strip excluded cargo (settings.excludedCargos) from every facility: outputs,
+        /// inputs, caps and recipes. A recipe left without inputs or outputs is removed;
+        /// the facility then behaves as the source or sink it really is.
+        /// </summary>
+        private static void ApplyExclusions(Dictionary<string, FacilityDef> facilities)
+        {
+            var excluded = new HashSet<CargoType>();
+            foreach (var name in Tuning.excludedCargos ?? new List<string>())
+                if (TryCargo(name, out var c)) excluded.Add(c);
+            if (excluded.Count == 0) return;
+            foreach (var f in facilities.Values)
+            {
+                f.Outputs.RemoveAll(excluded.Contains);
+                f.Inputs.RemoveAll(excluded.Contains);
+                foreach (var key in f.StorageCaps.Keys.Where(excluded.Contains).ToList())
+                    f.StorageCaps.Remove(key);
+                foreach (var r in f.Recipes)
+                {
+                    r.Inputs.RemoveAll(s => excluded.Contains(s.Cargo));
+                    r.Outputs.RemoveAll(s => excluded.Contains(s.Cargo));
+                }
+                f.Recipes.RemoveAll(r => r.Inputs.Count == 0 || r.Outputs.Count == 0);
+            }
         }
 
         private static void ApplyDefaults(FacilityDef f, OverlayDefaults d)
@@ -150,6 +195,17 @@ namespace DLE.Economy
                     Main.Log($"[Economy] unknown role '{s}' in economy.json, using {fallback}.");
                     return fallback;
             }
+        }
+
+        private static BoosterDef ToBooster(BoosterOverlay bo)
+        {
+            if (bo?.cargo == null) return null;
+            var def = new BoosterDef();
+            foreach (var name in bo.cargo)
+                if (TryCargo(name, out var cargo)) def.Cargo.Add(cargo);
+            if (bo.speedup.HasValue) def.Speedup = Math.Max(1f, bo.speedup.Value);
+            if (bo.consumedPerCarload.HasValue) def.ConsumedPerCarload = Math.Max(0f, bo.consumedPerCarload.Value);
+            return def;
         }
 
         private static RecipeDef ToRecipe(RecipeOverlay ro)

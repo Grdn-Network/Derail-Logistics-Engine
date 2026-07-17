@@ -48,6 +48,13 @@ namespace DLE.Economy
         public ServiceRole Role = ServiceRole.Both;
         public bool RemoteLoad = true;
         public bool RemoteUnload = true;
+
+        // Source industries (economy.json "source": true) produce on the clock with no
+        // required inputs; their deliveries act through Boosters instead: any one cargo
+        // of a booster entry in stock multiplies production speed and is slowly consumed
+        // per carload produced. Multiple active boosters stack multiplicatively.
+        public bool IsSource;
+        public List<BoosterDef> Boosters = new List<BoosterDef>();
         public float RemoteSecondsPerCar = 45f;
 
         public bool Consumes(CargoType cargo) => Inputs.Contains(cargo);
@@ -63,8 +70,31 @@ namespace DLE.Economy
     // economy.json overlay shape (cargo names are CargoType enum names).
     public class EconomyOverlay
     {
+        public TuningDef settings;
         public OverlayDefaults defaults;
         public Dictionary<string, StationOverlay> stations;
+    }
+
+    // World tuning from economy.json's "settings" block; absent keys keep these values.
+    // Hot-reloadable through "Reload economy.json".
+    public class TuningDef
+    {
+        public int initialStock = 6;
+        public int directorTickSeconds = 120;
+        public int sourceProductionMinutes = 10;
+        public int poolTrackFillPercent = 90;
+        public int maxPoolCars = 500;
+
+        // Cargo kept out of the economy entirely (no stock, no demand, no hauls).
+        // Default: the branded empty-container returns; moving a station's own
+        // containers around is coordination work (logistics runs now, container
+        // contracts at 1.0), not production cargo.
+        public List<string> excludedCargos = new List<string>
+        {
+            "EmptySunOmni", "EmptyIskar", "EmptyObco", "EmptyGoorsk",
+            "EmptyKrugmann", "EmptyBrohm", "EmptyAAG", "EmptySperex",
+            "EmptyNovae", "EmptyTraeg", "EmptyChemlek", "EmptyNeoGamma",
+        };
     }
 
     // Global servicing defaults applied to every station before per-station overrides.
@@ -86,11 +116,27 @@ namespace DLE.Economy
         public bool? remoteLoad;
         public bool? remoteUnload;
         public float? remoteSecondsPerCar;
+        public bool? source;                // produces on the clock, inputs become boosters
+        public List<BoosterOverlay> boosters;
     }
 
     public class RecipeOverlay
     {
         public Dictionary<string, float> inputs;
         public Dictionary<string, float> outputs;
+    }
+
+    public class BoosterDef
+    {
+        public List<CargoType> Cargo = new List<CargoType>();
+        public float Speedup = 2f;
+        public float ConsumedPerCarload = 0.05f;
+    }
+
+    public class BoosterOverlay
+    {
+        public List<string> cargo;
+        public float? speedup;
+        public float? consumedPerCarload;
     }
 }

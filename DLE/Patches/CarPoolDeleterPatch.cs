@@ -22,6 +22,11 @@ namespace DLE.Patches
         [HarmonyPrefix]
         public static bool Prefix(TrainCar trainCar, ref bool __result)
         {
+            // The first delete decisions run during world load, before OnWorldLoaded has
+            // handed DLE its save data; arm the pool from the save on demand so the guard
+            // is never consulted unarmed (an unarmed guard condemned the whole restored
+            // fleet on every load).
+            DleCarPool.Instance.EnsureLoaded();
             if (trainCar?.logicCar?.carGuid != null && DleCarPool.Instance.Contains(trainCar.logicCar.carGuid))
             {
                 __result = false;

@@ -1,5 +1,26 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'settings' is world tuning: initialStock (carloads each producer output starts with, also the company.resupply target), directorTickSeconds (haul generation and production heartbeat), sourceProductionMinutes (minutes per carload at mines, forests, wells, farm), poolTrackFillPercent (how full company.respawn packs producer storage tracks), maxPoolCars (hard fleet ceiling). 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "settings": {
+    "initialStock": 6,
+    "directorTickSeconds": 120,
+    "sourceProductionMinutes": 10,
+    "poolTrackFillPercent": 90,
+    "maxPoolCars": 500,
+    "excludedCargos": [
+      "EmptySunOmni",
+      "EmptyIskar",
+      "EmptyObco",
+      "EmptyGoorsk",
+      "EmptyKrugmann",
+      "EmptyBrohm",
+      "EmptyAAG",
+      "EmptySperex",
+      "EmptyNovae",
+      "EmptyTraeg",
+      "EmptyChemlek",
+      "EmptyNeoGamma"
+    ]
+  },
   "defaults": {
     "role": "both",
     "remoteLoad": true,
@@ -11,46 +32,248 @@
     "HB": {
       "defaultCap": 200
     },
+    "MF": {
+      "recipes": [
+        {
+          "inputs": {
+            "SteelRolls": 2,
+            "SteelBillets": 1
+          },
+          "outputs": {
+            "Tractors": 1,
+            "Excavators": 1
+          }
+        }
+      ]
+    },
     "CW": {
       "defaultCap": 100
     },
     "SM": {
       "defaultCap": 100,
       "recipes": [
-        { "inputs": { "IronOre": 2, "Coal": 2 }, "outputs": { "SteelRolls": 2, "SteelBillets": 1 } }
+        {
+          "inputs": {
+            "IronOre": 2,
+            "Coal": 1
+          },
+          "outputs": {
+            "SteelRolls": 2,
+            "SteelBillets": 1
+          }
+        }
       ]
     },
     "GF": {
       "defaultCap": 100,
       "recipes": [
-        { "inputs": { "Boards": 1, "SteelRolls": 1 }, "outputs": { "Furniture": 1, "ToolsIskar": 1 } }
+        {
+          "inputs": {
+            "Boards": 1,
+            "SteelRolls": 1
+          },
+          "outputs": {
+            "Furniture": 1,
+            "ToolsIskar": 1
+          }
+        }
       ]
     },
     "FF": {
       "defaultCap": 100,
       "recipes": [
-        { "inputs": { "Wheat": 1, "Milk": 1 }, "outputs": { "Bread": 1, "DairyProducts": 1 } }
-      ]
-    },
-    "MF": {
-      "recipes": [
-        { "inputs": { "SteelRolls": 2, "SteelBillets": 1 }, "outputs": { "Tractors": 1, "Excavators": 1 } }
+        {
+          "inputs": {
+            "Wheat": 1,
+            "Milk": 1
+          },
+          "outputs": {
+            "Bread": 1,
+            "DairyProducts": 1
+          }
+        }
       ]
     },
     "SW": {
       "defaultCap": 25,
       "recipes": [
-        { "inputs": { "Logs": 2 }, "outputs": { "Boards": 1, "Plywood": 1 } }
+        {
+          "inputs": {
+            "Logs": 2
+          },
+          "outputs": {
+            "Boards": 1,
+            "Plywood": 1
+          }
+        }
       ]
     },
-    "OWN": { "defaultCap": 25 },
-    "OWC": { "defaultCap": 25 },
-    "CME": { "defaultCap": 25 },
-    "CMS": { "defaultCap": 25 },
-    "IME": { "defaultCap": 25 },
-    "IMW": { "defaultCap": 25 },
-    "FRC": { "defaultCap": 25 },
-    "FRS": { "defaultCap": 25 },
-    "FM":  { "defaultCap": 25 }
+    "OWN": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "OWC": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "CME": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "CMS": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "IME": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "IMW": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    },
+    "FRC": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        },
+        {
+          "cargo": [
+            "Tractors"
+          ],
+          "speedup": 1.5,
+          "consumedPerCarload": 0.1
+        }
+      ]
+    },
+    "FRS": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        },
+        {
+          "cargo": [
+            "Tractors"
+          ],
+          "speedup": 1.5,
+          "consumedPerCarload": 0.1
+        }
+      ]
+    },
+    "FM": {
+      "defaultCap": 25,
+      "source": true,
+      "boosters": [
+        {
+          "cargo": [
+            "ToolsIskar",
+            "ToolsBrohm",
+            "ToolsAAG",
+            "ToolsNovae",
+            "ToolsTraeg"
+          ],
+          "speedup": 2.0,
+          "consumedPerCarload": 0.05
+        }
+      ]
+    }
   }
 }
