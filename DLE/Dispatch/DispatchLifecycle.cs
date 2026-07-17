@@ -124,6 +124,14 @@ namespace DLE.Dispatch
                 return Result.Fail($"{notDelivered.Count}/{cars.Count} car(s) not unloaded at " +
                                    $"{def.chainData?.chainDestinationYardId} yet ({string.Join(", ", notDelivered.Take(4).Select(c => c.ID))})");
 
+            // Nothing is ever destroyed: closing with less room than cargo would eat
+            // the excess unpaid, so the job waits (the auto-close sweep retries) until
+            // consumption frees space at the destination.
+            int deliverable = Math.Min(cars.Count, def.loadedCarloads);
+            float room = Economy.EconomyState.Instance.GetRoom(def.chainData?.chainDestinationYardId, def.transportedCargo);
+            if (room + 0.001f < deliverable)
+                return Result.Fail($"{def.chainData?.chainDestinationYardId} has room for {(int)Math.Floor(room + 0.001f)} of {deliverable} carload(s); waiting for the station to consume");
+
             var state = SingletonBehaviour<JobsManager>.Instance.TryToCompleteAJob(job);
             if (state != JobState.Completed)
                 return Result.Fail($"game refused completion (state {state})");

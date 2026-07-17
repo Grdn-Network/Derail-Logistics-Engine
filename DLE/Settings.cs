@@ -16,6 +16,12 @@ namespace DLE
         [Draw("Available booklets on the whole map")]
         public int MaxOpenBookletsTotal = 60;
 
+        [Draw("Serve the dispatch board on the network (password required)")]
+        public bool RemoteBoard = false;
+
+        [Draw("Board password (blank keeps the board host-only)")]
+        public string BoardPassword = "";
+
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
 
