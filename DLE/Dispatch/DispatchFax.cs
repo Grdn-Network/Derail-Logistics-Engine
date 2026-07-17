@@ -109,6 +109,14 @@ namespace DLE.Dispatch
             try { SingletonBehaviour<StorageController>.Instance?.AddItemToWorldStorageAfterOneFrame(booklet); }
             catch (Exception ex) { Main.Log($"[Fax] world storage registration failed: {ex.Message}"); }
 
+            // Handing someone paper is handing them the work: a fax to a named crew
+            // assigns the job if nothing else has.
+            if (!isLocal && !viaAssignment && AssignmentStore.Instance.Get(jobId) == null)
+            {
+                AssignmentStore.Instance.Assign(jobId, name, "fax");
+                Main.Log($"[Fax] {jobId} assigned to {name} by fax.");
+            }
+
             Main.LogAlways($"[Fax] {jobId} faxed; printed in front of {name}.");
             return Result.Done($"{jobId} faxed; printing in front of {name}");
         }

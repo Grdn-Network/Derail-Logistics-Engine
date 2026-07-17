@@ -31,6 +31,14 @@ namespace DLE.Patches
                 return false;
             }
 
+            // Unpaid moves are dispatch-run whatever the lock says: no assignment, no take.
+            bool unpaidMove = Jobs.StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var mdef) && mdef.unpaidMove;
+            if (unpaidMove && AssignmentStore.Instance.Get(job.ID) == null)
+            {
+                Main.Log($"[Dispatch] {job.ID} rejected at validator: unpaid moves are assigned by dispatch.");
+                return false;
+            }
+
             if (!AssignmentStore.Instance.LockEnabled) return true;
             if (AssignmentStore.Instance.Get(job.ID) == null)
             {

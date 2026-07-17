@@ -31,6 +31,7 @@ namespace DLE.Economy
             {
                 var state = kv.Value.LiveJob?.State;
                 if (state != null && state != JobState.Available) continue;
+                if (kv.Value.unpaidMove) continue; // dispatch work, not public paper
                 total++;
                 var origin = kv.Value.chainData?.chainOriginYardId;
                 if (origin == null) continue;

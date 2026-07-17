@@ -71,6 +71,10 @@ namespace DLE.Dispatch
                 return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
             }
 
+            // Unpaid moves are dispatch-run: taking one names the crew, which assigns it.
+            if (def.unpaidMove && AssignmentStore.Instance.Get(jobId) == null && string.IsNullOrEmpty(player))
+                return Result.Fail("unpaid moves are dispatch-assigned; enter the crew name to take it");
+
             if (AssignmentStore.Instance.LockEnabled)
             {
                 var assignment = AssignmentStore.Instance.Get(jobId);

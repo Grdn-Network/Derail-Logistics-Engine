@@ -65,8 +65,7 @@ namespace DLE.Economy
                 try { AutoCloseDelivered(); }
                 catch (System.Exception ex) { Main.Log($"[Director] auto-close sweep failed: {ex.Message}"); }
 
-                if (!Dispatch.AssignmentStore.Instance.LockEnabled) continue;
-                try { DespawnManagedOverviews(); }
+                try { DespawnManagedOverviews(Dispatch.AssignmentStore.Instance.LockEnabled); }
                 catch (System.Exception ex) { Main.Log($"[Director] overview sweep failed: {ex.Message}"); }
             }
         }
@@ -97,7 +96,7 @@ namespace DLE.Economy
             }
         }
 
-        private static void DespawnManagedOverviews()
+        private static void DespawnManagedOverviews(bool lockOn)
         {
             if (StationController.allStations == null) return;
             int removed = 0;
@@ -119,6 +118,11 @@ namespace DLE.Economy
                     }
                     var id = ov.job?.ID;
                     if (id == null || !Jobs.JobUtils.ManagedJobIds.Contains(id)) continue;
+                    // Lock ON sweeps every Company Haul paper. Unpaid moves are dispatch
+                    // work regardless of the lock: their paper never sits in an office;
+                    // dispatch assigns and faxes them instead.
+                    bool unpaid = Jobs.StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(id, out var d) && d.unpaidMove;
+                    if (!lockOn && !unpaid) continue;
                     overviews.RemoveAt(i);
                     ov.DestroyJobOverview();
                     removed++;
