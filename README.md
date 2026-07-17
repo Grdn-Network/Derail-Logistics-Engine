@@ -115,6 +115,11 @@ assemblies from `DerailValley_Data/Managed/` and
 `DerailValley_Data/Managed/UnityModManager/`, then `dotnet build
 DLE/DLE.csproj`. The built DLL lands in `build/`.
 
+## Support
+
+DLE is free and always will be. If it made your sessions better and you feel
+like fueling the next wave: [ko-fi.com/grdn23](https://ko-fi.com/grdn23).
+
 ## Credits
 
 - Direct Haul mechanics and booklet rendering adapted from SelfShunter by
