@@ -31,6 +31,7 @@
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.WarehouseMachine.currentTasks" />
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.Task.taskFinishTime" />
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.JobsManager.jobToJobCars" />
+    <Publicize Include="Assembly-CSharp:DV.Logic.Job.JobsManager.allJobs" />
     <Publicize Include="Assembly-CSharp:DV.ServicePenalty.JobDebtController.OnJobTaken" />
     <Publicize Include="Assembly-CSharp:StationController.spawnedJobOverviews" />
     <Publicize Include="Assembly-CSharp:WarehouseMachineController.StartLoadSequence" />
