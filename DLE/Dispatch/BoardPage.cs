@@ -37,6 +37,7 @@ padding:2px 10px;font-size:12px;color:var(--dim);white-space:nowrap}
 .machrow .mcount.low{color:var(--amber)}
 .machrow .mcount.out{color:var(--red)}
 .machrow .mwear{color:var(--dim)}
+.ctag{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--line2);margin-left:3px}
 .spacer{flex:1}
 button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line2);
 background:transparent;color:var(--text);padding:5px 12px;transition:border-color .15s,background .15s}
@@ -262,7 +263,7 @@ function jobCard(x,avail){
    ${!x.awaitingEmpties&&x.cars>0&&x.loadedCars>0&&x.loadedCars<x.cars?`<span class='tag'>loading ${x.loadedCars}/${x.cars}</span>`:''}
    <span class='wage num'${x.unpaid?` style='color:var(--dim)'`:''}>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>&#8594;</span><b>${esc(x.destination)}</b></div>
-  <div class='meta'><b>${esc(x.cargo)}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
+  <div class='meta'><b>${esc(disp(x.cargo))}</b> &middot; ${cars} cars${x.tonnes?` &middot; ${x.tonnes} t loaded`:''}${x.pickupTrack?` &middot; pickup <b>${esc(x.pickupTrack)}</b>`:''}</div>
   <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'unassigned'}</div>
   <div class='acts'>${acts}
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name first, else the assigned crew, else you'>Fax</button>
@@ -281,7 +282,7 @@ function snapshotCrew(){const m={};document.querySelectorAll('.crew').forEach(i=
 function restoreCrew(s){for(const id in s.m){const i=$(id);if(i)i.value=s.m[id]}
  if(s.focus){const i=$(s.focus);if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}}}
 function keepSelect(sel,items){const cur=sel.value;
- sel.innerHTML=items.map(v=>`<option>${esc(v)}</option>`).join('');
+ sel.innerHTML=items.map(v=>`<option value='${esc(v)}'>${esc(disp(v))}</option>`).join('');
  if([...sel.options].some(o=>o.value===cur))sel.value=cur}
 async function refresh(){
  let state,jobs,econ,logs,hist;
@@ -388,7 +389,7 @@ function stockRow(s,cap){
  const pct=cap>0?Math.min(100,Math.round(100*s.amount/cap)):0;
  const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
  const recv=s.imported>=1?` &middot; ${Math.round(s.imported)} received`:'';
- return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed; bars show the share of the station total'>${esc(s.cargo)}</span>`+
+ return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed; bars show the share of the station total'>${esc(disp(s.cargo))} <span class='ctag'>${cargoClass(s.cargo)}</span></span>`+
   `<div class='bar'><i style='width:${pct}%'></i></div>`+
   `<span class='nums num'>${Math.round(s.amount)}${held}${recv}</span></div>`;
 }
@@ -399,9 +400,19 @@ const CATS={Tools:['ToolsIskar','ToolsBrohm','ToolsAAG','ToolsNovae','ToolsTraeg
  Clothing:['ClothingObco','ClothingNeoGamma','ClothingNovae','ClothingTraeg'],
  Chemicals:['ChemicalsIskar','ChemicalsSperex'],
  Gases:['CryoHydrogen','Ammonia','SodiumHydroxide']};
-const MATERIALS=new Set(['IronOre','Coal','Logs','CrudeOil','Methane','ScrapMetal','ScrapWood',
+// Display names: the one-cargo bundles read as their category on the board; the
+// API keeps the real enum names underneath.
+const DISP={ToolsIskar:'Tools',ElectronicsIskar:'Electronics',ChemicalsIskar:'Chemicals'};
+function disp(c){return DISP[c]||c}
+// Cargo classes: RESOURCES come out of the ground and the farm, MATERIALS are
+// processed intermediates, everything else is finished goods.
+const RESOURCES=new Set(['IronOre','Coal','Logs','CrudeOil','Methane','ScrapMetal','ScrapWood',
  'Wheat','Corn','Milk','Eggs','Cotton','Wool','SunflowerSeeds','Pigs','Cows','Poultry','Sheep','Goats',
- 'TemperateFruits','Vegetables','Flour']);
+ 'TemperateFruits','Vegetables','Flour','Fish']);
+const MATERIALS=new Set(['SteelRolls','SteelBillets','SteelSlabs','SteelBentPlates','SteelRails',
+ 'Boards','Plywood','Sleepers','WoodChips','Pipes','Gasoline','Diesel','ChemicalsIskar',
+ 'CryoHydrogen','Ammonia','SodiumHydroxide','Argon','CryoOxygen','Nitrogen','Acetylene','AmmoniumNitrate']);
+function cargoClass(c){return RESOURCES.has(c)?'resource':MATERIALS.has(c)?'material':'goods'}
 function stockAmt(n,cargo){
  if(CATS[cargo])return CATS[cargo].reduce((t,c)=>t+stockAmt(n,c),0);
  const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
@@ -442,7 +453,7 @@ function drawNet(){
    d='${netPath(e,bidi)}' fill='none' stroke='${on&&sel?'#8fb8e8':'#3d5a7a'}'
    stroke-opacity='${sel?(on?0.95:0.05):0.5}' stroke-width='${sel&&on?w+1.5:w}'
    marker-end='url(#${sel&&on?'arwB':'arw'})'>
-   <title>${esc(e.src)} to ${esc(e.dst)}: ${esc(e.cargos.join(', '))} (${Math.round(e.stock)} shippable)</title></path>`;
+   <title>${esc(e.src)} to ${esc(e.dst)}: ${esc(e.cargos.map(disp).join(', '))} (${Math.round(e.stock)} shippable)</title></path>`;
  }
  for(const id in nodes){
   const n=nodes[id];const p=NET_POS[id];
@@ -466,15 +477,15 @@ function renderNetDetail(nodes,edges,sel){
  const n=nodes[sel];
  let h=`<b>${esc(sel)}</b> <span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
  if(n.source)
-  h+=`<div class='nrecipe'>produces materials over time: <b>${esc((n.outputs||[]).join(', '))}</b></div>`;
+  h+=`<div class='nrecipe'>produces resources over time: <b>${esc((n.outputs||[]).map(disp).join(', '))}</b></div>`;
  if((n.recipes||[]).length)
-  h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+i.cargo)).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+o.cargo)).join(' + ')}</div>`).join('');
+  h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+disp(i.cargo))).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+disp(o.cargo))).join(' + ')}</div>`).join('');
  else if(!n.source&&(n.outputs||[]).length===0)
   h+=`<div class='nrecipe'>${n.consumer?'consumes its stock on the clock; keeping it fed boosts every industry':'accepts <b>'+esc((n.inputs||[]).join(', '))+'</b>; storage is the demand'}</div>`;
  if(n.importHub)
   h+=`<div class='nrecipe'>imports scale with the exports delivered here; tools ride in rarely</div>`;
  const miss=netMissing(n);
- if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
+ if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.map(disp).join(', '))}</div>`;
  if((n.machines||[]).length){
   h+=`<div class='sublab'>machines &middot; needs at least one of each for production</div>`;
   for(const m of n.machines){
@@ -506,8 +517,8 @@ function renderNetDetail(nodes,edges,sel){
   if(dcons.length)h+=`<div class='sublab'>consumed &middot; ${gsum(dcons)} / ${cap} of storage</div>`+dcons.map(s=>stockRow(s,n.totalCap||0)).join('');
  }
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
- if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
- if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.join(', '))}`).join(' &middot; ')+`</div>`;
+ if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.map(disp).join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
+ if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.map(disp).join(', '))}`).join(' &middot; ')+`</div>`;
  d.className='netdetail show';d.innerHTML=h;
 }
 function renderFleet(r){
