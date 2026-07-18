@@ -53,6 +53,34 @@ namespace DLE.Dispatch
             return expired;
         }
 
+        /// <summary>
+        /// Dispatcher deletes one open haul from the board: the booklet expires exactly
+        /// like the lock-on purge does, and the chain teardown returns its supply hold.
+        /// Taken hauls are refused: a crew owns that work; deleting it out from under a
+        /// moving train (and its consumed, on-car supply) is a different operation.
+        /// </summary>
+        public static Result DeleteHaul(string jobId)
+        {
+            if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
+            if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
+                return Result.Fail($"unknown job '{jobId}'");
+            var job = def.LiveJob;
+            if (job.State != JobState.Available)
+                return Result.Fail($"{jobId} is {job.State}; only open (untaken) hauls can be deleted. Unassign it and have the crew abandon it instead.");
+            try
+            {
+                job.ExpireJob();
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[Dispatch] {jobId} delete failed: {ex.GetType().Name}: {ex.Message}");
+                return Result.Fail($"the game refused to expire {jobId}; see the log");
+            }
+            AssignmentStore.Instance.Unassign(jobId);
+            Main.LogAlways($"[Dispatch] {jobId} deleted via board; supply returned.");
+            return Result.Done($"{jobId} deleted; its supply returned to the pile");
+        }
+
         public static Result TakeJob(string jobId, string player)
         {
             if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");

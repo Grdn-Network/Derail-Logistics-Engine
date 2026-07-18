@@ -412,6 +412,18 @@ namespace DLE.Dispatch
                 // Where every car of a job is right now, nearest to the loading track first.
                 // This is the dispatcher's logi-coordination view until RD renders car types.
                 const string jobCarsPrefix = "/api/v1/jobs/";
+
+                // Delete an open haul from the board (the per-job cousin of the lock
+                // purge): the booklet expires and its supply hold returns to the pile.
+                if (method == "DELETE" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.IndexOf('/', jobCarsPrefix.Length) < 0)
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length);
+                    var r = DispatchLifecycle.DeleteHaul(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+
                 if (method == "GET" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
                     path.EndsWith("/cars", StringComparison.Ordinal))
                 {
@@ -501,7 +513,9 @@ namespace DLE.Dispatch
                         var req = JsonConvert.DeserializeObject<AssignRequest>(body ?? "");
                         if (string.IsNullOrEmpty(req?.player)) { Json(ctx, 400, new { error = "player required" }); return; }
                         AssignmentStore.Instance.Assign(jobId, req.player, req.assignedBy ?? "dispatcher");
-                        Json(ctx, 200, new { ok = true });
+                        // Echo what the store actually recorded (issue #79 forensics): the
+                        // caller can verify the assignment landed under the id it expects.
+                        Json(ctx, 200, new { ok = true, jobId, assignedTo = AssignmentStore.Instance.Get(jobId)?.Player });
                         return;
                     }
                     if (method == "DELETE")
