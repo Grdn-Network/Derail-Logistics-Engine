@@ -45,6 +45,49 @@ namespace DLE.Patches
                 ? taskCars
                 : (def?.displayCars ?? new List<Car_data>());
 
+            // No definition (a DVMP client: the def is host state) and no attached cars:
+            // rebuild the display from the SYNCED task data. Every warehouse task carries
+            // its cargo, and a carless task's cargoAmount carries the planned car count,
+            // so the client's paper can show "4 loads of Scrap Metal" instead of 0 of
+            // nothing. Same livery pick as the host's synthetic display cars.
+            if (def == null && cars.Count == 0 && job.tasksData != null)
+            {
+                var syncedCargo = CargoType.None;
+                int plannedFromSync = 0;
+                foreach (var task in job.tasksData)
+                {
+                    if (syncedCargo == CargoType.None && task.cargoTypePerCar != null)
+                        foreach (var c in task.cargoTypePerCar)
+                            if (c != CargoType.None) { syncedCargo = c; break; }
+                    int hint = (int)task.totalCargoAmount;
+                    if (hint > plannedFromSync && hint <= 99) plannedFromSync = hint;
+                }
+                if (syncedCargo != CargoType.None && plannedFromSync > 0 &&
+                    DV.Globals.G.Types.CargoType_to_v2.TryGetValue(syncedCargo, out var v2) &&
+                    DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes))
+                {
+                    var usable = carTypes.Where(t => t.liveries != null && t.liveries.Count > 0).ToList();
+                    if (usable.Count > 0)
+                    {
+                        var rebuilt = new List<Car_data>();
+                        for (int i = 0; i < plannedFromSync; i++)
+                        {
+                            var shownType = usable[i % usable.Count];
+                            var livery = shownType.liveries[i % shownType.liveries.Count];
+                            var (length, tare, capacity) = DLE.Jobs.DirectHaulGenerator.LiveryDisplayData(livery);
+                            rebuilt.Add(new Car_data("?", livery, false, false, length, tare, capacity));
+                        }
+                        cars = rebuilt;
+                    }
+                }
+                if (syncedCargo != CargoType.None && cars.Count > 0)
+                {
+                    cargoTypePerCar = cars.Select(_ => syncedCargo).ToList();
+                    cargoName = CargoDisplayName(syncedCargo);
+                    return;
+                }
+            }
+
             var taskCargo = FirstTaskCargo(job);
             if (taskCargo != null && taskCargo.Count == cars.Count && taskCargo.Count > 0)
             {
@@ -59,18 +102,13 @@ namespace DLE.Patches
                 cargoTypePerCar = taskCargo ?? new List<CargoType>();
             }
 
-            cargoName = string.Empty;
-            if (cargoTypePerCar.Count > 0)
-            {
-                try
-                {
-                    cargoName = LocalizationAPI.L(cargoTypePerCar[0].ToV2().localizationKeyFull);
-                }
-                catch (Exception)
-                {
-                    cargoName = cargoTypePerCar[0].ToString();
-                }
-            }
+            cargoName = cargoTypePerCar.Count > 0 ? CargoDisplayName(cargoTypePerCar[0]) : string.Empty;
+        }
+
+        private static string CargoDisplayName(CargoType cargo)
+        {
+            try { return LocalizationAPI.L(cargo.ToV2().localizationKeyFull); }
+            catch (Exception) { return cargo.ToString(); }
         }
 
         private static List<Car_data> FirstTaskCars(Job_data job) =>

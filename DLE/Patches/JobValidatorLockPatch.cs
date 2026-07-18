@@ -30,17 +30,21 @@ namespace DLE.Patches
             // that stayed Available, shrinking the pile for every other booklet until the
             // next world load and falsely expiring their paper as stale.
 
+            // Refusals log unconditionally: DVMP never tells the client WHY a take did
+            // nothing (its validate-response send is commented out in dv-mp), so the
+            // host log is the only forensic record of a swallowed take.
+
             // Unpaid moves are dispatch-run whatever the lock says: no assignment, no take.
             bool unpaidMove = Jobs.StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var mdef) && mdef.unpaidMove;
             if (unpaidMove && AssignmentStore.Instance.Get(job.ID) == null)
             {
-                Main.Log($"[Dispatch] {job.ID} rejected at validator: unpaid moves are assigned by dispatch.");
+                Main.LogAlways($"[Dispatch] {job.ID} take refused at validator: unpaid moves are assigned by dispatch first.");
                 return false;
             }
 
             if (AssignmentStore.Instance.LockEnabled && AssignmentStore.Instance.Get(job.ID) == null)
             {
-                Main.Log($"[Dispatch] {job.ID} rejected at validator: lock is on and the job is unassigned.");
+                Main.LogAlways($"[Dispatch] {job.ID} take refused at validator: lock is on and the job is unassigned.");
                 return false; // swallow; the overview stays printed, nothing happens
             }
 
@@ -56,6 +60,10 @@ namespace DLE.Patches
                 return false;
             }
 
+            // One line per allowed take: rare, and the only host-side record tying a
+            // validator take to a moment in time when an MP session goes sideways.
+            if (job.State == DV.ThingTypes.JobState.Available)
+                Main.LogAlways($"[Dispatch] {job.ID} take allowed at validator.");
             return true;
         }
     }
