@@ -85,9 +85,14 @@ namespace DLE.Jobs
             // Cargo amount is UNITS, not car count: with cars attached (a restored job)
             // the machine moves capacity-sum units, the same figure CommitAttach writes.
             // A count here meant a restored consist "loaded" a few units into 45t cars.
+            // Carless jobs put the PLANNED car count here: it is the only figure that
+            // reaches DVMP clients (task cargoAmount syncs; the definition does not), so
+            // their booklets can say "4 loads" instead of 0. CommitAttach rewrites it to
+            // the real capacity sum the moment cars attach, so the machine still moves
+            // capacity units, exactly as before.
             float cargoUnits = carsToTransport.Count > 0
                 ? carsToTransport.Sum(c => c.capacity)
-                : carsToTransport.Count;
+                : plannedCarCount;
 
             var tasks = new List<Task>();
             if (includeLoadTask)

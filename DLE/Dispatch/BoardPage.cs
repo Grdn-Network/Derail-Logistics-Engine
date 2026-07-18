@@ -504,7 +504,7 @@ function renderPickPanel(id){
   `<div style='margin-top:8px;display:flex;gap:8px;align-items:center'>
    <button class='primary' data-act='loadPicked' data-id='${esc(id)}' ${done?'':'disabled'}>Start loading</button>
    <button class='mini' data-act='pickAuto' data-id='${esc(id)}' title='Let the station pick the nearest suitable empties'>Auto-pick</button>
-   <span class='meta'>${p.sel.length}/${d.wanted} picked &middot; staff &#8776; ${fmtSecs(p.sel.length*d.perCarSeconds)} at ${d.perCarSeconds}s per car</span>
+   <span class='meta'>${p.sel.length}/${d.wanted} picked &middot; staff &#8776; ${fmtSecs(Math.max(0,p.sel.length-1)*d.perCarSeconds)} (first car instant, ${d.perCarSeconds}s per car after)</span>
   </div>`;
 }
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}

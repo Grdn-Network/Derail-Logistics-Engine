@@ -26,7 +26,7 @@ namespace DLE.Jobs
         private static readonly Dictionary<TrainCarLivery, (float length, float tare, float capacity)>
             _liveryDisplayData = new Dictionary<TrainCarLivery, (float, float, float)>();
 
-        private static (float length, float tare, float capacity) LiveryDisplayData(TrainCarLivery livery)
+        internal static (float length, float tare, float capacity) LiveryDisplayData(TrainCarLivery livery)
         {
             if (_liveryDisplayData.TryGetValue(livery, out var cached)) return cached;
             float length = 0f, capacity = 1f;

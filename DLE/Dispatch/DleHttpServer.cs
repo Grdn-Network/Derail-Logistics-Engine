@@ -413,7 +413,24 @@ namespace DLE.Dispatch
                     }
                     if (method == "DELETE")
                     {
-                        Json(ctx, LogisticsBoard.Instance.Delete(id) ? 200 : 404, new { ok = true });
+                        // Deleting a run must also expire its backing EmptyHaul booklet,
+                        // or the bound cars stay on a job forever and the picker can
+                        // never use them again.
+                        var order = LogisticsBoard.Instance.All.FirstOrDefault(o => o.Id == id);
+                        string freed = null;
+                        if (!string.IsNullOrEmpty(order?.JobId))
+                        {
+                            var jm = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+                            var job = jm?.jobToJobCars.Keys.FirstOrDefault(j => j != null && j.ID == order.JobId);
+                            if (job != null && job.State == DV.ThingTypes.JobState.Available)
+                            {
+                                try { job.ExpireJob(); freed = order.JobId; Main.LogAlways($"[Logistics] {id}: booklet {order.JobId} expired with the run; cars freed."); }
+                                catch (Exception ex) { Main.LogAlways($"[Logistics] {id}: could not expire {order.JobId}: {ex.GetType().Name}: {ex.Message}"); }
+                            }
+                            else if (job != null)
+                                Main.LogAlways($"[Logistics] {id} deleted but booklet {order.JobId} is {job.State}; the crew keeps it.");
+                        }
+                        Json(ctx, LogisticsBoard.Instance.Delete(id) ? 200 : 404, new { ok = true, freedBooklet = freed });
                         return;
                     }
                 }

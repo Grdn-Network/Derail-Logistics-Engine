@@ -125,7 +125,9 @@ namespace DLE.Dispatch
             float perCar = facility.RemoteSecondsPerCar;
             if (!DleDirectorBehaviour.TryRun(StaffLoadRoutine(def, job, cars, attached, perCar)))
                 return Result.Fail("world not ready");
-            return Result.Done($"station staff loading {cars.Count} car(s), one every {perCar:0}s (about {perCar * cars.Count:0}s)");
+            // First car is instant; the pacing applies from car two, so the estimate is
+            // per-car time across the remaining N-1.
+            return Result.Done($"station staff loading {cars.Count} car(s): first now, one every {perCar:0}s after (about {perCar * Math.Max(0, cars.Count - 1):0}s)");
         }
 
         public static Result UnloadJob(string jobId)
@@ -171,7 +173,7 @@ namespace DLE.Dispatch
             float perCar = facility.RemoteSecondsPerCar;
             if (!DleDirectorBehaviour.TryRun(StaffUnloadRoutine(def, job, cars.ToList(), perCar)))
                 return Result.Fail("world not ready");
-            return Result.Done($"station staff unloading {cars.Count} car(s), one every {perCar:0}s (about {perCar * cars.Count:0}s)");
+            return Result.Done($"station staff unloading {cars.Count} car(s): first now, one every {perCar:0}s after (about {perCar * Math.Max(0, cars.Count - 1):0}s)");
         }
 
         // Helpers
