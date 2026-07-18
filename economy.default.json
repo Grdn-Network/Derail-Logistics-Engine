@@ -33,7 +33,8 @@
       "EmptyTraeg",
       "EmptyChemlek",
       "EmptyNeoGamma"
-    ]
+    ],
+    "toolsSeed": 2
   },
   "defaults": {
     "role": "both",

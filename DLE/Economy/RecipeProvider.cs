@@ -295,8 +295,42 @@ namespace DLE.Economy
                                    $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
             ApplyExclusions(facilities);
+            NormalizeCategories(facilities);
             AuditRoutes(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
+        }
+
+        /// <summary>
+        /// One-cargo bundles (#100 ruling): tools, electronics and chemicals collapse to
+        /// their canonical cargo everywhere a facility references them, so outputs,
+        /// demand, routes and recipes all point at the single pile the stock layer keeps.
+        /// Route destinations merge across brands (the union of every brand's routes).
+        /// </summary>
+        private static void NormalizeCategories(Dictionary<string, FacilityDef> facilities)
+        {
+            foreach (var f in facilities.Values)
+            {
+                f.Outputs = f.Outputs.Select(CargoCategories.Canon).Distinct().ToList();
+                f.Inputs = f.Inputs.Select(CargoCategories.Canon).Distinct().ToList();
+
+                foreach (var key in f.RouteMap.Keys.ToList())
+                {
+                    var canonical = CargoCategories.Canon(key);
+                    if (canonical == key) continue;
+                    if (!f.RouteMap.TryGetValue(canonical, out var set))
+                        f.RouteMap[canonical] = set = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var dest in f.RouteMap[key]) set.Add(dest);
+                    f.RouteMap.Remove(key);
+                }
+
+                foreach (var recipe in f.Recipes)
+                {
+                    foreach (var stack in recipe.Inputs)
+                        if (stack.Category == null) stack.Cargo = CargoCategories.Canon(stack.Cargo);
+                    foreach (var stack in recipe.Outputs)
+                        stack.Cargo = CargoCategories.Canon(stack.Cargo);
+                }
+            }
         }
 
         /// <summary>

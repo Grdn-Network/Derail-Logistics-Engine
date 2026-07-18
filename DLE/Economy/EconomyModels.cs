@@ -28,6 +28,27 @@ namespace DLE.Economy
 
         public static bool TryGet(string name, out CargoType[] members) =>
             Members.TryGetValue(name ?? "", out members);
+
+        // Tools, Electronics and Chemicals are ONE cargo type in the economy (#100
+        // owner ruling): every brand folds into the domestic Iskar pile at the stock
+        // layer, so the board shows one pile, hauls ship one cargo, and seeding
+        // happens once instead of per brand. Clothing keeps brand piles (only the
+        // recipes treat it as interchangeable); Gases is an input helper only.
+        private static readonly Dictionary<CargoType, CargoType> CanonicalMap = BuildCanonicalMap();
+
+        private static Dictionary<CargoType, CargoType> BuildCanonicalMap()
+        {
+            var map = new Dictionary<CargoType, CargoType>();
+            foreach (var name in new[] { "Tools", "Electronics", "Chemicals" })
+                foreach (var member in Members[name])
+                    map[member] = Members[name][0]; // first member is the Iskar brand
+            return map;
+        }
+
+        public static CargoType Canon(CargoType cargo) =>
+            CanonicalMap.TryGetValue(cargo, out var canonical) ? canonical : cargo;
+
+        public static bool IsToolsCargo(CargoType cargo) => Canon(cargo) == CargoType.ToolsIskar;
     }
 
     /// <summary>One recipe ingredient or product: either a concrete cargo, or a category
@@ -163,8 +184,10 @@ namespace DLE.Economy
 
         // Catalysts: a carload lasts this long, burning only while the site produces.
         // At factories an active catalyst multiplies batch speed by factoryBoostFactor.
+        // Tools seed at toolsSeed carloads (not the full initialStock) where accepted.
         public float catalystLifeGameHours = 24f;
         public float factoryBoostFactor = 2f;
+        public int toolsSeed = 2;
 
         // Living demand: consumer stations eat this much per game hour; every
         // scrapPerConsumed consumed carloads at a scrap-emitting city yields one scrap.
