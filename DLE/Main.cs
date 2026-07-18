@@ -61,8 +61,9 @@ namespace DLE
 
             // The packet channel (client booklet data, plates, fax) arms only when DVMP
             // is really here; a pure singleplayer install never loads MultiplayerAPI.dll.
-            if (AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "MultiplayerAPI"))
-                Dispatch.DleMpChannel.TryInit();
+            // TryInit no-ops without DVMP and re-arms at world load if this attempt was
+            // too early (assemblies load lazily; DVMP may not have touched its API yet).
+            Dispatch.DleMpChannel.TryInit();
 
             LogAlways("[Main] Derail Logistics Engine loaded.");
             return true;
@@ -94,6 +95,13 @@ namespace DLE
             LogAlways(hostOrSp
                 ? "[Main] running as host/singleplayer; DLE server logic active."
                 : "[Main] running as a multiplayer client; DLE host logic stays off (the host runs it).");
+
+            // Late-arm the packet channel (the load-time attempt can predate DVMP's lazy
+            // assembly load) and re-announce to the host: the ClientStarted hello can
+            // fire before the connection settles, and the world being loaded is the one
+            // moment we KNOW the session is fully up.
+            Dispatch.DleMpChannel.TryInit();
+            if (!hostOrSp) Dispatch.DleMpChannel.AnnounceToHost();
             if (hostOrSp)
             {
                 var data = SaveGameManager.Instance?.data;

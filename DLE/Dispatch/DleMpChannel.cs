@@ -45,15 +45,54 @@ namespace DLE.Dispatch
 
         public static bool TransportUp { get; internal set; }
 
-        /// <summary>Called once at mod load, only when the MultiplayerAPI assembly is
-        /// already in the AppDomain (DVMP installed). Never throws outward.</summary>
+        /// <summary>
+        /// Arm the transport. Callable repeatedly (mod load AND world load): assemblies
+        /// load LAZILY in .NET, so at DLE's load time DVMP may not have touched its own
+        /// API yet and MultiplayerAPI.dll is absent from the AppDomain even though the
+        /// mod is installed; this forces it in from the Multiplayer mod's own folder.
+        /// Silently does nothing when DVMP is not installed. Never throws outward.
+        /// </summary>
         public static void TryInit()
         {
-            try { DleMpTransport.Init(); }
+            if (TransportArmed) return;
+            try
+            {
+                var domain = AppDomain.CurrentDomain.GetAssemblies();
+                if (!domain.Any(a => a.GetName().Name == "MultiplayerAPI"))
+                {
+                    var mp = domain.FirstOrDefault(a => a.GetName().Name == "Multiplayer");
+                    if (mp == null) return; // no DVMP installed: pure singleplayer
+                    var apiPath = System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(mp.Location) ?? "", "MultiplayerAPI.dll");
+                    if (!System.IO.File.Exists(apiPath))
+                    {
+                        Main.LogAlways($"[MpChannel] Multiplayer is loaded but MultiplayerAPI.dll is missing next to it; client sync disabled.");
+                        return;
+                    }
+                    System.Reflection.Assembly.LoadFrom(apiPath);
+                    Main.Log("[MpChannel] MultiplayerAPI.dll force-loaded from the Multiplayer mod folder.");
+                }
+                DleMpTransport.Init();
+                TransportArmed = true;
+            }
             catch (Exception ex)
             {
                 Main.LogAlways($"[MpChannel] transport init failed ({ex.GetType().Name}: {ex.Message}); client sync disabled.");
             }
+        }
+
+        /// <summary>True once event subscriptions are in place (independent of a session
+        /// being live; TransportUp tracks an actual hosted session).</summary>
+        public static bool TransportArmed { get; private set; }
+
+        /// <summary>Client-side: (re)announce DLE to the host. The ClientStarted hello can
+        /// fire before the connection settles, so the world-loaded hook calls this again;
+        /// the host deduplicates.</summary>
+        public static void AnnounceToHost()
+        {
+            if (!TransportArmed) return;
+            try { DleMpTransport.SendHello(); }
+            catch (Exception ex) { Main.Log($"[MpChannel] hello failed: {ex.Message}"); }
         }
 
         // HOST-side notifications. Safe no-ops in singleplayer or when the transport
@@ -90,10 +129,17 @@ namespace DLE.Dispatch
         // CLIENT side apply, called by the transport on the main thread (dv-mp processes
         // packets in its poll loop).
 
+        private static bool _firstSyncLogged;
+
         internal static void ApplyJobSync(string jobId, string carIdsCsv, float pay, bool unpaid, bool printBooklet)
         {
             if (Main.IsHostOrSingleplayer()) return; // host loopback: its own state is authoritative
 
+            if (!_firstSyncLogged)
+            {
+                _firstSyncLogged = true;
+                Main.LogAlways("[MpChannel] receiving DLE job sync from the host; the channel is live.");
+            }
             ClientJobPay[jobId] = pay;
             if (unpaid) ClientUnpaid.Add(jobId); else ClientUnpaid.Remove(jobId);
 
@@ -262,9 +308,20 @@ namespace DLE.Dispatch
             client.RegisterPacket<DleJobSyncPacket>(packet =>
                 DleMpChannel.ApplyJobSync(packet.JobId ?? "", packet.CarIdsCsv ?? "",
                     packet.Pay, packet.Unpaid, packet.PrintBooklet));
+            Main.LogAlways("[MpChannel] client session started; DLE sync handler registered.");
             // Say hello so the host knows to sync us. A non-DLE host logs one parse
-            // warning and drops it; nothing breaks.
+            // warning and drops it; nothing breaks. Re-sent at world load in case this
+            // fires before the connection settles.
+            SendHello();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void SendHello()
+        {
+            if (_client == null) return;
+            var client = (MPAPI.Interfaces.IClient)_client;
             client.SendPacketToServer(new DleHelloPacket { Version = 1 });
+            Main.LogAlways("[MpChannel] hello sent to the host.");
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
