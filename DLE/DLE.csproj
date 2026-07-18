@@ -105,6 +105,10 @@
       <HintPath>lib\CommandTerminal.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="DV.WeatherSystem">
+      <HintPath>lib\DV.WeatherSystem.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(OS)' == 'Windows_NT'">

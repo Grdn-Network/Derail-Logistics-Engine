@@ -49,8 +49,10 @@ namespace DLE.Economy
         {
             _bornData = SaveGameManager.Instance?.data;
             // Fresh world, fresh sweep state: a coroutine that died mid-sweep in the old
-            // world must not wedge the single-flight guard forever.
+            // world must not wedge the single-flight guard forever. The economy clock
+            // also re-primes so the previous world's time never bleeds in.
             Data.DleCarPool.SweepInFlight = false;
+            GameClock.Reset();
             StartCoroutine(TickLoop());
             StartCoroutine(OverviewSweepLoop());
         }
@@ -221,7 +223,6 @@ namespace DLE.Economy
                 (created == 0 ? " Nothing shippable: check available supply at /api/v1/options (stock may be drained or fully reserved)." : ""));
 
             Main.Log("[Director] initial fill done; ticking.");
-            float productionAccumulator = 0f;
             while (true)
             {
                 float tick = Mathf.Max(15, RecipeProvider.Tuning.directorTickSeconds);
@@ -229,13 +230,13 @@ namespace DLE.Economy
                 if (IsStale()) yield break; // a different world loaded; do not tick into it
                 if (!Main.IsHostOrSingleplayer() || !WorldReady()) continue;
 
-                // Cargo enters the world at the sources on a slow clock.
-                productionAccumulator += tick / 60f;
-                float interval = Mathf.Max(1, RecipeProvider.Tuning.sourceProductionMinutes);
-                if (productionAccumulator >= interval)
+                // ONE clock (#100): the whole economy advances by the in-game time that
+                // actually passed, so every rate scales with the day-length setting and
+                // sleeping moves the world forward like it should.
+                try { EconomyState.Instance.TickGameTime(GameClock.Sample()); }
+                catch (System.Exception ex)
                 {
-                    EconomyState.Instance.TickSourceProduction((int)(productionAccumulator / interval));
-                    productionAccumulator %= interval;
+                    Main.LogAlways($"[Director] economy tick failed: {ex.GetType().Name}: {ex.Message}");
                 }
 
                 SafeTick();

@@ -6,9 +6,12 @@ using System.Linq;
 namespace DLE.Economy
 {
     /// <summary>
-    /// The virtual economy: per-station stockpiles plus the derived facility recipes.
-    /// A delivery credits the destination stockpile and immediately converts inputs to
-    /// outputs by recipe ratio (0.1 has no production clock). Host/singleplayer only.
+    /// The virtual economy (#100): per-station stockpiles, the derived facility recipes,
+    /// and since 0.44 the whole simulation runs on ONE clock, in-game time. Sources make
+    /// carloads per game hour (machines required, catalysts slow their wear), factories
+    /// run recipe batches per game hour (catalysts double them), cities and the power
+    /// plant consume on the clock and feed a global productivity boost, and the harbor
+    /// restocks imports in proportion to the exports it receives. Host/singleplayer only.
     /// </summary>
     public class EconomyState
     {
@@ -34,6 +37,44 @@ namespace DLE.Economy
 
         public IReadOnlyDictionary<string, FacilityDef> Facilities => _facilities;
 
+        // Per-yard runtime machinery state (#100). Machine wear and the installed
+        // catalyst persist; the fractional credits are volatile (worst case a save
+        // loses under one carload of progress per station).
+        private class YardOps
+        {
+            public Dictionary<string, float> MachineWear = new Dictionary<string, float>(StringComparer.Ordinal);
+            public float CatalystHoursLeft;
+            public float ProdCredit;
+            public float BatchCredit;
+            public float ConsumeCredit;
+            public float ScrapCredit;
+            public bool ScrapMetalNext = true;
+            public int Rotation;
+            public int RecipeRotation;
+            public bool WarnedLastMachine;
+        }
+
+        private readonly Dictionary<string, YardOps> _ops =
+            new Dictionary<string, YardOps>(StringComparer.Ordinal);
+
+        private YardOps Ops(string yardId)
+        {
+            if (!_ops.TryGetValue(yardId, out var ops))
+                _ops[yardId] = ops = new YardOps();
+            return ops;
+        }
+
+        // 24-hour rings for the global boost (consumption) and harbor import scaling
+        // (exports received). Advanced by whole game hours.
+        private readonly float[] _consumedByHour = new float[24];
+        private readonly float[] _hbExportsByHour = new float[24];
+        private int _hourSlot;
+        private float _hourAccum;
+
+        public float GlobalBoost { get; private set; } = 1f;
+
+        private int _importCounter;
+
         // Rebuild recipes from the world, apply the overlay, then load saved stockpiles.
         // Returns true when this is a fresh economy that was just seeded (new game).
         public bool Init(SaveGameData saveData, string modPath)
@@ -44,9 +85,38 @@ namespace DLE.Economy
             bool seeded = _stock.Count == 0;
             if (seeded)
                 SeedInitialStock(RecipeProvider.Tuning.initialStock);
+            else if (_generation < CurrentGeneration)
+            {
+                // A pre-0.44 world has no machines anywhere: without this one-time grant
+                // every mine, forest and the farm would crawl from the first minute with
+                // a four-haul bootstrap chain between them and full speed.
+                GrantStarterMachines();
+            }
             Main.Log($"[Economy] initialised {_facilities.Count} facilities; " +
                      $"{_stock.Count} have stock.");
             return seeded;
+        }
+
+        // Bumped when a new economy generation needs a one-time migration on old saves.
+        private const int CurrentGeneration = 2;
+        private int _generation = CurrentGeneration;
+
+        private void GrantStarterMachines()
+        {
+            int granted = 0;
+            foreach (var f in _facilities.Values)
+            {
+                foreach (var machine in f.Machines)
+                {
+                    if (GetStock(f.YardId, machine) >= 1f) continue;
+                    Credit(f.YardId, machine, RecipeProvider.Tuning.seedMachines);
+                    MarkImported(f.YardId, machine, RecipeProvider.Tuning.seedMachines);
+                    granted += RecipeProvider.Tuning.seedMachines;
+                }
+            }
+            _generation = CurrentGeneration;
+            if (granted > 0)
+                Main.LogAlways($"[Economy] pre-0.44 save: granted {granted} starter machine(s) so the sources open at full speed. Replacements are on you.");
         }
 
         /// <summary>company.resupply: wipe every stockpile back to the starting seed.</summary>
@@ -54,113 +124,8 @@ namespace DLE.Economy
         {
             _stock.Clear();
             _imported.Clear();
+            _ops.Clear();
             SeedInitialStock(amount);
-        }
-
-        /// <summary>
-        /// Source industries produce over time with no required inputs; that is where
-        /// cargo enters the world. Factories only gain stock from real deliveries.
-        /// A source is any facility flagged in economy.json, or one with outputs and no
-        /// inputs at all. Boosters multiply the rate: any one in-stock cargo of a booster
-        /// entry activates it (one tool brand is enough), active boosters stack, and each
-        /// is slowly consumed per carload produced.
-        /// </summary>
-        public void TickSourceProduction(float carloads)
-        {
-            if (carloads <= 0f) return;
-            foreach (var f in _facilities.Values)
-            {
-                if (f.Outputs.Count == 0) continue;
-                if (!f.IsSource && f.Inputs.Count > 0) continue;
-
-                float mult = 1f;
-                var active = new List<(BoosterDef def, CargoType cargo)>();
-                foreach (var b in f.Boosters)
-                    foreach (var c in b.Cargo)
-                        if (GetStock(f.YardId, c) >= 1f)
-                        {
-                            mult *= b.Speedup;
-                            active.Add((b, c));
-                            break;
-                        }
-
-                float made = carloads * mult;
-                if (made <= 0f) continue;
-
-                // Only produce, and only wear boosters, for output the store can actually
-                // hold. A source sitting at its storage cap (nobody is hauling it away) must
-                // not silently burn delivered booster tools and log phantom production for
-                // carloads that Credit just clamps away.
-                float actuallyMade = 0f;
-                foreach (var cargo in f.Outputs)
-                {
-                    float add = Math.Min(made, GetRoom(f.YardId, cargo));
-                    if (add <= 0f) continue;
-                    Credit(f.YardId, cargo, add);
-                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), add);
-                    if (add > actuallyMade) actuallyMade = add;
-                }
-                if (actuallyMade <= 0f) continue; // every output is full: no wear, no phantom log
-                foreach (var (b, c) in active)
-                    ConsumeImportedFirst(f.YardId, c, b.ConsumedPerCarload * actuallyMade);
-            }
-
-            // Factories chew their input buffers on the same clock: at most one batch per
-            // recipe per interval, so seeded or stockpiled ingredients drain at a visible
-            // rate. Deliveries still convert immediately (InstantConversion), which only
-            // matters when the paced clock has left a backlog.
-            foreach (var f in _facilities.Values)
-                if (f.Recipes.Count > 0)
-                    ConvertBatches(f.YardId, (int)carloads);
-        }
-
-        /// <summary>Run each recipe at a station at most a set number of times.</summary>
-        public void ConvertBatches(string yardId, int batches)
-        {
-            if (batches <= 0 || !_facilities.TryGetValue(yardId, out var facility)) return;
-            foreach (var recipe in facility.Recipes)
-            {
-                if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
-                for (int n = 0; n < batches; n++)
-                {
-                    if (!HasInputs(yardId, recipe) || !HasOutputRoom(yardId, facility, recipe)) break;
-                    foreach (var i in recipe.Inputs) ConsumeImportedFirst(yardId, i.Cargo, i.Amount);
-                    foreach (var o in recipe.Outputs)
-                    {
-                        Credit(yardId, o.Cargo, o.Amount);
-                        EconomyHistory.Record("converted", yardId, o.Cargo.ToString(), o.Amount);
-                    }
-                    Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}] (paced).");
-                }
-            }
-        }
-
-        /// <summary>
-        /// New game: give each facility a starting stock of its outputs AND its inputs.
-        /// The input side is the working buffer: a sawmill spawns with logs to consume,
-        /// so conversion runs from the first tick instead of waiting on a delivery.
-        /// SOURCES seed outputs only (#91): their inputs are booster tools, and seeding
-        /// every brand at every mine put ~30 carloads of free tools in each pit. Tools
-        /// are a boost someone hauls in, not furniture the world spawns with.
-        /// </summary>
-        public void SeedInitialStock(int amount)
-        {
-            if (amount <= 0) return;
-            int seeded = 0;
-            foreach (var f in _facilities.Values)
-            {
-                var cargos = f.IsSource ? f.Outputs : f.Outputs.Concat(f.Inputs).Distinct();
-                foreach (var cargo in cargos)
-                {
-                    Credit(f.YardId, cargo, amount);
-                    // Input buffers seed as imported: consumables to work through, not
-                    // local product, so shipping the seed around cannot mint pay.
-                    if (!f.Produces(cargo))
-                        MarkImported(f.YardId, cargo, amount);
-                    seeded++;
-                }
-            }
-            Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) (outputs, plus inputs at factories; sources get no free tools).");
         }
 
         public void ReloadRecipes(string modPath)
@@ -169,6 +134,382 @@ namespace DLE.Economy
             RecipeProvider.ApplyOverlay(_facilities, modPath);
             Main.Log($"[Economy] recipes reloaded ({_facilities.Count} facilities). Stockpiles kept.");
         }
+
+        /// <summary>
+        /// New game: every facility starts with stock of its outputs, factories also get
+        /// their input working buffers (a sawmill spawns with logs to cut), and sites
+        /// with required MACHINES are seeded with a starter set so the world opens at
+        /// full speed (#100: seed 2 of each; the first replacement haul is the player's
+        /// problem). Sources get no free catalyst tools: tools are hauled in, always.
+        /// </summary>
+        public void SeedInitialStock(int amount)
+        {
+            if (amount <= 0) return;
+            int seeded = 0;
+            foreach (var f in _facilities.Values)
+            {
+                // Consumers seed NOTHING: they are demand, and pre-filling a city's 34
+                // accepted cargos put it at its cap before the first train ran. The
+                // import hub seeds only its import stock (exports arrive by rail);
+                // sources seed outputs only; factories also get input working buffers.
+                IEnumerable<CargoType> cargos;
+                if (f.ConsumesStock) continue;
+                else if (f.IsSource || f.IsImportHub) cargos = f.Outputs;
+                else cargos = f.Outputs.Concat(f.Inputs).Distinct();
+                foreach (var cargo in cargos)
+                {
+                    if (f.Machines.Contains(cargo)) continue; // machines seed separately below
+                    Credit(f.YardId, cargo, amount);
+                    // Input buffers seed as imported: consumables to work through, not
+                    // local product, so shipping the seed around cannot mint pay.
+                    if (!f.Produces(cargo))
+                        MarkImported(f.YardId, cargo, amount);
+                    seeded++;
+                }
+                foreach (var machine in f.Machines)
+                {
+                    Credit(f.YardId, machine, RecipeProvider.Tuning.seedMachines);
+                    MarkImported(f.YardId, machine, RecipeProvider.Tuning.seedMachines);
+                }
+            }
+            Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) plus starter machines.");
+        }
+
+        // ------------------------------------------------------------------
+        // The clock (#100): everything below TickGameTime runs the simulation.
+        // ------------------------------------------------------------------
+
+        /// <summary>Advance the whole economy by a slice of in-game time.</summary>
+        public void TickGameTime(float hours)
+        {
+            if (hours <= 0f) return;
+            AdvanceHourRings(hours);
+            GlobalBoost = ComputeGlobalBoost();
+
+            foreach (var f in _facilities.Values)
+            {
+                try
+                {
+                    if (f.ConsumesStock) TickConsumer(f, hours);
+                    if (f.IsSource) TickSource(f, hours);
+                    else if (f.Recipes.Count > 0) TickFactory(f, hours);
+                    if (f.IsImportHub) TickImportHub(f, hours);
+                    UpdateMachineWarning(f);
+                }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Economy] {f.YardId} tick failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+
+        private void AdvanceHourRings(float hours)
+        {
+            _hourAccum += hours;
+            while (_hourAccum >= 1f)
+            {
+                _hourAccum -= 1f;
+                _hourSlot = (_hourSlot + 1) % 24;
+                _consumedByHour[_hourSlot] = 0f;
+                _hbExportsByHour[_hourSlot] = 0f;
+            }
+        }
+
+        private float ComputeGlobalBoost()
+        {
+            var t = RecipeProvider.Tuning;
+            if (t.globalBoostMax <= 1f || t.globalBoostFullAt <= 0f) return 1f;
+            float consumed24 = 0f;
+            foreach (var v in _consumedByHour) consumed24 += v;
+            float share = Math.Min(1f, consumed24 / t.globalBoostFullAt);
+            return 1f + share * (t.globalBoostMax - 1f);
+        }
+
+        /// <summary>All required machine types present (one of each is enough).</summary>
+        public bool MachinesOk(FacilityDef f) =>
+            f.Machines.Count == 0 || f.Machines.All(m => GetStock(f.YardId, m) >= 1f);
+
+        private void TickSource(FacilityDef f, float hours)
+        {
+            var t = RecipeProvider.Tuning;
+            var ops = Ops(f.YardId);
+            if (f.Outputs.Count == 0) return;
+
+            bool machinesOk = MachinesOk(f);
+            float rate = t.sourceCarloadsPerGameHour * hours * GlobalBoost
+                * (machinesOk ? 1f : t.crawlFactor);
+            ops.ProdCredit = Math.Min(ops.ProdCredit + rate, 3f);
+
+            int made = 0;
+            while (ops.ProdCredit >= 1f)
+            {
+                if (GetRoom(f.YardId, default) < 1f) break; // shared pool is full
+                var cargo = f.Outputs[ops.Rotation % f.Outputs.Count];
+                ops.Rotation++;
+                Credit(f.YardId, cargo, 1f);
+                EconomyHistory.Record("production", f.YardId, cargo.ToString(), 1);
+                made++;
+                ops.ProdCredit -= 1f;
+            }
+            if (made == 0) return; // no production, no wear, no catalyst burn
+
+            bool catalystActive = EnsureCatalyst(f, ops);
+            float wear = made * (catalystActive ? 1f / Math.Max(1f, t.catalystWearFactor) : 1f);
+            foreach (var machine in f.Machines)
+                AddMachineWear(f, ops, machine, wear);
+            if (catalystActive)
+                ops.CatalystHoursLeft = Math.Max(0f, ops.CatalystHoursLeft - hours);
+        }
+
+        private void TickFactory(FacilityDef f, float hours)
+        {
+            var t = RecipeProvider.Tuning;
+            var ops = Ops(f.YardId);
+
+            bool catalystReady = ops.CatalystHoursLeft > 0f || AnyCatalystStock(f);
+            float speed = t.factoryBatchesPerGameHour * hours * GlobalBoost
+                * (catalystReady ? t.factoryBoostFactor : 1f);
+            ops.BatchCredit = Math.Min(ops.BatchCredit + speed, 3f);
+
+            int ran = 0;
+            while (ops.BatchCredit >= 1f)
+            {
+                var recipe = NextRunnableRecipe(f, ops);
+                if (recipe == null) break;
+                RunBatch(f, recipe);
+                ops.BatchCredit -= 1f;
+                ran++;
+            }
+            if (ran == 0) return;
+
+            if (EnsureCatalyst(f, ops))
+                ops.CatalystHoursLeft = Math.Max(0f, ops.CatalystHoursLeft - hours);
+        }
+
+        private RecipeDef NextRunnableRecipe(FacilityDef f, YardOps ops)
+        {
+            // Rotate the starting recipe so a station with several (GF has five) shares
+            // its batches instead of forever favouring the first runnable one.
+            int n = f.Recipes.Count;
+            for (int i = 0; i < n; i++)
+            {
+                var recipe = f.Recipes[(ops.RecipeRotation + i) % n];
+                if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
+                if (HasInputs(f.YardId, recipe) && HasOutputRoom(f.YardId, f, recipe))
+                {
+                    ops.RecipeRotation = (ops.RecipeRotation + i + 1) % n;
+                    return recipe;
+                }
+            }
+            return null;
+        }
+
+        private void RunBatch(FacilityDef f, RecipeDef recipe)
+        {
+            foreach (var input in recipe.Inputs)
+                ConsumeStack(f.YardId, input);
+            foreach (var output in recipe.Outputs)
+            {
+                Credit(f.YardId, output.Cargo, output.Amount);
+                EconomyHistory.Record("converted", f.YardId, output.Cargo.ToString(), output.Amount);
+            }
+            Main.Log($"[Economy] {f.YardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}].");
+        }
+
+        private void TickConsumer(FacilityDef f, float hours)
+        {
+            var t = RecipeProvider.Tuning;
+            var ops = Ops(f.YardId);
+            ops.ConsumeCredit = Math.Min(ops.ConsumeCredit + t.cityConsumptionPerHour * hours, 4f);
+
+            while (ops.ConsumeCredit >= 1f)
+            {
+                var cargo = BiggestConsumablePile(f);
+                if (cargo == null) break;
+                ConsumeImportedFirst(f.YardId, cargo.Value, 1f);
+                EconomyHistory.Record("consumed", f.YardId, cargo.Value.ToString(), 1);
+                _consumedByHour[_hourSlot] += 1f;
+                ops.ConsumeCredit -= 1f;
+
+                if (f.EmitsScrap)
+                {
+                    ops.ScrapCredit += 1f;
+                    if (ops.ScrapCredit >= Math.Max(1f, t.carloadsPerScrap))
+                    {
+                        ops.ScrapCredit -= Math.Max(1f, t.carloadsPerScrap);
+                        var scrap = ops.ScrapMetalNext ? CargoType.ScrapMetal : CargoType.ScrapWood;
+                        ops.ScrapMetalNext = !ops.ScrapMetalNext;
+                        Credit(f.YardId, scrap, 1f);
+                        EconomyHistory.Record("scrap", f.YardId, scrap.ToString(), 1);
+                    }
+                }
+            }
+        }
+
+        private CargoType? BiggestConsumablePile(FacilityDef f)
+        {
+            if (!_stock.TryGetValue(f.YardId, out var piles)) return null;
+            CargoType? best = null;
+            float bestAmount = 1f - 0.001f;
+            foreach (var kv in piles)
+            {
+                // A city never eats its own scrap output back (that cargo exists to be
+                // hauled to the mills), and nobody consumes below a whole carload.
+                if (f.EmitsScrap && (kv.Key == CargoType.ScrapMetal || kv.Key == CargoType.ScrapWood)) continue;
+                if (kv.Value > bestAmount)
+                {
+                    bestAmount = kv.Value;
+                    best = kv.Key;
+                }
+            }
+            return best;
+        }
+
+        private void TickImportHub(FacilityDef f, float hours)
+        {
+            var t = RecipeProvider.Tuning;
+            if (f.Outputs.Count == 0) return;
+            var ops = Ops(f.YardId);
+
+            float exports24 = 0f;
+            foreach (var v in _hbExportsByHour) exports24 += v;
+            float gain = exports24 / 24f * t.harborImportFactor * hours;
+            ops.ProdCredit = Math.Min(ops.ProdCredit + gain, 6f);
+
+            var toolMembers = CargoCategories.TryGet("Tools", out var tools)
+                ? tools.Where(c => f.Outputs.Contains(c)).ToList()
+                : new List<CargoType>();
+            var nonTools = f.Outputs.Where(c => !toolMembers.Contains(c)).ToList();
+
+            while (ops.ProdCredit >= 1f)
+            {
+                if (GetRoom(f.YardId, default) < 1f) break;
+                CargoType cargo;
+                _importCounter++;
+                if (toolMembers.Count > 0 && t.toolImportRarity > 0 && _importCounter % t.toolImportRarity == 0)
+                    cargo = toolMembers[_importCounter / t.toolImportRarity % toolMembers.Count];
+                else if (nonTools.Count > 0)
+                    cargo = nonTools[ops.Rotation++ % nonTools.Count];
+                else
+                    break;
+                Credit(f.YardId, cargo, 1f);
+                EconomyHistory.Record("imported", f.YardId, cargo.ToString(), 1);
+                ops.ProdCredit -= 1f;
+            }
+        }
+
+        // Machines and catalysts ------------------------------------------------
+
+        private void AddMachineWear(FacilityDef f, YardOps ops, CargoType machine, float wear)
+        {
+            if (GetStock(f.YardId, machine) < 1f) return; // nothing installed to wear
+            var key = machine.ToString();
+            ops.MachineWear.TryGetValue(key, out var current);
+            current += wear;
+            int life = Math.Max(1, RecipeProvider.Tuning.machineLifeCarloads);
+            if (current >= life)
+            {
+                current -= life;
+                ConsumeImportedFirst(f.YardId, machine, 1f);
+                int left = (int)Math.Floor(GetStock(f.YardId, machine) + 0.001f);
+                Main.LogAlways($"[Economy] {f.YardId}: a {machine} wore out after {life} carloads of work; {left} left" +
+                               (left == 0 ? $". Production crawls at {RecipeProvider.Tuning.crawlFactor:P0} until a new one arrives." : "."));
+                EconomyHistory.Record("machine_worn", f.YardId, key, 1);
+            }
+            ops.MachineWear[key] = current;
+        }
+
+        private void UpdateMachineWarning(FacilityDef f)
+        {
+            if (f.Machines.Count == 0) return;
+            var ops = Ops(f.YardId);
+            bool onLast = f.Machines.Any(m => GetStock(f.YardId, m) < 2f);
+            if (onLast && !ops.WarnedLastMachine)
+            {
+                var low = f.Machines.Where(m => GetStock(f.YardId, m) < 2f)
+                    .Select(m => $"{m} ({(int)Math.Floor(GetStock(f.YardId, m) + 0.001f)})");
+                Main.LogAlways($"[Economy] {f.YardId} is down to its last machine(s): {string.Join(", ", low)}. Ship replacements before it crawls.");
+            }
+            ops.WarnedLastMachine = onLast;
+        }
+
+        /// <summary>Board: a facility that needs a machine haul soon.</summary>
+        public bool OnLastMachine(string yardId) =>
+            _facilities.TryGetValue(yardId, out var f) && f.Machines.Count > 0 &&
+            f.Machines.Any(m => GetStock(yardId, m) < 2f);
+
+        public class MachineInfo
+        {
+            public string Cargo;
+            public int Have;
+            public float WearRemaining; // carloads of work left on the current unit
+        }
+
+        public List<MachineInfo> MachineStatus(string yardId)
+        {
+            var result = new List<MachineInfo>();
+            if (!_facilities.TryGetValue(yardId, out var f)) return result;
+            var ops = Ops(yardId);
+            int life = Math.Max(1, RecipeProvider.Tuning.machineLifeCarloads);
+            foreach (var machine in f.Machines)
+            {
+                ops.MachineWear.TryGetValue(machine.ToString(), out var wear);
+                result.Add(new MachineInfo
+                {
+                    Cargo = machine.ToString(),
+                    Have = (int)Math.Floor(GetStock(yardId, machine) + 0.001f),
+                    WearRemaining = Math.Max(0f, life - wear),
+                });
+            }
+            return result;
+        }
+
+        public (bool active, float hoursLeft, bool anyStock) CatalystStatus(string yardId)
+        {
+            if (!_facilities.TryGetValue(yardId, out var f) || f.Catalysts.Count == 0)
+                return (false, 0f, false);
+            var ops = Ops(yardId);
+            return (ops.CatalystHoursLeft > 0f, ops.CatalystHoursLeft, AnyCatalystStock(f));
+        }
+
+        private IEnumerable<CargoType> CatalystMembers(FacilityDef f)
+        {
+            foreach (var name in f.Catalysts)
+            {
+                if (CargoCategories.TryGet(name, out var members))
+                {
+                    foreach (var m in members) yield return m;
+                }
+                else if (Enum.TryParse<CargoType>(name, out var cargo))
+                {
+                    yield return cargo;
+                }
+            }
+        }
+
+        private bool AnyCatalystStock(FacilityDef f) =>
+            CatalystMembers(f).Any(c => GetStock(f.YardId, c) >= 1f);
+
+        /// <summary>Install a catalyst carload when none is active: consumed on the spot,
+        /// good for catalystLifeGameHours of actual production time.</summary>
+        private bool EnsureCatalyst(FacilityDef f, YardOps ops)
+        {
+            if (f.Catalysts.Count == 0) return false;
+            if (ops.CatalystHoursLeft > 0f) return true;
+            foreach (var member in CatalystMembers(f).OrderByDescending(c => GetStock(f.YardId, c)))
+            {
+                if (GetStock(f.YardId, member) < 1f) continue;
+                ConsumeImportedFirst(f.YardId, member, 1f);
+                ops.CatalystHoursLeft = Math.Max(1f, RecipeProvider.Tuning.catalystLifeGameHours);
+                Main.Log($"[Economy] {f.YardId} put a carload of {member} to work " +
+                         $"({RecipeProvider.Tuning.catalystLifeGameHours:0}h of production).");
+                EconomyHistory.Record("catalyst", f.YardId, member.ToString(), 1);
+                return true;
+            }
+            return false;
+        }
+
+        // Stock access ----------------------------------------------------------
 
         public float GetStock(string yardId, CargoType cargo) =>
             _stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v) ? v : 0f;
@@ -190,7 +531,8 @@ namespace DLE.Economy
         }
 
         /// <summary>Consume drawing the imported portion down first: conversion inputs,
-        /// booster wear and unpaid moves all eat delivered goods before local product.</summary>
+        /// machine wear, catalysts and unpaid moves all eat delivered goods before local
+        /// product.</summary>
         private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount)
         {
             if (amount <= 0f) return;
@@ -380,8 +722,8 @@ namespace DLE.Economy
         public int OnDelivered(string yardId, CargoType cargo, int carloads)
         {
             if (carloads <= 0) return 0;
-            // Epsilon absorbs float drift from fractional recipes (HasOutputRoom does the
-            // same); without it 3.9999962 room truncated to 3 and ate a real carload.
+            // Epsilon absorbs float drift from fractional recipes; without it 3.9999962
+            // room truncated to 3 and ate a real carload.
             int accepted = (int)Math.Min(carloads, GetRoom(yardId, cargo) + 0.001f);
             if (accepted <= 0)
             {
@@ -392,6 +734,9 @@ namespace DLE.Economy
             MarkImported(yardId, cargo, accepted);
             EconomyHistory.Record("delivered", yardId, cargo.ToString(), accepted);
             Main.Log($"[Economy] {yardId} received {accepted}/{carloads} {cargo} (now {GetStock(yardId, cargo):0.#}).");
+            // Exports into the import hub feed the incoming-ship rate (#100).
+            if (_facilities.TryGetValue(yardId, out var f) && f.IsImportHub)
+                _hbExportsByHour[_hourSlot] += accepted;
             Conversion.Current.OnDelivered(this, yardId);
             return accepted;
         }
@@ -410,73 +755,70 @@ namespace DLE.Economy
         private void Consume(string yardId, CargoType cargo, float amount)
         {
             if (_stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var cur))
-                m[cargo] = Math.Max(0f, cur - amount);
+            {
+                var next = Math.Max(0f, cur - amount);
+                if (next <= 0f) m.Remove(cargo); else m[cargo] = next;
+            }
         }
 
         /// <summary>Remove stock (e.g. a producer loading cars for a haul).</summary>
         public void Debit(string yardId, CargoType cargo, float amount) =>
             Consume(yardId, cargo, amount);
 
-        /// <summary>Run every recipe at a station while its inputs are available and outputs have room.</summary>
-        public void Convert(string yardId)
+        /// <summary>Debug/console path: run every recipe at a station until inputs or
+        /// room run out. The live economy paces batches on the clock instead.</summary>
+        public void RunAllBatchesNow(string yardId)
         {
-            if (!_facilities.TryGetValue(yardId, out var facility))
-            {
-                Main.Log($"[Economy] {yardId} has no facility definition; nothing to convert.");
-                return;
-            }
-            if (facility.Recipes.Count == 0)
-            {
-                // Pure source or pure sink: stock just accumulates, by design.
-                if (Main.Settings?.VerboseLogging == true)
-                    Main.Log($"[Economy] {yardId} has no recipe (source or sink); stock holds.");
-                return;
-            }
-
+            if (!_facilities.TryGetValue(yardId, out var facility)) return;
             foreach (var recipe in facility.Recipes)
             {
                 if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
-
                 int guard = 0;
                 while (HasInputs(yardId, recipe) && HasOutputRoom(yardId, facility, recipe) && guard++ < 1000)
-                {
-                    foreach (var i in recipe.Inputs) ConsumeImportedFirst(yardId, i.Cargo, i.Amount);
-                    foreach (var o in recipe.Outputs)
-                    {
-                        Credit(yardId, o.Cargo, o.Amount);
-                        EconomyHistory.Record("converted", yardId, o.Cargo.ToString(), o.Amount);
-                    }
-                    Main.Log($"[Economy] {yardId} converted [{Describe(recipe.Inputs)}] -> [{Describe(recipe.Outputs)}].");
-                }
+                    RunBatch(facility, recipe);
+            }
+        }
 
-                if (guard == 0)
-                {
-                    // Say WHY the recipe did not run, so balance problems are visible.
-                    var missing = recipe.Inputs
-                        .Where(i => GetStock(yardId, i.Cargo) < i.Amount)
-                        .Select(i => $"{i.Cargo} ({GetStock(yardId, i.Cargo):0.#}/{i.Amount:0.#})")
-                        .ToList();
-                    if (missing.Count > 0)
-                        Main.Log($"[Economy] {yardId} recipe idle, missing inputs: {string.Join(", ", missing)}.");
-                    else if (!HasOutputRoom(yardId, facility, recipe))
-                        Main.Log($"[Economy] {yardId} recipe idle, output storage full.");
-                }
+        // Category-aware recipe plumbing (#100): an input stack naming a category is
+        // satisfied by any member brand and consumed biggest-pile-first.
+
+        private IEnumerable<CargoType> StackMembers(CargoStack s)
+        {
+            if (s.Category != null && CargoCategories.TryGet(s.Category, out var members))
+                return members;
+            return new[] { s.Cargo };
+        }
+
+        private float StackStock(string yardId, CargoStack s) =>
+            StackMembers(s).Sum(c => GetStock(yardId, c));
+
+        private float StackReserved(string yardId, CargoStack s) =>
+            StackMembers(s).Sum(c => GetReserved(yardId, c));
+
+        private void ConsumeStack(string yardId, CargoStack s)
+        {
+            float remaining = s.Amount;
+            foreach (var member in StackMembers(s).OrderByDescending(c => GetStock(yardId, c)))
+            {
+                if (remaining <= 0f) break;
+                float take = Math.Min(remaining, GetStock(yardId, member));
+                if (take <= 0f) continue;
+                ConsumeImportedFirst(yardId, member, take);
+                remaining -= take;
             }
         }
 
         // Conversion may only draw stock that is not already promised to a taken haul.
-        // Without the hard-hold subtraction, paced/instant conversion could eat an input
-        // pile out from under a hardened reservation between accept and attach; the cars
-        // then loaded real cargo the pile no longer had (minted carloads).
+        // Without the hard-hold subtraction, batches could eat an input pile out from
+        // under a hardened reservation between accept and attach; the cars then loaded
+        // real cargo the pile no longer had (minted carloads).
         private bool HasInputs(string yardId, RecipeDef r) =>
-            r.Inputs.All(i => GetStock(yardId, i.Cargo) - GetReserved(yardId, i.Cargo) >= i.Amount);
+            r.Inputs.All(i => StackStock(yardId, i) - StackReserved(yardId, i) >= i.Amount);
 
         // Room is the shared pool (#92), and a conversion frees its input space as it
-        // fills output space: the check is the NET stock change, so a full station can
-        // still convert 2-in-2-out (net zero) but a 1-in-2-out recipe needs a free slot.
-        // A non-growing conversion passes UNCONDITIONALLY: a station already over its
-        // total (stock carried across the cap conversion) must be able to digest its
-        // way back down, or it deadlocks with dead demand and blocked recipes at once.
+        // fills output space: the check is the NET stock change. A non-growing
+        // conversion passes UNCONDITIONALLY so an over-full station can digest its way
+        // back under its cap instead of deadlocking.
         private bool HasOutputRoom(string yardId, FacilityDef f, RecipeDef r)
         {
             float net = 0f;
@@ -487,9 +829,10 @@ namespace DLE.Economy
         }
 
         private static string Describe(List<CargoStack> stacks) =>
-            string.Join(", ", stacks.Select(s => $"{s.Amount:0.#} {s.Cargo}"));
+            string.Join(", ", stacks.Select(s => $"{s.Amount:0.#} {s.Display}"));
 
-        // Persistence: stockpiles only. Cargo enums are stored by name so the save is stable.
+        // Persistence: stockpiles plus machine/catalyst state. Cargo enums are stored
+        // by name so the save is stable.
 
         [Serializable]
         private class SaveData
@@ -498,6 +841,10 @@ namespace DLE.Economy
             public Dictionary<string, Dictionary<string, float>> Stock;
             public Dictionary<string, Dictionary<string, float>> Imported;
             public Dictionary<string, Reservation> Reservations;
+            // Additive since 0.44: absent in older saves, machines simply start fresh.
+            public Dictionary<string, Dictionary<string, float>> MachineWear;
+            public Dictionary<string, float> CatalystHours;
+            public int Generation; // 0 in pre-0.44 saves: triggers the starter-machine grant
         }
 
         private static Dictionary<string, Dictionary<string, float>> Pack(
@@ -529,6 +876,11 @@ namespace DLE.Economy
                 Stock = Pack(_stock),
                 Imported = Pack(_imported),
                 Reservations = _reservations,
+                MachineWear = _ops.Where(kv => kv.Value.MachineWear.Count > 0)
+                    .ToDictionary(kv => kv.Key, kv => new Dictionary<string, float>(kv.Value.MachineWear)),
+                CatalystHours = _ops.Where(kv => kv.Value.CatalystHoursLeft > 0f)
+                    .ToDictionary(kv => kv.Key, kv => kv.Value.CatalystHoursLeft),
+                Generation = CurrentGeneration,
             };
             data.SetObject(SaveKey, payload);
             Main.Log($"[Economy] saved stock for {_stock.Count} station(s).");
@@ -539,6 +891,7 @@ namespace DLE.Economy
             _stock = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
             _imported = new Dictionary<string, Dictionary<CargoType, float>>(StringComparer.Ordinal);
             _reservations = new Dictionary<string, Reservation>(StringComparer.Ordinal);
+            _ops.Clear();
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
             catch (Exception ex) { Main.LogAlways($"[Economy] stock save unreadable, starting empty: {ex.Message}"); }
@@ -554,11 +907,19 @@ namespace DLE.Economy
 
             _stock = Unpack(payload.Stock);
             _imported = Unpack(payload.Imported);
+            _generation = payload.Generation;
 
             // Reservations for jobs that no longer exist after the load are released by
             // the job restore pass (the surviving jobs re-register via their save entries).
             if (payload.Reservations != null)
                 _reservations = payload.Reservations;
+
+            if (payload.MachineWear != null)
+                foreach (var kv in payload.MachineWear)
+                    Ops(kv.Key).MachineWear = new Dictionary<string, float>(kv.Value, StringComparer.Ordinal);
+            if (payload.CatalystHours != null)
+                foreach (var kv in payload.CatalystHours)
+                    Ops(kv.Key).CatalystHoursLeft = kv.Value;
 
             if (payload.SchemaVersion < 2)
             {
@@ -581,7 +942,7 @@ namespace DLE.Economy
 
         public void DumpToLog()
         {
-            Main.Log($"[Economy] {_facilities.Count} facilities, {_stock.Count} with stock:");
+            Main.Log($"[Economy] {_facilities.Count} facilities, {_stock.Count} with stock, global boost {GlobalBoost:0.00}x:");
             foreach (var yard in _stock.OrderBy(k => k.Key))
             {
                 var line = string.Join(", ", yard.Value.Where(c => c.Value > 0f)
