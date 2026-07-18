@@ -1,5 +1,5 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'settings' is world tuning: initialStock (carloads each producer output starts with, also the company.resupply target), directorTickSeconds (haul generation and production heartbeat), sourceProductionMinutes (minutes per carload at mines, forests, wells, farm), poolTrackFillPercent (how full company.respawn packs producer storage tracks), maxPoolCars (hard fleet ceiling). 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; defaultCap and caps (storage capacity in whole carloads, also the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 25, unnamed stations 50, major industry 100, harbor 200; all editable here. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. 'settings' is world tuning: initialStock (carloads each producer output starts with, also the company.resupply target), directorTickSeconds (haul generation and production heartbeat), sourceProductionMinutes (minutes per carload at mines, forests, wells, farm), poolTrackFillPercent (how full company.respawn packs producer storage tracks), maxPoolCars (hard fleet ceiling). 'defaults' sets baseline servicing and storage for every station; 'stations' overrides the auto-derived economy per yard. Per-station keys: recipes; totalCap (storage capacity in whole carloads, ONE shared pool per station: every cargo pile counts against the same total, and it doubles as the demand cap); role ('load' | 'unload' | 'both'); remoteLoad / remoteUnload (does station staff service cars parked anywhere in the yard); remoteSecondsPerCar (staff time cost per car). Storage tiers: small pickup yards 50, unnamed stations 100, major industry 200, harbor 400; all editable here. Older files using defaultCap still load (the value is doubled into the station total); per-cargo 'caps' entries are ignored. Cargo names are the game's CargoType enum names. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
   "settings": {
     "initialStock": 6,
     "directorTickSeconds": 120,
@@ -26,11 +26,11 @@
     "remoteLoad": true,
     "remoteUnload": true,
     "remoteSecondsPerCar": 45,
-    "defaultCap": 50
+    "totalCap": 100
   },
   "stations": {
     "HB": {
-      "defaultCap": 200
+      "totalCap": 400
     },
     "MF": {
       "recipes": [
@@ -47,10 +47,10 @@
       ]
     },
     "CW": {
-      "defaultCap": 100
+      "totalCap": 200
     },
     "SM": {
-      "defaultCap": 100,
+      "totalCap": 200,
       "recipes": [
         {
           "inputs": {
@@ -65,7 +65,7 @@
       ]
     },
     "GF": {
-      "defaultCap": 100,
+      "totalCap": 200,
       "recipes": [
         {
           "inputs": {
@@ -80,7 +80,7 @@
       ]
     },
     "FF": {
-      "defaultCap": 100,
+      "totalCap": 200,
       "recipes": [
         {
           "inputs": {
@@ -95,7 +95,7 @@
       ]
     },
     "SW": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "recipes": [
         {
           "inputs": {
@@ -109,7 +109,7 @@
       ]
     },
     "OWN": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -126,7 +126,7 @@
       ]
     },
     "OWC": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -143,7 +143,7 @@
       ]
     },
     "CME": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -160,7 +160,7 @@
       ]
     },
     "CMS": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -177,7 +177,7 @@
       ]
     },
     "IME": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -194,7 +194,7 @@
       ]
     },
     "IMW": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -211,7 +211,7 @@
       ]
     },
     "FRC": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -235,7 +235,7 @@
       ]
     },
     "FRS": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {
@@ -259,7 +259,7 @@
       ]
     },
     "FM": {
-      "defaultCap": 25,
+      "totalCap": 50,
       "source": true,
       "boosters": [
         {

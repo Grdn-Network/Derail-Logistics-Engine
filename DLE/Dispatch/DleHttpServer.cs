@@ -680,6 +680,10 @@ namespace DLE.Dispatch
             {
                 yardId = f.YardId,
                 source = f.IsSource,
+                // Storage is one shared pool per station (#92): the board scales every
+                // stock bar against the same total.
+                totalCap = f.TotalCap,
+                totalStock = econ.TotalStock(f.YardId),
                 outputs = f.Outputs.Select(c => c.ToString()),
                 inputs = f.Inputs.Select(c => c.ToString()),
                 boosters = f.Boosters.Select(b => new
@@ -693,7 +697,6 @@ namespace DLE.Dispatch
                     {
                         cargo = c.ToString(),
                         amount = econ.GetStock(f.YardId, c),
-                        cap = f.Cap(c),
                         reserved = econ.GetReserved(f.YardId, c),
                         imported = econ.GetImported(f.YardId, c),
                         // Empty piles show when a recipe needs them: an idle factory's
