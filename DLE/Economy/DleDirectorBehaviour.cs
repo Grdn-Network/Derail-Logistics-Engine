@@ -13,6 +13,16 @@ namespace DLE.Economy
     {
         private static GameObject _host;
 
+        // The save this director was born into. If SaveGameManager swaps to a different
+        // save (the player loaded another world in the same session), this director is
+        // stale: its loops belong to the old world's economy and must stop before they
+        // generate jobs or tick production into the newly loading world. StartOnHost only
+        // destroys it at the NEW world's LoadingFinished, which is after streaming begins.
+        private object _bornData;
+
+        private bool IsStale() =>
+            !ReferenceEquals(_bornData, SaveGameManager.Instance?.data);
+
         public static void StartOnHost()
         {
             // A fresh world load gets a fresh director: the old TickLoop belongs to the
@@ -37,6 +47,7 @@ namespace DLE.Economy
 
         private void Start()
         {
+            _bornData = SaveGameManager.Instance?.data;
             // Fresh world, fresh sweep state: a coroutine that died mid-sweep in the old
             // world must not wedge the single-flight guard forever.
             Data.DleCarPool.SweepInFlight = false;
@@ -56,6 +67,7 @@ namespace DLE.Economy
             while (true)
             {
                 yield return wait;
+                if (IsStale()) yield break; // a different world loaded; this director is done
                 if (!Main.IsHostOrSingleplayer()) continue;
 
                 // Paper is just paperwork: a haul whose cargo stands unloaded at the
@@ -63,10 +75,13 @@ namespace DLE.Economy
                 // Covers staff, terminal and hand unloading alike; the board's Turn in
                 // button stays as a manual fallback.
                 try { AutoCloseDelivered(); }
-                catch (System.Exception ex) { Main.Log($"[Director] auto-close sweep failed: {ex.Message}"); }
+                catch (System.Exception ex) { Main.LogAlways($"[Director] auto-close sweep failed: {ex.GetType().Name}: {ex.Message}"); }
 
                 try { DespawnManagedOverviews(Dispatch.AssignmentStore.Instance.LockEnabled); }
-                catch (System.Exception ex) { Main.Log($"[Director] overview sweep failed: {ex.Message}"); }
+                catch (System.Exception ex) { Main.LogAlways($"[Director] overview sweep failed: {ex.GetType().Name}: {ex.Message}"); }
+
+                try { AutoCloseLogiRuns(); }
+                catch (System.Exception ex) { Main.LogAlways($"[Director] logistics sweep failed: {ex.GetType().Name}: {ex.Message}"); }
             }
         }
 
@@ -93,6 +108,41 @@ namespace DLE.Economy
                 // the cut has not arrived yet.
                 var r = Dispatch.DispatchLifecycle.CompleteJob(id);
                 if (r.Ok) Main.LogAlways($"[Dispatch] {id} closed automatically: cargo delivered.");
+            }
+        }
+
+        /// <summary>
+        /// A logistics run's zero-pay EmptyHaul closes itself on arrival: when its
+        /// transport task reads Done, the sweep completes the job and marks the order
+        /// Done, so the run needs no turn-in trip (paper is paperwork here too).
+        /// </summary>
+        private static void AutoCloseLogiRuns()
+        {
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            if (jobsManager == null) return;
+            foreach (var order in Dispatch.LogisticsBoard.Instance.All)
+            {
+                if (string.IsNullOrEmpty(order.JobId) || order.Status == "Done") continue;
+                DV.Logic.Job.Job job = null;
+                foreach (var j in jobsManager.jobToJobCars.Keys)
+                    if (j != null && j.ID == order.JobId) { job = j; break; }
+                if (job == null) continue; // expired or already cleaned up; the order stays a note
+                if (job.State == DV.ThingTypes.JobState.Completed)
+                {
+                    Dispatch.LogisticsBoard.Instance.SetStatus(order.Id, "Done");
+                    continue;
+                }
+                if (job.State != DV.ThingTypes.JobState.InProgress) continue;
+                bool allDone = true;
+                foreach (var t in job.tasks)
+                    if (t.state != DV.Logic.Job.TaskState.Done) { allDone = false; break; }
+                if (!allDone) continue;
+                var state = jobsManager.TryToCompleteAJob(job);
+                if (state == DV.ThingTypes.JobState.Completed)
+                {
+                    Dispatch.LogisticsBoard.Instance.SetStatus(order.Id, "Done");
+                    Main.LogAlways($"[Logistics] {order.Id} ({order.JobId}) arrived; run closed automatically.");
+                }
             }
         }
 
@@ -176,6 +226,7 @@ namespace DLE.Economy
             {
                 float tick = Mathf.Max(15, RecipeProvider.Tuning.directorTickSeconds);
                 yield return new WaitForSeconds(tick);
+                if (IsStale()) yield break; // a different world loaded; do not tick into it
                 if (!Main.IsHostOrSingleplayer() || !WorldReady()) continue;
 
                 // Cargo enters the world at the sources on a slow clock.

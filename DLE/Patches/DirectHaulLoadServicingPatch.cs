@@ -64,15 +64,23 @@ namespace DLE.Patches
         public static void Postfix(WarehouseTask task, Car __result)
         {
             if (__result == null) return;
+            // Client-installed DLE: the tally feeds the host's payout math; a client's
+            // local warehouse events must not touch it (jobDefinitions is host state).
+            if (!Main.IsHostOrSingleplayer()) return;
             var jobId = task?.Job?.ID;
             if (jobId == null) return;
+            // Guard the whole body: this postfix fires for EVERY warehouse load in the
+            // game, so a vanilla (non-DLE) job leaves def null and the tally lines below
+            // would throw an NRE out of the postfix and stall the load. Braces matter here.
             if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+            {
                 def.loadedCarloads = Math.Min(def.carsToTransport?.Count ?? int.MaxValue, def.loadedCarloads + 1);
                 // One event when the terminal finishes the last car; staff loads record
                 // their own event in the servicing wrap-up.
                 if (def.loadedCarloads == (def.carsToTransport?.Count ?? -1))
                     Economy.EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId,
                         def.transportedCargo.ToString(), def.loadedCarloads, def.LiveJob?.ID);
+            }
         }
     }
 
@@ -95,6 +103,10 @@ namespace DLE.Patches
         [HarmonyPrefix]
         public static void Prefix(WarehouseMachineController __instance)
         {
+            // Client-installed DLE (booklet rendering support): attaching cars, debiting
+            // stock and registering debt are host-authoritative; a client pulling the
+            // warehouse lever must go through the host's synced machinery, not run its own.
+            if (!Main.IsHostOrSingleplayer()) return;
             try
             {
                 AttachEmptiesToWaitingJobs(__instance);

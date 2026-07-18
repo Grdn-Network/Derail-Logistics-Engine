@@ -99,13 +99,21 @@ namespace DLE.Dispatch
             {
                 IAsyncResult async;
                 try { async = _listener.BeginGetContext(null, null); }
-                catch { yield break; }
+                catch (Exception ex)
+                {
+                    // The listener died unexpectedly (not an orderly world reload, which
+                    // disposes it and sets _listener null): the whole board and API go dark,
+                    // so say why instead of exiting silently.
+                    if (_listener != null)
+                        Main.LogAlways($"[Http] listen loop stopped ({ex.GetType().Name}: {ex.Message}); the board and API are offline until reload.");
+                    yield break;
+                }
 
                 while (!async.IsCompleted) yield return null;
 
                 HttpListenerContext ctx = null;
                 try { ctx = _listener.EndGetContext(async); }
-                catch (Exception ex) { Main.Log($"[Http] context error: {ex.Message}"); }
+                catch (Exception ex) { Main.LogAlways($"[Http] request dropped at accept ({ex.GetType().Name}: {ex.Message})."); }
 
                 if (ctx != null) Handle(ctx);
             }
@@ -117,10 +125,20 @@ namespace DLE.Dispatch
             string method = ctx.Request.HttpMethod;
             try
             {
-                // CSRF guard: refuse state-changing calls from another web origin. Same-origin
-                // board requests and non-browser clients (curl, RemoteDispatch) are allowed.
-                if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx))
-                { Json(ctx, 403, new { error = "cross-origin request refused" }); return; }
+                // CSRF guard: state-changing calls from another web origin need the board
+                // password. A tunneled board is the legitimate case: the tunnel rewrites
+                // the Host header but not Origin, so its own page reads as foreign here;
+                // the key (which a drive-by site cannot know or send) is what tells the
+                // dispatcher's page apart from an attack. No password configured means no
+                // foreign mutations at all. Same-origin board requests and non-browser
+                // clients (curl, RemoteDispatch) pass untouched.
+                if ((method == "POST" || method == "PUT" || method == "DELETE") && IsForeignOrigin(ctx) && !Authorized(ctx))
+                {
+                    if (!string.IsNullOrEmpty(Main.Settings?.BoardPassword))
+                    { Json(ctx, 401, new { error = "password required" }); return; } // board JS prompts and retries
+                    Json(ctx, 403, new { error = "cross-origin request refused (set a board password to dispatch through a tunnel)" });
+                    return;
+                }
 
                 // Network callers must present the board password on every API call; the
                 // page itself is public chrome, every fact and lever sits behind the key.
@@ -188,7 +206,25 @@ namespace DLE.Dispatch
                     if (req == null || string.IsNullOrEmpty(req.from) || string.IsNullOrEmpty(req.to) || req.cars <= 0)
                     { Json(ctx, 400, new { error = "from, to, cars required" }); return; }
                     var order = LogisticsBoard.Instance.Create(req.from, req.to, req.cars, req.cargo, req.note);
-                    Json(ctx, 201, order);
+
+                    // Paper for the run: a zero-pay vanilla EmptyHaul over idle empties at
+                    // the origin. Vanilla type so it renders and syncs everywhere. When no
+                    // suitable empties stand idle, the run stays a coordination note.
+                    string bookletNote = null;
+                    var fromSc = StationController.GetStationByYardID(req.from);
+                    var toSc = StationController.GetStationByYardID(req.to);
+                    if (fromSc != null && toSc != null)
+                    {
+                        DV.ThingTypes.CargoType? forCargo = null;
+                        if (!string.IsNullOrEmpty(req.cargo) && Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var ct))
+                            forCargo = ct;
+                        order.JobId = Jobs.DirectHaulGenerator.TryCreateLogiRun(
+                            fromSc, toSc, forCargo, req.cars, out bookletNote, out var bound);
+                        if (order.JobId != null && bound < req.cars)
+                            bookletNote = $"booklet {order.JobId} covers {bound} of {req.cars} car(s); the rest had no idle empties on that track";
+                    }
+                    Json(ctx, 201, new { order.Id, order.FromYardId, order.ToYardId, order.CarCount,
+                        order.Cargo, order.Note, order.Status, order.JobId, bookletNote });
                     return;
                 }
                 const string logisticsPrefix = "/api/v1/logistics/";
@@ -314,8 +350,10 @@ namespace DLE.Dispatch
                 if (method == "PUT" && path == "/api/v1/lock")
                 {
                     var req = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
+                    if (req?.enabled == null)
+                    { Json(ctx, 400, new { error = "enabled (true or false) required" }); return; }
                     bool wasLocked = AssignmentStore.Instance.LockEnabled;
-                    AssignmentStore.Instance.LockEnabled = req?.enabled ?? false;
+                    AssignmentStore.Instance.LockEnabled = req.enabled.Value;
                     Main.Log($"[Dispatch] lock {(AssignmentStore.Instance.LockEnabled ? "ENABLED" : "disabled")} via API.");
 
                     // Lock ON clears the public job board: the office papers are swept, so
@@ -341,7 +379,7 @@ namespace DLE.Dispatch
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class TakeRequest { public string player = null; }
-        private class LockRequest { public bool enabled = false; }
+        private class LockRequest { public bool? enabled = null; }
         private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
@@ -645,8 +683,11 @@ namespace DLE.Dispatch
 
         private static bool Authorized(HttpListenerContext ctx)
         {
+            // The password stands on its own: RemoteBoard only controls the network BIND.
+            // A tunnel points at the loopback listener with RemoteBoard off, and its
+            // dispatcher still authenticates with the key.
             var s = Main.Settings;
-            if (s == null || !s.RemoteBoard || string.IsNullOrEmpty(s.BoardPassword)) return false;
+            if (s == null || string.IsNullOrEmpty(s.BoardPassword)) return false;
             var key = ctx.Request.Headers["X-DLE-Key"] ?? ctx.Request.QueryString["key"];
             return string.Equals(key, s.BoardPassword, StringComparison.Ordinal);
         }

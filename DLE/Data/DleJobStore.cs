@@ -79,7 +79,7 @@ namespace DLE.Data
             if (payload?.Jobs == null || payload.Jobs.Count == 0) { ReconcileReservations(); return; }
             if (payload.SchemaVersion != SchemaVersion)
             {
-                Main.Log($"[JobStore] job schema {payload.SchemaVersion} != {SchemaVersion}, skipping restore.");
+                Main.LogAlways($"[JobStore] job schema {payload.SchemaVersion} != {SchemaVersion}; dropping every saved Direct Haul job. Taken hauls will be gone after this load.");
                 ReconcileReservations();
                 return;
             }
@@ -144,7 +144,11 @@ namespace DLE.Data
                 // bring empties; anything else with missing cars is unrecoverable.
                 if (!(snap.IncludeLoadTask && snap.CarGuids.Count == 0))
                 {
-                    Main.Log($"[JobStore] {snap.JobId}: only {cars.Count}/{snap.CarGuids.Count} cars found; skipped.");
+                    // Advance the route counter past this dropped ID even though it did not
+                    // rebuild, so a future job cannot be minted with the same ID and inherit
+                    // this one's still-persisted crew assignment.
+                    JobUtils.EnsureCounterPast(snap.JobId);
+                    Main.LogAlways($"[JobStore] {snap.JobId}: only {cars.Count}/{snap.CarGuids.Count} cars found after load; job dropped. The crew's booklet is gone.");
                     return false;
                 }
             }

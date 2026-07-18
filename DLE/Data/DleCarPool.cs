@@ -118,6 +118,11 @@ namespace DLE.Data
         {
             if (station == null || count <= 0) return 0;
 
+            // Standalone empties request (not part of a sweep, which prunes for itself):
+            // drop guids whose cars died since load first, so the cap is measured against
+            // the live fleet, not phantoms left by radio-clears or MP despawns.
+            if (collector == null) PruneDeadGuids();
+
             // Hard fleet cap: no code path (seeding, respawn, empties API) may push the
             // pool past it. An unbounded pool degrades physics, saves and MP sync; the cap
             // is the backstop if a bug ever compounds the fleet.
@@ -360,6 +365,20 @@ namespace DLE.Data
         }
 
         /// <summary>
+        /// True when a car is coupled into a consist that contains a locomotive: a crew is
+        /// actively hauling it, so recovery must leave it alone even though no job is
+        /// attached (carless hauls attach only on arrival at the producer).
+        /// </summary>
+        private static bool InPlayerConsist(TrainCar tc)
+        {
+            var set = tc?.trainset;
+            if (set?.cars == null) return false;
+            foreach (var c in set.cars)
+                if (c != null && c.IsLoco) return true;
+            return false;
+        }
+
+        /// <summary>
         /// Interpenetration distance: coupled cars on one track sit ~10m apart center to
         /// center and true stacked spawns sit near 0-2m, while parallel tracks (DoubleTrack
         /// lays them at 4.0-4.5m centers) put healthy cars abreast just past 3.5m. 5m used
@@ -418,6 +437,16 @@ namespace DLE.Data
                     targets.Add(tc);
             }
 
+            // Cars a live carless haul reserved but has not yet attached: they ride to the
+            // producer before CommitAttach, so GetJobOfCar is null the whole trip. Deleting
+            // them mid-run would annihilate the exact dispatched move this mod exists to
+            // create.
+            var reservedByLiveJobs = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                if (kv.Value?.LiveJob != null && kv.Value.reservedCarIds != null)
+                    foreach (var rid in kv.Value.reservedCarIds)
+                        reservedByLiveJobs.Add(rid);
+
             // Every jobless empty non-player freight car on the map, wherever it stands.
             var jobsManager = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
             var freeCars = new List<TrainCar>();
@@ -429,6 +458,11 @@ namespace DLE.Data
                 if (tc.IsLoco || car.playerSpawnedCar) continue;
                 if (car.LoadedCargoAmount > 0f) continue;
                 if (jobsManager.GetJobOfCar(car) != null) continue;
+                if (reservedByLiveJobs.Contains(car.ID)) continue;
+                // Coupled into a consist that has a locomotive: a crew is hauling this cut
+                // right now (empties on their way to a producer, say). Never delete it out
+                // from under a moving train.
+                if (InPlayerConsist(tc)) continue;
                 freeCars.Add(tc);
                 if (IsWreck(tc)) targets.Add(tc);
 
@@ -711,6 +745,13 @@ namespace DLE.Data
                 _guids = new HashSet<string>(payload.Guids, StringComparer.Ordinal);
                 // Older saves have no flag and deserialize as false: they seed once, by design.
                 PoolsSeeded = payload.PoolsSeeded;
+            }
+            else if (payload?.Guids != null)
+            {
+                // Schema mismatch (a mod downgrade against a newer save): the guid list is
+                // dropped, so the restored fleet is unprotected from the deleter until
+                // adoption re-registers the idle empties. Say so unconditionally.
+                Main.LogAlways($"[CarPool] pool save schema {payload.SchemaVersion} != {SchemaVersion}; pool starts empty and re-adopts idle cars on seed. Run company.respawn if cars go missing.");
             }
             _loadedFrom = data;
         }

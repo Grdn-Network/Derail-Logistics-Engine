@@ -81,6 +81,11 @@ namespace DLE.Dispatch
                     // valid candidate (suitable, empty, jobless, unreserved, in the yard).
                     if (pickedCarIds.Count != wanted)
                         return Result.Fail($"job wants {wanted} car(s); {pickedCarIds.Count} picked");
+                    // Reject a repeated car id: a duplicate passes the count check but would
+                    // attach the same car twice, doubling the stock debit and malforming the
+                    // consist.
+                    if (pickedCarIds.Distinct(StringComparer.Ordinal).Count() != pickedCarIds.Count)
+                        return Result.Fail("the same car was picked more than once");
                     var eligible = AllLoadCandidates(def, sc);
                     if (eligible == null)
                         return Result.Fail($"no car type carries {def.transportedCargo}");
@@ -257,8 +262,9 @@ namespace DLE.Dispatch
         private static IEnumerator StaffLoadRoutine(StaticDirectHaulJobDefinition def, Job job,
             List<Car> cars, bool alreadyAttached, float perCar)
         {
-            // The first staff member walks out to the cut.
-            if (perCar > 0f) yield return new WaitForSeconds(perCar);
+            // The FIRST car is instant, on purpose: immediate feedback that the order
+            // registered and staff are working. The pacing applies from car two on.
+            yield return null;
 
             // Attach commitment happens once, revalidated: without the recheck, a lever
             // attach mid-wait triggers a second CommitAttach (double stock debit,
@@ -320,7 +326,11 @@ namespace DLE.Dispatch
                     }
                     c.LoadCargo(c.capacity, def.transportedCargo);
                     loaded++;
-                    def.loadedCarloads = Math.Max(def.loadedCarloads, loaded);
+                    // Tally the true physical count of loaded cars in the consist, not this
+                    // run's local counter: a split load (a second run finishing cars a first
+                    // run left) would otherwise high-water at the smaller run's count and
+                    // under-credit the payout and the unload room math.
+                    def.loadedCarloads = (def.carsToTransport ?? cars).Count(x => x != null && x.LoadedCargoAmount > 0f);
                 }
                 catch (Exception ex)
                 {
@@ -356,7 +366,10 @@ namespace DLE.Dispatch
             int unloaded = 0;
             for (int i = 0; i < cars.Count; i++)
             {
-                if (perCar > 0f) yield return new WaitForSeconds(perCar);
+                // First car instant (visible confirmation the unload is running); the
+                // per-car pacing applies from car two on, mirroring the staff load.
+                if (i > 0 && perCar > 0f) yield return new WaitForSeconds(perCar);
+                else yield return null;
                 try
                 {
                     if (job.State != JobState.InProgress)

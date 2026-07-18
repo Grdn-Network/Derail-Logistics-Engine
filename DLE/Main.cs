@@ -79,29 +79,30 @@ namespace DLE
             }
             catch (Exception ex)
             {
-                LogAlways($"[Main] Economy init failed: {ex.Message}");
+                LogAlways($"[Main] Economy init failed ({ex.GetType().Name}): {ex.Message}");
             }
 
             // Rebuild live Direct Haul jobs from DLE's own save data (they are filtered out of the
             // vanilla job save), restore assignments, and start the local HTTP API.
             // Host only; clients receive jobs from the host via DVMP.
-            if (IsHostOrSingleplayer())
+            bool hostOrSp = IsHostOrSingleplayer();
+            LogAlways(hostOrSp
+                ? "[Main] running as host/singleplayer; DLE server logic active."
+                : "[Main] running as a multiplayer client; DLE host logic stays off (the host runs it).");
+            if (hostOrSp)
             {
-                try
+                var data = SaveGameManager.Instance?.data;
+                if (data != null)
                 {
-                    var data = SaveGameManager.Instance?.data;
-                    if (data != null)
-                    {
-                        DleCarPool.Instance.LoadFrom(data);
-                        DleCarPool.Instance.PruneDeadGuids();
-                        DleJobStore.RestoreFrom(data);
-                        AssignmentStore.Instance.LoadFrom(data);
-                        LogisticsBoard.Instance.LoadFrom(data);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogAlways($"[Main] Job restore failed: {ex.Message}");
+                    // Each store restores under its own guard: a failure in one must not
+                    // abandon the others. A job-restore throw that skipped the car-pool arm
+                    // would strand the whole fleet for the deleter, and skipping the
+                    // assignment/board load would leave the previous session's data live to
+                    // be written into this save.
+                    SafeRestore("car pool", () => { DleCarPool.Instance.LoadFrom(data); DleCarPool.Instance.PruneDeadGuids(); });
+                    SafeRestore("jobs", () => DleJobStore.RestoreFrom(data));
+                    SafeRestore("assignments", () => AssignmentStore.Instance.LoadFrom(data));
+                    SafeRestore("logistics board", () => LogisticsBoard.Instance.LoadFrom(data));
                 }
                 DleHttpServer.StartOnHost();
                 // The director behaviour also runs the one-time pool seeding once the
@@ -120,21 +121,27 @@ namespace DLE
 
         private static void OnAboutToSave(SaveType saveType)
         {
-            try
-            {
-                var data = SaveGameManager.Instance?.data;
-                if (data != null)
-                {
-                    EconomyState.Instance.SaveTo(data);
-                    DleJobStore.SaveTo(data);
-                    AssignmentStore.Instance.SaveTo(data);
-                    DleCarPool.Instance.SaveTo(data);
-                    LogisticsBoard.Instance.SaveTo(data);
-                }
-            }
+            var data = SaveGameManager.Instance?.data;
+            if (data == null) return;
+            // Each store writes under its own guard. One store throwing must not skip the
+            // rest: the vanilla save proceeds regardless, so a half-written DLE state (e.g.
+            // fresh car positions paired with a stale guid list) would let the deleter cull
+            // every car spawned since the last clean save.
+            SafeRestore("economy save", () => EconomyState.Instance.SaveTo(data));
+            SafeRestore("jobs save", () => DleJobStore.SaveTo(data));
+            SafeRestore("assignments save", () => AssignmentStore.Instance.SaveTo(data));
+            SafeRestore("car pool save", () => DleCarPool.Instance.SaveTo(data));
+            SafeRestore("logistics board save", () => LogisticsBoard.Instance.SaveTo(data));
+        }
+
+        /// <summary>Run one save/restore step under its own guard so a single failure is
+        /// logged and confined instead of abandoning every step after it.</summary>
+        private static void SafeRestore(string what, Action step)
+        {
+            try { step(); }
             catch (Exception ex)
             {
-                LogAlways($"[Main] Error saving DLE state: {ex.Message}");
+                LogAlways($"[Main] {what} failed ({ex.GetType().Name}: {ex.Message}); continuing with the rest.");
             }
         }
 
@@ -185,17 +192,22 @@ namespace DLE
                 bool isHost = (bool)(_isHostProp?.GetValue(_mpApiInstance) ?? true);
                 bool isSP   = (bool)(_isSinglePlayerProp?.GetValue(_mpApiInstance) ?? true);
 
-                if (!isHost && !isSP)
-                {
-                    // Both false in single-player DVMP mode is a known edge case: the server
-                    // may not have propagated IsHost/IsSinglePlayer yet at job-generation time.
-                    Log($"[Main] IsHost={isHost} IsSinglePlayer={isSP}; both false, defaulting to HOST");
-                    return true;
-                }
-
+                // A joined DVMP client has BOTH false as its steady state (verified against
+                // dv-mp: IsHost => Server.IsRunning, IsSinglePlayer => Server.IsRunning &&
+                // Server.IsSinglePlayer, and a client runs no server). A real host or SP
+                // session always has the local server running by the time any DLE code runs,
+                // so isHost || isSP is true for them. The old "both false defaults to HOST"
+                // fallback made every client run the host stack (duplicate jobs, phantom
+                // cars, double pay) and is removed on purpose.
                 return isHost || isSP;
             }
-            catch { return true; }
+            catch (Exception ex)
+            {
+                // Fail toward host/SP: a reflection break must not silently disable DLE in
+                // singleplayer. Logged unconditionally so a client mis-detection is visible.
+                LogAlways($"[Main] host detection threw ({ex.GetType().Name}: {ex.Message}); assuming host/singleplayer.");
+                return true;
+            }
         }
 
         /// <summary>
@@ -207,7 +219,6 @@ namespace DLE
         private static void ResolveDvmpApi()
         {
             if (_dvmpResolved) return;
-            _dvmpResolved = true;
 
             try
             {
@@ -218,6 +229,9 @@ namespace DLE
 
                 if (mpApiType == null)
                 {
+                    // No DVMP installed at all: this never changes within a session, so
+                    // latch it and treat every session as singleplayer.
+                    _dvmpResolved = true;
                     Log("[Main] DVMP MultiplayerAPI not found; assuming single-player");
                     return;
                 }
@@ -225,20 +239,25 @@ namespace DLE
                 var isLoaded = (bool)(mpApiType.GetProperty("IsMultiplayerLoaded")?.GetValue(null) ?? false);
                 if (!isLoaded)
                 {
-                    Log("[Main] DVMP present but multiplayer not loaded");
+                    // DVMP present but not yet initialised. Do NOT latch: it may load later
+                    // this session (a client that joins after DLE's menu-time load). Latching
+                    // here left _mpApiInstance null forever, so IsHostOrSingleplayer reported
+                    // singleplayer and a client ran the host stack.
+                    Log("[Main] DVMP present but multiplayer not loaded; will retry");
                     return;
                 }
 
                 _mpApiInstance = mpApiType.GetProperty("Instance")?.GetValue(null);
                 if (_mpApiInstance == null)
                 {
-                    Log("[Main] DVMP Instance is null");
-                    return;
+                    Log("[Main] DVMP Instance is null; will retry");
+                    return; // not latched: retry on the next call
                 }
 
                 var instanceType = _mpApiInstance.GetType();
                 _isHostProp         = instanceType.GetProperty("IsHost");
                 _isSinglePlayerProp = instanceType.GetProperty("IsSinglePlayer");
+                _dvmpResolved = true; // fully hooked; stop retrying
 
                 // Register as Host-only: clients don't need this mod installed
                 // MultiplayerCompatibility.Host = byte value 3

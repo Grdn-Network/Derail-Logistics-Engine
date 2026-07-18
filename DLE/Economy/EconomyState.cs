@@ -85,13 +85,24 @@ namespace DLE.Economy
                         }
 
                 float made = carloads * mult;
+                if (made <= 0f) continue;
+
+                // Only produce, and only wear boosters, for output the store can actually
+                // hold. A source sitting at its storage cap (nobody is hauling it away) must
+                // not silently burn delivered booster tools and log phantom production for
+                // carloads that Credit just clamps away.
+                float actuallyMade = 0f;
                 foreach (var cargo in f.Outputs)
                 {
-                    Credit(f.YardId, cargo, made);
-                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), made);
+                    float add = Math.Min(made, GetRoom(f.YardId, cargo));
+                    if (add <= 0f) continue;
+                    Credit(f.YardId, cargo, add);
+                    EconomyHistory.Record("production", f.YardId, cargo.ToString(), add);
+                    if (add > actuallyMade) actuallyMade = add;
                 }
+                if (actuallyMade <= 0f) continue; // every output is full: no wear, no phantom log
                 foreach (var (b, c) in active)
-                    ConsumeImportedFirst(f.YardId, c, b.ConsumedPerCarload * made);
+                    ConsumeImportedFirst(f.YardId, c, b.ConsumedPerCarload * actuallyMade);
             }
 
             // Factories chew their input buffers on the same clock: at most one batch per
@@ -233,16 +244,30 @@ namespace DLE.Economy
         public float GetReserved(string yardId, CargoType cargo) =>
             SumReservations(yardId, cargo, includeSoft: false);
 
-        /// <summary>Dispatch view: produced stock minus hard paid holds. Open paper does
-        /// not block a dispatcher; taking that paper later is what gets refused if the
-        /// supply is really gone.</summary>
-        public float GetAvailable(string yardId, CargoType cargo) =>
-            GetProduced(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: false, paid: true);
+        /// <summary>
+        /// Produced stock an unpaid hold will draw once its imported backing runs out. An
+        /// unpaid move eats imported-first, but a hold larger than the imported portion
+        /// bites into produced, so the produced views must reserve that overflow too or the
+        /// same produced carloads get promised to both an unpaid move and a paid haul.
+        /// </summary>
+        private float UnpaidProducedClaim(string yardId, CargoType cargo, bool includeSoft) =>
+            Math.Max(0f, SumReservations(yardId, cargo, includeSoft, paid: false) - GetImported(yardId, cargo));
 
-        /// <summary>Director view: produced minus every paid hold including open paper,
-        /// so generation never double-books a pile across booklets.</summary>
+        /// <summary>Dispatch view: produced stock minus hard paid holds (and the produced
+        /// overflow of hard unpaid holds). Open paper does not block a dispatcher; taking
+        /// that paper later is what gets refused if the supply is really gone.</summary>
+        public float GetAvailable(string yardId, CargoType cargo) =>
+            GetProduced(yardId, cargo)
+            - SumReservations(yardId, cargo, includeSoft: false, paid: true)
+            - UnpaidProducedClaim(yardId, cargo, includeSoft: false);
+
+        /// <summary>Director view: produced minus every paid hold including open paper (and
+        /// the produced overflow of unpaid holds), so generation never double-books a pile
+        /// across booklets.</summary>
         public float GetDirectorAvailable(string yardId, CargoType cargo) =>
-            GetProduced(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: true, paid: true);
+            GetProduced(yardId, cargo)
+            - SumReservations(yardId, cargo, includeSoft: true, paid: true)
+            - UnpaidProducedClaim(yardId, cargo, includeSoft: true);
 
         /// <summary>Unpaid-move view: the whole pile minus every hard hold.</summary>
         public float GetUnpaidAvailable(string yardId, CargoType cargo) =>
@@ -415,8 +440,12 @@ namespace DLE.Economy
             }
         }
 
+        // Conversion may only draw stock that is not already promised to a taken haul.
+        // Without the hard-hold subtraction, paced/instant conversion could eat an input
+        // pile out from under a hardened reservation between accept and attach; the cars
+        // then loaded real cargo the pile no longer had (minted carloads).
         private bool HasInputs(string yardId, RecipeDef r) =>
-            r.Inputs.All(i => GetStock(yardId, i.Cargo) >= i.Amount);
+            r.Inputs.All(i => GetStock(yardId, i.Cargo) - GetReserved(yardId, i.Cargo) >= i.Amount);
 
         private bool HasOutputRoom(string yardId, FacilityDef f, RecipeDef r) =>
             r.Outputs.All(o => GetStock(yardId, o.Cargo) + o.Amount <= f.Cap(o.Cargo) + 0.001f);
@@ -481,7 +510,9 @@ namespace DLE.Economy
             if (payload?.Stock == null) return;
             if (payload.SchemaVersion > SchemaVersion)
             {
-                Main.Log($"[Economy] stock schema {payload.SchemaVersion} is newer than {SchemaVersion}, starting empty.");
+                // A full stockpile wipe (mod downgrade against a newer save) is not routine
+                // chatter: log it unconditionally so it is never mistaken for corruption.
+                Main.LogAlways($"[Economy] stock schema {payload.SchemaVersion} is newer than {SchemaVersion}; this build cannot read it, starting empty. Do not re-save or the newer economy is lost.");
                 return;
             }
 

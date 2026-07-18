@@ -199,14 +199,24 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
-async function j(u,m,b){
+async function authedFetch(u,m,b){
  const mk=()=>{const h={};const k=localStorage.getItem('dleKey');if(k)h['X-DLE-Key']=k;
   return {method:m||'GET',body:b?JSON.stringify(b):undefined,headers:h}};
  let r=await fetch(u,mk());
  if(r.status===401){
-  const p=prompt('Board password');
-  if(p){localStorage.setItem('dleKey',p);r=await fetch(u,mk())}}
- return r.json()}
+  // Re-read the key first: prompt() blocks the single JS thread, so a sibling request
+  // that already prompted has stored it by the time this one runs. Without this the
+  // first refresh (seven parallel calls) popped seven password prompts.
+  let k=localStorage.getItem('dleKey');
+  if(!k){const p=prompt('Board password');if(p){localStorage.setItem('dleKey',p);k=p}}
+  if(k)r=await fetch(u,mk())}
+ return r}
+async function j(u,m,b){return (await authedFetch(u,m,b)).json()}
+// Polling reads must FAIL on a non-2xx, or an error body ({error:...}) flows into the
+// render as data (options.map is not a function) and the board freezes half-drawn while
+// the connection dot still shows green. Actions keep using j(): they read the body on
+// failure to surface the server's message.
+async function jget(u){const r=await authedFetch(u);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
 function toast(t,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');
  d.textContent=t;$('toasts').appendChild(d);setTimeout(()=>d.remove(),4200)}
 function pillClass(s){s=(s||'').toLowerCase();
@@ -252,7 +262,7 @@ async function refresh(){
  let state,jobs,econ,logs,hist;
  let crews;
  try{[state,options,jobs,econ,logs,hist,crews]=await Promise.all([
-  j('/api/v1/state'),j('/api/v1/options'),j('/api/v1/jobs'),j('/api/v1/economy'),j('/api/v1/logistics'),j('/api/v1/history?limit=60'),j('/api/v1/players')]);
+  jget('/api/v1/state'),jget('/api/v1/options'),jget('/api/v1/jobs'),jget('/api/v1/economy'),jget('/api/v1/logistics'),jget('/api/v1/history?limit=60'),jget('/api/v1/players')]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
  lastJobs=jobs;
