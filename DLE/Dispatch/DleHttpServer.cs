@@ -13,25 +13,27 @@ using UnityEngine;
 namespace DLE.Dispatch
 {
     /// <summary>
-    /// Local HTTP API for RemoteDispatch (and curl). Host or singleplayer only, bound to
-    /// 127.0.0.1 so nothing is exposed off the machine; RD proxies it later. Requests are
-    /// handled on the main thread (coroutine polls BeginGetContext, same proven pattern as
-    /// GRDNConnect) so game state can be read safely.
+    /// The dispatch board and API, served from a raw TcpListener. Raw sockets on purpose:
+    /// Windows' HttpListener rides http.sys, which demands an admin urlacl for any
+    /// non-loopback bind (the board silently became unreachable without it) and rejects
+    /// any Host header it does not know ("Bad Request (Invalid host)" through tunnels).
+    /// A TcpListener needs neither: it binds like any game server does and ignores the
+    /// Host header entirely. The password is the only switch: set one and the board binds
+    /// the network; blank binds loopback only.
     ///
-    /// v1 endpoints:
-    ///   GET  /api/v1/state
-    ///   GET  /api/v1/economy
-    ///   GET  /api/v1/jobs
-    ///   PUT  /api/v1/assignments/{jobId}   body {"player":"name","assignedBy":"dispatcher"}
-    ///   DELETE /api/v1/assignments/{jobId}
-    ///   PUT  /api/v1/lock                  body {"enabled":true}
+    /// Threading: sockets are accepted on the main thread (non-blocking Pending poll);
+    /// each request is read and parsed on a worker thread (so a slow client can never
+    /// stall the game), HANDLED on the main thread (game state is main-thread-only) via
+    /// a queue the coroutine drains, and written back on the worker.
     /// </summary>
     public class DleHttpServer : MonoBehaviour
     {
         public const int Port = 7246;
 
-        private HttpListener _listener;
+        private System.Net.Sockets.TcpListener _tcp;
         private static GameObject _host;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<DleRequest> _pending =
+            new System.Collections.Concurrent.ConcurrentQueue<DleRequest>();
 
         public static void StartOnHost()
         {
@@ -52,74 +54,236 @@ namespace DLE.Dispatch
 
         private void Start()
         {
-            bool remote = Main.Settings?.RemoteBoard == true &&
-                          !string.IsNullOrEmpty(Main.Settings?.BoardPassword);
-            // Network binding needs a Windows URL reservation; when that is missing the
-            // whole listener refuses to start, so fall back to host-only and say how to
-            // grant it rather than dying silently.
-            if (remote && !TryStart(networkWide: true))
-            {
-                Main.LogAlways($"[Http] network binding refused (run once as admin: netsh http add urlacl url=http://+:{Port}/ user=Everyone); falling back to host-only.");
-                remote = false;
-            }
-            if (_listener == null && !TryStart(networkWide: false))
-                return;
-            Main.Log($"[Http] listening on {(remote ? "the network" : "127.0.0.1")}:{Port}.");
-            StartCoroutine(ListenLoop());
-        }
-
-        private bool TryStart(bool networkWide)
-        {
+            bool network = !string.IsNullOrEmpty(Main.Settings?.BoardPassword);
             try
             {
-                _listener = new HttpListener();
-                _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
-                if (networkWide) _listener.Prefixes.Add($"http://+:{Port}/");
-                _listener.Start();
-                return true;
+                _tcp = new System.Net.Sockets.TcpListener(
+                    network ? IPAddress.Any : IPAddress.Loopback, Port);
+                _tcp.Start();
             }
             catch (Exception ex)
             {
-                if (!networkWide) Main.LogAlways($"[Http] failed to start on port {Port}: {ex.Message}");
-                try { _listener?.Close(); } catch { }
-                _listener = null;
-                return false;
+                Main.LogAlways($"[Http] failed to start on port {Port} ({ex.GetType().Name}: {ex.Message}); the board is offline. Is another program on the port?");
+                _tcp = null;
+                return;
             }
+            Main.LogAlways(network
+                ? $"[Http] board serving on ALL interfaces port {Port} (password set). Plain HTTP: prefer an https tunnel over raw internet exposure."
+                : $"[Http] board serving on 127.0.0.1:{Port} (no password: host-only).");
+            StartCoroutine(ListenLoop());
         }
 
         private void OnDestroy()
         {
-            try { _listener?.Stop(); _listener?.Close(); } catch { }
-            _listener = null;
+            try { _tcp?.Stop(); } catch { }
+            _tcp = null;
         }
 
         private IEnumerator ListenLoop()
         {
-            while (_listener != null && _listener.IsListening)
+            while (_tcp != null)
             {
-                IAsyncResult async;
-                try { async = _listener.BeginGetContext(null, null); }
+                // Accept everything queued this frame; workers own each socket from here.
+                try
+                {
+                    while (_tcp != null && _tcp.Pending())
+                    {
+                        var client = _tcp.AcceptTcpClient();
+                        System.Threading.ThreadPool.QueueUserWorkItem(_ => ServeClient(client));
+                    }
+                }
                 catch (Exception ex)
                 {
-                    // The listener died unexpectedly (not an orderly world reload, which
-                    // disposes it and sets _listener null): the whole board and API go dark,
-                    // so say why instead of exiting silently.
-                    if (_listener != null)
-                        Main.LogAlways($"[Http] listen loop stopped ({ex.GetType().Name}: {ex.Message}); the board and API are offline until reload.");
-                    yield break;
+                    if (_tcp != null)
+                        Main.LogAlways($"[Http] accept failed ({ex.GetType().Name}: {ex.Message}).");
                 }
 
-                while (!async.IsCompleted) yield return null;
-
-                HttpListenerContext ctx = null;
-                try { ctx = _listener.EndGetContext(async); }
-                catch (Exception ex) { Main.LogAlways($"[Http] request dropped at accept ({ex.GetType().Name}: {ex.Message})."); }
-
-                if (ctx != null) Handle(ctx);
+                // Handle parsed requests on the main thread, where game state lives.
+                while (_pending.TryDequeue(out var req))
+                {
+                    try { Handle(req); }
+                    catch (Exception ex)
+                    {
+                        Main.LogAlways($"[Http] {req.Method} {req.Path} failed: {ex.GetType().Name}: {ex.Message}");
+                        try { Json(req, 500, new { error = "internal error; see game log" }); } catch { }
+                    }
+                    if (req.RespBytes == null)
+                        Json(req, 404, new { error = "not found" });
+                    req.Done.Set();
+                }
+                yield return null;
             }
         }
 
-        private void Handle(HttpListenerContext ctx)
+        /// <summary>
+        /// Worker thread: read and parse one HTTP request, hand it to the main thread,
+        /// wait for the handler, write the response, close. All blocking socket IO lives
+        /// here so a slow or hostile client stalls only its own worker, never the game.
+        /// </summary>
+        private void ServeClient(System.Net.Sockets.TcpClient client)
+        {
+            try
+            {
+                client.ReceiveTimeout = 10000;
+                client.SendTimeout = 10000;
+                var stream = client.GetStream();
+                var req = ParseRequest(client, stream);
+                if (req == null) { WriteRaw(stream, 400, "text/plain", Encoding.UTF8.GetBytes("bad request")); return; }
+
+                _pending.Enqueue(req);
+                // The main thread drains the queue every frame; a long stall means the
+                // game itself is wedged, so give up rather than hold sockets forever.
+                if (!req.Done.Wait(15000))
+                { WriteRaw(stream, 504, "text/plain", Encoding.UTF8.GetBytes("game busy")); return; }
+
+                WriteRaw(stream, req.RespStatus, req.RespType, req.RespBytes);
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Http] client dropped: {ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
+                try { client.Close(); } catch { }
+            }
+        }
+
+        private const int MaxHeaderBytes = 32 * 1024;
+        private const int MaxBodyBytes = 2 * 1024 * 1024;
+
+        private DleRequest ParseRequest(System.Net.Sockets.TcpClient client, Stream stream)
+        {
+            // Read until the blank line ends the headers.
+            var buf = new byte[MaxHeaderBytes];
+            int used = 0, headerEnd = -1;
+            while (headerEnd < 0)
+            {
+                if (used >= buf.Length) return null;
+                int n = stream.Read(buf, used, buf.Length - used);
+                if (n <= 0) return null;
+                used += n;
+                for (int i = 3; i < used; i++)
+                    if (buf[i - 3] == '\r' && buf[i - 2] == '\n' && buf[i - 1] == '\r' && buf[i] == '\n')
+                    { headerEnd = i + 1; break; }
+            }
+
+            var head = Encoding.UTF8.GetString(buf, 0, headerEnd);
+            var lines = head.Split(new[] { "\r\n" }, StringSplitOptions.None);
+            var parts = lines[0].Split(' ');
+            if (parts.Length < 2) return null;
+
+            var headers = new System.Collections.Specialized.NameValueCollection(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in lines.Skip(1))
+            {
+                int c = line.IndexOf(':');
+                if (c > 0) headers[line.Substring(0, c).Trim()] = line.Substring(c + 1).Trim();
+            }
+
+            // Path and query, percent-decoded per component.
+            var rawUrl = parts[1];
+            var query = new System.Collections.Specialized.NameValueCollection();
+            string path = rawUrl;
+            int q = rawUrl.IndexOf('?');
+            if (q >= 0)
+            {
+                path = rawUrl.Substring(0, q);
+                foreach (var pair in rawUrl.Substring(q + 1).Split('&'))
+                {
+                    if (pair.Length == 0) continue;
+                    int eq = pair.IndexOf('=');
+                    var k = eq >= 0 ? pair.Substring(0, eq) : pair;
+                    var v = eq >= 0 ? pair.Substring(eq + 1) : "";
+                    query[Uri.UnescapeDataString(k)] = Uri.UnescapeDataString(v.Replace('+', ' '));
+                }
+            }
+            path = Uri.UnescapeDataString(path);
+
+            // Body by Content-Length only (browsers send exactly that for fetch bodies).
+            string body = null;
+            if (int.TryParse(headers["Content-Length"], out var len) && len > 0)
+            {
+                if (len > MaxBodyBytes) return null;
+                var bodyBytes = new byte[len];
+                int have = Math.Min(used - headerEnd, len);
+                Array.Copy(buf, headerEnd, bodyBytes, 0, have);
+                while (have < len)
+                {
+                    int n = stream.Read(bodyBytes, have, len - have);
+                    if (n <= 0) return null;
+                    have += n;
+                }
+                body = Encoding.UTF8.GetString(bodyBytes);
+            }
+
+            bool isLocal = false;
+            try
+            {
+                if (client.Client.RemoteEndPoint is IPEndPoint ep)
+                    isLocal = IPAddress.IsLoopback(ep.Address);
+            }
+            catch { }
+
+            return new DleRequest
+            {
+                Method = parts[0].ToUpperInvariant(),
+                Path = path,
+                Body = body,
+                Request = new RequestShim
+                {
+                    HttpMethod = parts[0].ToUpperInvariant(),
+                    QueryString = query,
+                    Headers = headers,
+                    IsLocal = isLocal,
+                    Url = new UrlShim { AbsolutePath = path },
+                },
+            };
+        }
+
+        private static void WriteRaw(Stream stream, int status, string contentType, byte[] bytes)
+        {
+            bytes = bytes ?? Array.Empty<byte>();
+            var reason = status == 200 ? "OK" : status == 201 ? "Created" : status == 204 ? "No Content"
+                : status == 400 ? "Bad Request" : status == 401 ? "Unauthorized" : status == 403 ? "Forbidden"
+                : status == 404 ? "Not Found" : status == 409 ? "Conflict" : status == 504 ? "Gateway Timeout"
+                : "Internal Server Error";
+            var head = Encoding.UTF8.GetBytes(
+                $"HTTP/1.1 {status} {reason}\r\nContent-Type: {contentType ?? "application/octet-stream"}\r\n" +
+                $"Content-Length: {bytes.Length}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+            stream.Write(head, 0, head.Length);
+            stream.Write(bytes, 0, bytes.Length);
+            stream.Flush();
+        }
+
+        /// <summary>
+        /// One parsed request plus its response slot. The Request/Url shims mirror the
+        /// HttpListener property shapes so the routing code reads naturally
+        /// (ctx.Request.QueryString, ctx.Request.IsLocal, ctx.Request.Headers).
+        /// </summary>
+        private class DleRequest
+        {
+            public string Method;
+            public string Path;
+            public string Body;
+            public RequestShim Request;
+            public int RespStatus;
+            public string RespType;
+            public byte[] RespBytes;
+            public readonly System.Threading.ManualResetEventSlim Done =
+                new System.Threading.ManualResetEventSlim(false);
+        }
+
+        private class RequestShim
+        {
+            public string HttpMethod;
+            public System.Collections.Specialized.NameValueCollection QueryString;
+            public System.Collections.Specialized.NameValueCollection Headers;
+            public bool IsLocal;
+            public UrlShim Url;
+        }
+
+        private class UrlShim { public string AbsolutePath; }
+
+        private void Handle(DleRequest ctx)
         {
             string path = ctx.Request.Url.AbsolutePath.TrimEnd('/');
             string method = ctx.Request.HttpMethod;
@@ -556,14 +720,11 @@ namespace DLE.Dispatch
             catch { return 0; }
         }
 
-        private static void Html(HttpListenerContext ctx, string html)
+        private static void Html(DleRequest ctx, string html)
         {
-            var bytes = Encoding.UTF8.GetBytes(html);
-            ctx.Response.StatusCode = 200;
-            ctx.Response.ContentType = "text/html; charset=utf-8";
-            ctx.Response.ContentLength64 = bytes.Length;
-            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
-            ctx.Response.OutputStream.Close();
+            ctx.RespStatus = 200;
+            ctx.RespType = "text/html; charset=utf-8";
+            ctx.RespBytes = Encoding.UTF8.GetBytes(html);
         }
 
         /// <summary>
@@ -663,15 +824,12 @@ namespace DLE.Dispatch
             };
         }
 
-        private static string ReadBody(HttpListenerContext ctx)
-        {
-            using (var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding ?? Encoding.UTF8))
-                return reader.ReadToEnd();
-        }
+        // The body was already read on the worker thread; nothing here can block the game.
+        private static string ReadBody(DleRequest ctx) => ctx.Body;
 
         // A same-origin board request (or a non-browser client like curl / RemoteDispatch)
         // either sends no Origin header or sends the board's own; anything else is a foreign site.
-        private static bool IsForeignOrigin(HttpListenerContext ctx)
+        private static bool IsForeignOrigin(DleRequest ctx)
         {
             var origin = ctx.Request.Headers["Origin"];
             if (string.IsNullOrEmpty(origin)) return false;
@@ -681,7 +839,7 @@ namespace DLE.Dispatch
             return string.IsNullOrEmpty(host) || origin != $"http://{host}";
         }
 
-        private static bool Authorized(HttpListenerContext ctx)
+        private static bool Authorized(DleRequest ctx)
         {
             // The password stands on its own: RemoteBoard only controls the network BIND.
             // A tunnel points at the loopback listener with RemoteBoard off, and its
@@ -692,14 +850,11 @@ namespace DLE.Dispatch
             return string.Equals(key, s.BoardPassword, StringComparison.Ordinal);
         }
 
-        private static void Json(HttpListenerContext ctx, int status, object payload)
+        private static void Json(DleRequest ctx, int status, object payload)
         {
-            var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
-            ctx.Response.StatusCode = status;
-            ctx.Response.ContentType = "application/json";
-            ctx.Response.ContentLength64 = bytes.Length;
-            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
-            ctx.Response.OutputStream.Close();
+            ctx.RespStatus = status;
+            ctx.RespType = "application/json";
+            ctx.RespBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
         }
     }
 }
