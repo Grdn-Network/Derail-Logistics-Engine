@@ -37,6 +37,10 @@ namespace DLE.Dispatch
             new Dictionary<string, float>(StringComparer.Ordinal);
         public static readonly HashSet<string> ClientUnpaid =
             new HashSet<string>(StringComparer.Ordinal);
+        public static readonly Dictionary<string, string> ClientJobCargo =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+        public static readonly Dictionary<string, int> ClientJobCars =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         // Attach packets that arrived before DVMP delivered the job itself; retried on
         // each later packet (attaches trail creations by minutes, so this is a corner).
@@ -98,17 +102,17 @@ namespace DLE.Dispatch
         // HOST-side notifications. Safe no-ops in singleplayer or when the transport
         // never came up.
 
-        public static void NotifyJobCreated(string jobId, float pay, bool unpaid)
+        public static void NotifyJobCreated(string jobId, float pay, bool unpaid, string cargo, int plannedCars)
         {
             if (!TransportUp) return;
-            try { DleMpTransport.SendJobSync(jobId, "", pay, unpaid, null); }
+            try { DleMpTransport.SendJobSync(jobId, "", pay, unpaid, cargo, plannedCars, null); }
             catch (Exception ex) { Main.Log($"[MpChannel] job-created sync failed: {ex.Message}"); }
         }
 
-        public static void NotifyAttach(string jobId, IEnumerable<string> carIds, float pay, bool unpaid)
+        public static void NotifyAttach(string jobId, IEnumerable<string> carIds, float pay, bool unpaid, string cargo, int plannedCars)
         {
             if (!TransportUp) return;
-            try { DleMpTransport.SendJobSync(jobId, string.Join(",", carIds), pay, unpaid, null); }
+            try { DleMpTransport.SendJobSync(jobId, string.Join(",", carIds), pay, unpaid, cargo, plannedCars, null); }
             catch (Exception ex) { Main.Log($"[MpChannel] attach sync failed: {ex.Message}"); }
         }
 
@@ -131,7 +135,8 @@ namespace DLE.Dispatch
 
         private static bool _firstSyncLogged;
 
-        internal static void ApplyJobSync(string jobId, string carIdsCsv, float pay, bool unpaid, bool printBooklet)
+        internal static void ApplyJobSync(string jobId, string carIdsCsv, float pay, bool unpaid, bool printBooklet,
+            string cargo, int plannedCars)
         {
             if (Main.IsHostOrSingleplayer()) return; // host loopback: its own state is authoritative
 
@@ -142,6 +147,8 @@ namespace DLE.Dispatch
             }
             ClientJobPay[jobId] = pay;
             if (unpaid) ClientUnpaid.Add(jobId); else ClientUnpaid.Remove(jobId);
+            if (!string.IsNullOrEmpty(cargo)) ClientJobCargo[jobId] = cargo;
+            if (plannedCars > 0) ClientJobCars[jobId] = plannedCars;
 
             if (!string.IsNullOrEmpty(carIdsCsv))
             {
@@ -265,11 +272,10 @@ namespace DLE.Dispatch
             return true;
         }
 
-        /// <summary>Host: everything a newly hello'd client needs about live jobs.
-        /// Returns (jobId, carIdsCsv, pay, unpaid) rows.</summary>
-        internal static List<(string jobId, string carIds, float pay, bool unpaid)> SnapshotLiveJobs()
+        /// <summary>Host: everything a newly hello'd client needs about live jobs.</summary>
+        internal static List<(string jobId, string carIds, float pay, bool unpaid, string cargo, int plannedCars)> SnapshotLiveJobs()
         {
-            var rows = new List<(string, string, float, bool)>();
+            var rows = new List<(string, string, float, bool, string, int)>();
             foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
             {
                 var def = kv.Value;
@@ -277,7 +283,8 @@ namespace DLE.Dispatch
                 var carIds = def.carsToTransport != null && def.carsToTransport.Count > 0
                     ? string.Join(",", def.carsToTransport.Select(c => c.ID))
                     : "";
-                rows.Add((kv.Key, carIds, def.deliveryPayment, def.unpaidMove));
+                rows.Add((kv.Key, carIds, def.deliveryPayment, def.unpaidMove,
+                    def.transportedCargo.ToString(), def.plannedCarCount));
             }
             return rows;
         }
@@ -314,9 +321,10 @@ namespace DLE.Dispatch
             server.RegisterPacket<DleHelloPacket>((packet, sender) =>
             {
                 if (!_dleClients.Contains(sender)) _dleClients.Add(sender);
-                Main.LogAlways($"[MpChannel] {sender.Username} runs DLE; syncing {DleMpChannel.SnapshotLiveJobs().Count} live job(s) to them.");
-                foreach (var row in DleMpChannel.SnapshotLiveJobs())
-                    SendTo(sender, row.jobId, row.carIds, row.pay, row.unpaid, false);
+                var rows = DleMpChannel.SnapshotLiveJobs();
+                Main.LogAlways($"[MpChannel] {sender.Username} runs DLE; syncing {rows.Count} live job(s) to them.");
+                foreach (var row in rows)
+                    SendTo(sender, row.jobId, row.carIds, row.pay, row.unpaid, row.cargo, row.plannedCars, false);
             });
             server.OnPlayerDisconnected += player => _dleClients.Remove(player);
         }
@@ -327,7 +335,8 @@ namespace DLE.Dispatch
             _client = client;
             client.RegisterPacket<DleJobSyncPacket>(packet =>
                 DleMpChannel.ApplyJobSync(packet.JobId ?? "", packet.CarIdsCsv ?? "",
-                    packet.Pay, packet.Unpaid, packet.PrintBooklet));
+                    packet.Pay, packet.Unpaid, packet.PrintBooklet,
+                    packet.Cargo ?? "", packet.PlannedCars));
             Main.LogAlways("[MpChannel] client session started; DLE sync handler registered.");
             // Say hello so the host knows to sync us. A non-DLE host logs one parse
             // warning and drops it; nothing breaks. Re-sent at world load in case this
@@ -345,12 +354,14 @@ namespace DLE.Dispatch
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void SendTo(MPAPI.Interfaces.IPlayer player, string jobId, string carIds, float pay, bool unpaid, bool print)
+        private static void SendTo(MPAPI.Interfaces.IPlayer player, string jobId, string carIds, float pay, bool unpaid, string cargo, int plannedCars, bool print)
         {
             ((MPAPI.Interfaces.IServer)_server).SendPacketToPlayer(new DleJobSyncPacket
             {
                 JobId = jobId,
                 CarIdsCsv = carIds ?? "",
+                Cargo = cargo ?? "",
+                PlannedCars = plannedCars,
                 Pay = pay,
                 Unpaid = unpaid,
                 PrintBooklet = print,
@@ -358,7 +369,7 @@ namespace DLE.Dispatch
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void SendJobSync(string jobId, string carIds, float pay, bool unpaid, string onlyPlayer)
+        internal static void SendJobSync(string jobId, string carIds, float pay, bool unpaid, string cargo, int plannedCars, string onlyPlayer)
         {
             if (_server == null) return;
             foreach (var obj in _dleClients)
@@ -366,7 +377,7 @@ namespace DLE.Dispatch
                 var player = (MPAPI.Interfaces.IPlayer)obj;
                 if (onlyPlayer != null && !string.Equals(player.Username, onlyPlayer, StringComparison.OrdinalIgnoreCase))
                     continue;
-                SendTo(player, jobId, carIds, pay, unpaid, false);
+                SendTo(player, jobId, carIds, pay, unpaid, cargo, plannedCars, false);
             }
         }
 
@@ -378,22 +389,14 @@ namespace DLE.Dispatch
             {
                 var player = (MPAPI.Interfaces.IPlayer)obj;
                 if (!string.Equals(player.Username, playerName, StringComparison.OrdinalIgnoreCase)) continue;
-                ((MPAPI.Interfaces.IServer)_server).SendPacketToPlayer(new DleJobSyncPacket
-                {
-                    JobId = jobId,
-                    CarIdsCsv = "",
-                    Pay = DleJobPayFor(jobId),
-                    Unpaid = false,
-                    PrintBooklet = true,
-                }, player);
+                StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def);
+                SendTo(player, jobId, "",
+                    def?.deliveryPayment ?? 0f, def?.unpaidMove ?? false,
+                    def?.transportedCargo.ToString() ?? "", def?.plannedCarCount ?? 0, true);
                 return true;
             }
             return false;
         }
-
-        private static float DleJobPayFor(string jobId) =>
-            StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def)
-                ? def.deliveryPayment : 0f;
     }
 
     /// <summary>Client-to-server: "this client runs DLE, sync me." Auto-serialized.</summary>
@@ -402,12 +405,16 @@ namespace DLE.Dispatch
         public byte Version { get; set; }
     }
 
-    /// <summary>Server-to-client job sync: pay/unpaid meta always; attached car ids when
-    /// cars exist; PrintBooklet makes the client print the paper (fax). Auto-serialized.</summary>
+    /// <summary>Server-to-client job sync: cargo/count/pay meta always; attached car ids
+    /// when cars exist; PrintBooklet makes the client print the paper (fax). The cargo
+    /// and planned count ride in OUR packet on purpose: leaning on dv-mp's task sync for
+    /// them left client booklets reading "0 loads of ." Auto-serialized.</summary>
     public class DleJobSyncPacket : MPAPI.Interfaces.Packets.IPacket
     {
         public string JobId { get; set; }
         public string CarIdsCsv { get; set; }
+        public string Cargo { get; set; }
+        public int PlannedCars { get; set; }
         public float Pay { get; set; }
         public bool Unpaid { get; set; }
         public bool PrintBooklet { get; set; }

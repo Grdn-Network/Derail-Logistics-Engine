@@ -221,7 +221,7 @@ namespace DLE.Patches
             // DVMP never re-sends a job's cars after creation, so DLE clients learn the
             // attached consist (plates, booklet cars) through DLE's own channel.
             Dispatch.DleMpChannel.NotifyAttach(job.ID, valid.Select(c => c.ID),
-                def.deliveryPayment, def.unpaidMove);
+                def.deliveryPayment, def.unpaidMove, def.transportedCargo.ToString(), def.plannedCarCount);
 
             // Insurance debt is bookkeeping, not economics: register it only if something
             // (job restore, a future game path) has not already, and never let it break

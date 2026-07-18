@@ -133,9 +133,9 @@ namespace DLE.Jobs
                 newDef.unpaidMove = unpaidMove;
 
             Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID, cargo.ToString(), carCount, jobId);
-            // DLE clients get the pay figure their booklets cannot read from the
-            // host-only definition.
-            Dispatch.DleMpChannel.NotifyJobCreated(jobId, wage, unpaidMove);
+            // DLE clients get the cargo, count and pay their booklets cannot read from
+            // the host-only definition.
+            Dispatch.DleMpChannel.NotifyJobCreated(jobId, wage, unpaidMove, cargo.ToString(), carCount);
             Main.Log($"[DirectHaul] carless {jobId}: bring {carCount} empt{(carCount == 1 ? "y" : "ies")} " +
                      $"for {cargo} to {producer.stationInfo.YardID}.");
             return jobId;
