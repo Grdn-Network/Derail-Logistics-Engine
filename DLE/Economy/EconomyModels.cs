@@ -66,6 +66,24 @@ namespace DLE.Economy
         public List<CargoType> Outputs = new List<CargoType>();
         public List<CargoType> Inputs = new List<CargoType>();
 
+        // The vanilla route table: for each output cargo, the exact stations the game's
+        // own output groups send it to (docs/design/vanilla-rulesets.md is the rip of
+        // the same data). This is the routing AUTHORITY: inferring destinations from
+        // accept-lists both missed vanilla routes and invented ones.
+        public Dictionary<CargoType, HashSet<string>> RouteMap =
+            new Dictionary<CargoType, HashSet<string>>();
+
+        /// <summary>Vanilla destinations for a cargo shipped from here; null when the
+        /// route table does not cover it (callers fall back to accept-list inference).</summary>
+        public HashSet<string> DestinationsFor(CargoType cargo) =>
+            RouteMap.TryGetValue(cargo, out var dests) && dests.Count > 0 ? dests : null;
+
+        public bool CanSend(CargoType cargo, string destYard)
+        {
+            var dests = DestinationsFor(cargo);
+            return dests == null || dests.Contains(destYard);
+        }
+
         // Storage is ONE shared pool per station (#92): every cargo pile at the yard
         // counts against the same total. Per-cargo caps return as a 1.0 idea.
         public float TotalCap = 100f;

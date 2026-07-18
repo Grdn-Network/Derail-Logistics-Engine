@@ -76,7 +76,7 @@ namespace DLE.Economy
                     float stock = econ.GetDirectorAvailable(producer.YardId, cargo);
                     if (stock < min) continue;
 
-                    var consumer = FindConsumer(econ, cargo, producer.YardId);
+                    var consumer = FindConsumer(econ, cargo, producer);
                     if (consumer == null) continue;
 
                     // Size to what the destination can actually accept, not just to stock:
@@ -124,8 +124,13 @@ namespace DLE.Economy
                     bool unpaidOnly = paidStock < 1f;
                     float stock = unpaidOnly ? unpaidStock : paidStock;
                     if (stock < 1f) continue;
+                    // The vanilla route table is the authority on WHERE this origin's
+                    // cargo may go; accept-list inference is only the fallback for
+                    // cargo the table does not cover.
+                    var routes = producer.DestinationsFor(cargo);
                     var consumers = econ.Facilities.Values
-                        .Where(f => f.YardId != producer.YardId && f.CanUnload && f.Consumes(cargo)
+                        .Where(f => f.YardId != producer.YardId && f.CanUnload
+                                    && (routes != null ? routes.Contains(f.YardId) : f.Consumes(cargo))
                                     && econ.GetRoom(f.YardId, cargo) >= 1f)
                         .Select(f => f.YardId)
                         .ToList();
@@ -172,6 +177,19 @@ namespace DLE.Economy
             }
 
             var econ = EconomyState.Instance;
+
+            // The dispatcher is bound by the map too: vanilla's route table says where
+            // each origin's cargo may go, and a haul to anywhere else would end at a
+            // station that has no business receiving it.
+            if (econ.Facilities.TryGetValue(originYard, out var originFacility) &&
+                !originFacility.CanSend(cargo, destYard))
+            {
+                var allowed = originFacility.DestinationsFor(cargo);
+                reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
+                Main.Log($"[Director] {reason}");
+                return null;
+            }
+
             // Paid when produced stock covers it; otherwise fall back to an unpaid move
             // of imported goods (relocation is legitimate work, it just cannot pay twice).
             float paidStock = econ.GetAvailable(originYard, cargo);
@@ -223,17 +241,18 @@ namespace DLE.Economy
 
         private static readonly Random _rng = new Random();
 
-        private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, string excludeYard)
+        private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, FacilityDef producer)
         {
             // The auto-director is only a baseline: it picks randomly among eligible
             // consumers. Deliberate routing belongs to the dispatcher (POST /api/v1/hauls),
-            // and later to contracts.
+            // and later to contracts. Eligibility follows the vanilla route table.
+            var routes = producer.DestinationsFor(cargo);
             var eligible = new List<FacilityDef>();
             foreach (var f in econ.Facilities.Values)
             {
-                if (f.YardId == excludeYard) continue;
+                if (f.YardId == producer.YardId) continue;
                 if (!f.CanUnload) continue; // load-only station is never a destination
-                if (!f.Consumes(cargo)) continue;
+                if (routes != null ? !routes.Contains(f.YardId) : !f.Consumes(cargo)) continue;
                 if (econ.GetRoom(f.YardId, cargo) < 1f) continue; // consumer storage is full
 
                 var sc = StationController.GetStationByYardID(f.YardId);

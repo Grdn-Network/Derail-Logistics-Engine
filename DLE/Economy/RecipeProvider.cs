@@ -45,6 +45,28 @@ namespace DLE.Economy
                     Outputs = outputs,
                 };
 
+                // The vanilla route table, straight from the same objects the game
+                // routes with: each output group names its destination stations.
+                if (ruleset.outputCargoGroups != null)
+                {
+                    foreach (var group in ruleset.outputCargoGroups)
+                    {
+                        if (group?.cargoTypes == null || group.stations == null) continue;
+                        var dests = group.stations
+                            .Where(s => s?.stationInfo?.YardID != null)
+                            .Select(s => s.stationInfo.YardID)
+                            .Where(y => !ExcludedYards.Contains(y) && y != yardId)
+                            .ToList();
+                        if (dests.Count == 0) continue;
+                        foreach (var cargo in group.cargoTypes)
+                        {
+                            if (!facility.RouteMap.TryGetValue(cargo, out var set))
+                                facility.RouteMap[cargo] = set = new HashSet<string>(StringComparer.Ordinal);
+                            foreach (var d in dests) set.Add(d);
+                        }
+                    }
+                }
+
                 // Default recipe: consume one of each input to make one of each output.
                 // The shipped economy.json replaces these with real recipes; a station
                 // it does not cover keeps this derived placeholder.
@@ -261,6 +283,8 @@ namespace DLE.Economy
             {
                 f.Outputs.RemoveAll(excluded.Contains);
                 f.Inputs.RemoveAll(excluded.Contains);
+                foreach (var key in f.RouteMap.Keys.Where(excluded.Contains).ToList())
+                    f.RouteMap.Remove(key);
                 foreach (var r in f.Recipes)
                 {
                     r.Inputs.RemoveAll(s => s.Category == null && excluded.Contains(s.Cargo));
