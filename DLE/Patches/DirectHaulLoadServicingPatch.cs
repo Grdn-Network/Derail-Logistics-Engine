@@ -64,6 +64,9 @@ namespace DLE.Patches
         public static void Postfix(WarehouseTask task, Car __result)
         {
             if (__result == null) return;
+            // Client-installed DLE: the tally feeds the host's payout math; a client's
+            // local warehouse events must not touch it (jobDefinitions is host state).
+            if (!Main.IsHostOrSingleplayer()) return;
             var jobId = task?.Job?.ID;
             if (jobId == null) return;
             // Guard the whole body: this postfix fires for EVERY warehouse load in the
@@ -100,6 +103,10 @@ namespace DLE.Patches
         [HarmonyPrefix]
         public static void Prefix(WarehouseMachineController __instance)
         {
+            // Client-installed DLE (booklet rendering support): attaching cars, debiting
+            // stock and registering debt are host-authoritative; a client pulling the
+            // warehouse lever must go through the host's synced machinery, not run its own.
+            if (!Main.IsHostOrSingleplayer()) return;
             try
             {
                 AttachEmptiesToWaitingJobs(__instance);

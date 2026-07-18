@@ -262,8 +262,9 @@ namespace DLE.Dispatch
         private static IEnumerator StaffLoadRoutine(StaticDirectHaulJobDefinition def, Job job,
             List<Car> cars, bool alreadyAttached, float perCar)
         {
-            // The first staff member walks out to the cut.
-            if (perCar > 0f) yield return new WaitForSeconds(perCar);
+            // The FIRST car is instant, on purpose: immediate feedback that the order
+            // registered and staff are working. The pacing applies from car two on.
+            yield return null;
 
             // Attach commitment happens once, revalidated: without the recheck, a lever
             // attach mid-wait triggers a second CommitAttach (double stock debit,
@@ -365,7 +366,10 @@ namespace DLE.Dispatch
             int unloaded = 0;
             for (int i = 0; i < cars.Count; i++)
             {
-                if (perCar > 0f) yield return new WaitForSeconds(perCar);
+                // First car instant (visible confirmation the unload is running); the
+                // per-car pacing applies from car two on, mirroring the staff load.
+                if (i > 0 && perCar > 0f) yield return new WaitForSeconds(perCar);
+                else yield return null;
                 try
                 {
                     if (job.State != JobState.InProgress)

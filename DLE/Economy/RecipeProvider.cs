@@ -132,10 +132,17 @@ namespace DLE.Economy
 
             // A source produces on the clock with no required inputs: whatever recipe was
             // auto-derived from its cargo groups (tools in, ore out) would gate production
-            // on deliveries, so it goes. Its inputs act through Boosters instead.
+            // on deliveries, so it goes. Its inputs act through Boosters instead, and its
+            // DEMAND narrows to the booster cargos: the raw derived inputs include vanilla
+            // supply flavor (mines "accept" DumpTrucks) that nothing at a source consumes,
+            // and the director was routing real hauls of it there (DumpTrucks to CMS)
+            // while the board's map correctly showed no such need.
             foreach (var f in facilities.Values)
-                if (f.IsSource && f.Recipes.Count > 0)
-                    f.Recipes.Clear();
+            {
+                if (!f.IsSource) continue;
+                if (f.Recipes.Count > 0) f.Recipes.Clear();
+                f.Inputs = f.Boosters.SelectMany(b => b.Cargo).Distinct().ToList();
+            }
 
             // Warn when a role contradicts the station's derived economy, so a config
             // typo that silently strands stock or starves inputs is visible in the log.

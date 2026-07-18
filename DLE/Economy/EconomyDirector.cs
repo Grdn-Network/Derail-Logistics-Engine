@@ -163,6 +163,13 @@ namespace DLE.Economy
             reason = null;
             unpaidMove = false;
             if (!Main.IsHostOrSingleplayer()) { reason = "host or singleplayer only"; return null; }
+            if (string.Equals(originYard, destYard, StringComparison.OrdinalIgnoreCase))
+            {
+                // A same-yard haul loads and unloads in place: zero work that would flip
+                // produced stock to imported and pay for nothing.
+                reason = "origin and destination are the same yard";
+                return null;
+            }
 
             var econ = EconomyState.Instance;
             // Paid when produced stock covers it; otherwise fall back to an unpaid move

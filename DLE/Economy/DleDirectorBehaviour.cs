@@ -79,6 +79,9 @@ namespace DLE.Economy
 
                 try { DespawnManagedOverviews(Dispatch.AssignmentStore.Instance.LockEnabled); }
                 catch (System.Exception ex) { Main.LogAlways($"[Director] overview sweep failed: {ex.GetType().Name}: {ex.Message}"); }
+
+                try { AutoCloseLogiRuns(); }
+                catch (System.Exception ex) { Main.LogAlways($"[Director] logistics sweep failed: {ex.GetType().Name}: {ex.Message}"); }
             }
         }
 
@@ -105,6 +108,41 @@ namespace DLE.Economy
                 // the cut has not arrived yet.
                 var r = Dispatch.DispatchLifecycle.CompleteJob(id);
                 if (r.Ok) Main.LogAlways($"[Dispatch] {id} closed automatically: cargo delivered.");
+            }
+        }
+
+        /// <summary>
+        /// A logistics run's zero-pay EmptyHaul closes itself on arrival: when its
+        /// transport task reads Done, the sweep completes the job and marks the order
+        /// Done, so the run needs no turn-in trip (paper is paperwork here too).
+        /// </summary>
+        private static void AutoCloseLogiRuns()
+        {
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            if (jobsManager == null) return;
+            foreach (var order in Dispatch.LogisticsBoard.Instance.All)
+            {
+                if (string.IsNullOrEmpty(order.JobId) || order.Status == "Done") continue;
+                DV.Logic.Job.Job job = null;
+                foreach (var j in jobsManager.jobToJobCars.Keys)
+                    if (j != null && j.ID == order.JobId) { job = j; break; }
+                if (job == null) continue; // expired or already cleaned up; the order stays a note
+                if (job.State == DV.ThingTypes.JobState.Completed)
+                {
+                    Dispatch.LogisticsBoard.Instance.SetStatus(order.Id, "Done");
+                    continue;
+                }
+                if (job.State != DV.ThingTypes.JobState.InProgress) continue;
+                bool allDone = true;
+                foreach (var t in job.tasks)
+                    if (t.state != DV.Logic.Job.TaskState.Done) { allDone = false; break; }
+                if (!allDone) continue;
+                var state = jobsManager.TryToCompleteAJob(job);
+                if (state == DV.ThingTypes.JobState.Completed)
+                {
+                    Dispatch.LogisticsBoard.Instance.SetStatus(order.Id, "Done");
+                    Main.LogAlways($"[Logistics] {order.Id} ({order.JobId}) arrived; run closed automatically.");
+                }
             }
         }
 

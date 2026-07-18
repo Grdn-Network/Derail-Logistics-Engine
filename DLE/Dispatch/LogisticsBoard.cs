@@ -28,6 +28,10 @@ namespace DLE.Dispatch
             public string Note;       // free text from the dispatcher
             public string Status;     // Open, InProgress, Done
             public string CreatedUtc;
+            // The zero-pay EmptyHaul booklet backing this run, when idle empties existed
+            // to bind at creation; null keeps the run a pure coordination note. Additive
+            // field: older saves deserialize it as null.
+            public string JobId;
         }
 
         private readonly Dictionary<string, Order> _orders =

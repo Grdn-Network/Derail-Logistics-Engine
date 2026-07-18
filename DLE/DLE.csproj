@@ -36,6 +36,8 @@
     <Publicize Include="Assembly-CSharp:WarehouseMachineController.StartLoadSequence" />
     <Publicize Include="Assembly-CSharp:WarehouseMachineController.StartUnloadSequence" />
     <Publicize Include="Assembly-CSharp:WarehouseMachineController.allControllers" />
+    <Publicize Include="Assembly-CSharp:EmptyHaulJobProceduralGenerator.CalculateBonusTimeLimitAndWage" />
+    <Publicize Include="Assembly-CSharp:EmptyHaulJobProceduralGenerator.GenerateEmptyHaulChainController" />
   </ItemGroup>
 
   <ItemGroup>

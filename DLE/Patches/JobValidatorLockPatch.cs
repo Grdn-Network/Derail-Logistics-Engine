@@ -19,6 +19,10 @@ namespace DLE.Patches
         {
             var job = jobOverview?.job;
             if (job == null) return true;
+            // Client-installed DLE (booklet rendering support): lock and reservation state
+            // live on the host, and DVMP round-trips client validation through the host's
+            // validator anyway; the client-side prefix must stay out of the way.
+            if (!Main.IsHostOrSingleplayer()) return true;
             if (!JobUtils.ManagedJobIds.Contains(job.ID)) return true;
 
             // Rejection checks come BEFORE hardening. Hardening the hold and THEN refusing

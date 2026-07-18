@@ -139,6 +139,87 @@ namespace DLE.Jobs
         }
 
         /// <summary>
+        /// Logistics run booklet: a real zero-pay vanilla EmptyHaul job over idle pool
+        /// empties at the origin, so the run is paperwork a crew can hold and validate.
+        /// Vanilla type on purpose: the game's own booklet code renders it (host AND
+        /// modless DVMP clients), the vanilla save persists it, and DVMP syncs it natively.
+        /// Basic license (coordination work, not licensed haulage), wage 0 by definition.
+        /// Cars come from ONE track (the one holding the most suitable idle empties) so
+        /// the booklet points at a real cut. Returns the job id, or null with a reason.
+        /// </summary>
+        public static string TryCreateLogiRun(
+            StationController from,
+            StationController to,
+            CargoType? forCargo,
+            int wanted,
+            out string reason,
+            out int boundCars)
+        {
+            reason = null;
+            boundCars = 0;
+            if (from == null || to == null || wanted <= 0) { reason = "bad request"; return null; }
+
+            List<DV.ThingTypes.TrainCarType_v2> loadableTypes = null;
+            if (forCargo.HasValue &&
+                DV.Globals.G.Types.CargoType_to_v2.TryGetValue(forCargo.Value, out var v2) &&
+                DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var lt))
+                loadableTypes = lt.ToList();
+
+            var idle = Data.DleCarPool.CollectIdleEmpties(from, loadableTypes, int.MaxValue);
+            if (idle.Count == 0)
+            {
+                reason = $"no idle suitable empties at {from.stationInfo.YardID}; posted as a coordination note only";
+                return null;
+            }
+
+            // One cut, one track: the track holding the most suitable empties.
+            var cut = idle
+                .Where(tc => tc.logicCar?.CurrentTrack != null)
+                .GroupBy(tc => tc.logicCar.CurrentTrack)
+                .OrderByDescending(g => g.Count())
+                .First()
+                .Take(wanted)
+                .ToList();
+            var startTrack = cut[0].logicCar.CurrentTrack;
+
+            // Somewhere to stand at the destination; longest storage track is a safe berth.
+            var destTrack = to.logicStation?.yard?.StorageTracks?
+                .OrderByDescending(t => t.length)
+                .FirstOrDefault();
+            if (destTrack == null) { reason = $"{to.stationInfo.YardID} has no storage track"; return null; }
+
+            var logicCars = TrainCar.ExtractLogicCars(cut);
+            if (logicCars == null || logicCars.Count == 0) { reason = "car extraction failed"; return null; }
+
+            EmptyHaulJobProceduralGenerator.CalculateBonusTimeLimitAndWage(
+                from, to, cut.Select(tc => tc.carLivery).ToList(), out var bonusTime, out _);
+
+            var jcc = EmptyHaulJobProceduralGenerator.GenerateEmptyHaulChainController(
+                from, to, startTrack, logicCars, destTrack, bonusTime,
+                0f, JobLicenses.Basic);
+            if (jcc == null) { reason = "the game refused to build the empty haul"; return null; }
+            try
+            {
+                jcc.FinalizeSetupAndGenerateFirstJob(false);
+            }
+            catch (System.Exception ex)
+            {
+                Main.LogAlways($"[Logistics] booklet build failed ({ex.GetType().Name}): {ex.Message}");
+                try { jcc.DestroyChain(); } catch { }
+                reason = "booklet build failed; see game log";
+                return null;
+            }
+            from.ProceduralJobsController.AddJobChainController(jcc);
+
+            boundCars = cut.Count;
+            var jobId = jcc.currentJobInChain?.ID;
+            Main.LogAlways($"[Logistics] {jobId}: zero-pay run, {cut.Count} car(s) " +
+                           $"{from.stationInfo.YardID} -> {to.stationInfo.YardID}" +
+                           (forCargo.HasValue ? $" for {forCargo}" : "") + ".");
+            return jobId;
+        }
+
+        /// <summary>
         /// Rebuild a saved job over cars that already exist in the world (save restore).
         /// The cars keep whatever cargo the vanilla save gave them.
         /// </summary>

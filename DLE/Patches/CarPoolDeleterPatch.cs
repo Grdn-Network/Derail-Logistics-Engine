@@ -22,6 +22,11 @@ namespace DLE.Patches
         [HarmonyPrefix]
         public static bool Prefix(TrainCar trainCar, ref bool __result)
         {
+            // Client-installed DLE (booklet rendering support): the pool is host state.
+            // A client must not arm a pool from its own local save or influence deletion
+            // in a synced world; the host is authoritative over every car.
+            if (!Main.IsHostOrSingleplayer()) return true;
+
             // The first delete decisions run during world load, before OnWorldLoaded has
             // handed DLE its save data; arm the pool from the save on demand so the guard
             // is never consulted unarmed (an unarmed guard condemned the whole restored

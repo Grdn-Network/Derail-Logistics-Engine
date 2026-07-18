@@ -62,27 +62,10 @@ namespace DLE.Dispatch
             if (job.State != JobState.Available)
                 return Result.Fail($"job is {job.State}, not available");
 
-            // Rejection checks come BEFORE hardening the supply hold. Hardening is a state
-            // change (soft -> hard); doing it first meant a take refused below (wrong crew,
-            // missing name) left a permanent hard hold on a job nobody took, shrinking the
-            // pile for every other booklet until the next world load.
-
-            // Unpaid moves are dispatch-run: taking one names the crew, which assigns it.
-            if (def.unpaidMove && AssignmentStore.Instance.Get(jobId) == null && string.IsNullOrEmpty(player))
-                return Result.Fail("unpaid moves are dispatch-assigned; enter the crew name to take it");
-
-            if (AssignmentStore.Instance.LockEnabled)
-            {
-                var assignment = AssignmentStore.Instance.Get(jobId);
-                if (assignment == null)
-                    return Result.Fail("assignment lock is ON and this haul has no assigned crew");
-                // Without this check a blank name skips the match, taking a locked haul
-                // out from under its assigned crew with no identity at all.
-                if (string.IsNullOrEmpty(player))
-                    return Result.Fail("assignment lock is ON; enter the crew name to take this haul");
-                if (!string.Equals(assignment.Player, player, StringComparison.OrdinalIgnoreCase))
-                    return Result.Fail($"assignment lock is ON and this haul is assigned to {assignment.Player}");
-            }
+            // The board IS dispatch: a board take is the dispatcher acting, so it needs no
+            // crew name and ignores the lock (the lock exists to stop CREWS at the
+            // validator from taking unassigned work; the validator still enforces it).
+            // A typed name records who the haul is for; a blank take runs it unassigned.
 
             // Accept-time supply check (#67): open paper holds soft; taking hardens the
             // hold, now that the take is actually going ahead. Paper whose supply was
@@ -94,8 +77,8 @@ namespace DLE.Dispatch
                 return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
             }
 
-            // Keep the board honest about who is running the haul (unlocked board-take).
-            if (!AssignmentStore.Instance.LockEnabled && !string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
+            // Keep the board honest about who is running the haul.
+            if (!string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
                 AssignmentStore.Instance.Assign(jobId, player, "board-take");
 
             SingletonBehaviour<JobsManager>.Instance.TakeJob(job, false);

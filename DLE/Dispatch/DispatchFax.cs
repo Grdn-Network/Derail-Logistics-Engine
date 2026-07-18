@@ -54,6 +54,15 @@ namespace DLE.Dispatch
                 isLocal = true;
                 name = "you";
             }
+            else if (IsLocalPlayerName(player))
+            {
+                // The local player (host) is never a NetworkedPlayer avatar, so a typed or
+                // assigned name matching our own username resolves to the local transform
+                // and the paper goes to the local inventory like a blank-name fax.
+                target = PlayerManager.PlayerTransform;
+                isLocal = true;
+                name = player;
+            }
             else
             {
                 target = FindNetworkedPlayer(player, out name);
@@ -121,8 +130,10 @@ namespace DLE.Dispatch
             return Result.Done($"{jobId} faxed; printing in front of {name}");
         }
 
-        /// <summary>Every connected crew name (DVMP avatars via reflection). Empty in
-        /// singleplayer; the board uses it as assignment suggestions.</summary>
+        /// <summary>Every connected crew name: DVMP avatars are the REMOTE players only,
+        /// so the local player's own username (from the server player list, which the
+        /// avatars never include) joins the roster too; the host can assign and fax
+        /// themselves. Empty in singleplayer; the board uses it as suggestions.</summary>
         public static System.Collections.Generic.List<string> GetPlayerNames()
         {
             var names = new System.Collections.Generic.List<string>();
@@ -136,6 +147,10 @@ namespace DLE.Dispatch
                 foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
                     if (usernameProp?.GetValue(obj) is string username && !string.IsNullOrEmpty(username))
                         names.Add(username);
+                var self = LocalPlayerName();
+                if (!string.IsNullOrEmpty(self) &&
+                    !names.Contains(self, StringComparer.OrdinalIgnoreCase))
+                    names.Add(self);
                 names.Sort(StringComparer.OrdinalIgnoreCase);
             }
             catch (Exception ex)
@@ -143,6 +158,43 @@ namespace DLE.Dispatch
                 Main.Log($"[Fax] player roster lookup failed: {ex.Message}");
             }
             return names;
+        }
+
+        private static bool IsLocalPlayerName(string player)
+        {
+            var self = LocalPlayerName();
+            return !string.IsNullOrEmpty(self) &&
+                   string.Equals(self, player, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The local player's own username via the MPAPI server player list (the entry
+        /// flagged IsHost is us when we host). Reflection keeps the zero compile-time
+        /// dependency on DVMP; null in singleplayer or when no server runs.
+        /// </summary>
+        private static string LocalPlayerName()
+        {
+            try
+            {
+                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                    ?.GetType("MPAPI.MultiplayerAPI");
+                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
+                if (server == null) return null;
+                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
+                        is System.Collections.IEnumerable players)) return null;
+                foreach (var p in players)
+                {
+                    var pt = p.GetType();
+                    if (pt.GetProperty("IsHost")?.GetValue(p) is bool isHost && isHost)
+                        return pt.GetProperty("Username")?.GetValue(p) as string;
+                }
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Fax] local player name lookup failed: {ex.Message}");
+            }
+            return null;
         }
 
         /// <summary>
