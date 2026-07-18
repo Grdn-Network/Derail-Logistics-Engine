@@ -44,7 +44,7 @@
   },
   "stations": {
     "HB": {
-      "totalCap": 400,
+      "totalCap": 600,
       "importHub": true
     },
     "CW": {
@@ -63,139 +63,287 @@
     },
     "SM": {
       "totalCap": 200,
-      "catalysts": [ "Tools" ],
+      "catalysts": [
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "IronOre": 6, "Coal": 2 },
-          "outputs": { "SteelRolls": 1, "SteelBillets": 1, "SteelSlabs": 1, "SteelBentPlates": 1, "SteelRails": 1 }
+          "inputs": {
+            "IronOre": 6,
+            "Coal": 2
+          },
+          "outputs": {
+            "SteelRolls": 1,
+            "SteelBillets": 1,
+            "SteelSlabs": 1,
+            "SteelBentPlates": 1,
+            "SteelRails": 1
+          }
         },
         {
-          "inputs": { "ScrapMetal": 3 },
-          "outputs": { "SteelBillets": 1 }
+          "inputs": {
+            "ScrapMetal": 3
+          },
+          "outputs": {
+            "SteelBillets": 1
+          }
         }
       ]
     },
     "SW": {
-      "totalCap": 50,
-      "catalysts": [ "Tools" ],
+      "totalCap": 200,
+      "catalysts": [
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "Logs": 3 },
-          "outputs": { "Boards": 1, "Plywood": 1, "Sleepers": 1, "WoodChips": 1 }
+          "inputs": {
+            "Logs": 3
+          },
+          "outputs": {
+            "Boards": 1,
+            "Plywood": 1,
+            "Sleepers": 1,
+            "WoodChips": 1
+          }
         },
         {
-          "inputs": { "ScrapWood": 1 },
-          "outputs": { "WoodChips": 1 }
+          "inputs": {
+            "ScrapWood": 1
+          },
+          "outputs": {
+            "WoodChips": 1
+          }
         }
       ]
     },
     "GF": {
       "totalCap": 200,
-      "catalysts": [ "Tools" ],
+      "catalysts": [
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "Cotton": 1, "Wool": 1 },
-          "outputs": { "ClothingObco": 1 }
+          "inputs": {
+            "Cotton": 1,
+            "Wool": 1
+          },
+          "outputs": {
+            "ClothingObco": 1
+          }
         },
         {
-          "inputs": { "SteelBentPlates": 1 },
-          "outputs": { "Pipes": 1 }
+          "inputs": {
+            "SteelBentPlates": 1
+          },
+          "outputs": {
+            "Pipes": 1
+          }
         },
         {
-          "inputs": { "Methane": 1, "Gases": 1 },
-          "outputs": { "ChemicalsIskar": 1 }
+          "inputs": {
+            "Methane": 1,
+            "Gases": 1
+          },
+          "outputs": {
+            "ChemicalsIskar": 1
+          }
         },
         {
-          "inputs": { "SteelRolls": 1, "Plywood": 1, "Chemicals": 1 },
-          "outputs": { "ElectronicsIskar": 1 }
+          "inputs": {
+            "SteelRolls": 1,
+            "Plywood": 1,
+            "Chemicals": 1
+          },
+          "outputs": {
+            "ElectronicsIskar": 1
+          }
         },
         {
-          "inputs": { "Boards": 4, "SteelBentPlates": 3 },
-          "outputs": { "Furniture": 1, "ToolsIskar": 3 }
+          "inputs": {
+            "Boards": 4,
+            "SteelBentPlates": 3
+          },
+          "outputs": {
+            "Furniture": 1,
+            "ToolsIskar": 3
+          }
         }
       ]
     },
     "MF": {
-      "totalCap": 100,
-      "catalysts": [ "Tools" ],
+      "totalCap": 200,
+      "catalysts": [
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "SteelSlabs": 3, "SteelBillets": 1, "SteelBentPlates": 1, "Electronics": 2, "SteelRolls": 2 },
-          "outputs": { "Tractors": 1, "Excavators": 1, "MiningTrucks": 1, "CraneParts": 1, "ForestryTrailers": 1, "NewCars": 1, "CityBuses": 1, "Trams": 1, "SemiTrailers": 1 }
+          "inputs": {
+            "SteelSlabs": 3,
+            "SteelBillets": 1,
+            "SteelBentPlates": 1,
+            "Electronics": 2,
+            "SteelRolls": 2
+          },
+          "outputs": {
+            "Tractors": 1,
+            "Excavators": 1,
+            "MiningTrucks": 1,
+            "CraneParts": 1,
+            "ForestryTrailers": 1,
+            "NewCars": 1,
+            "CityBuses": 1,
+            "Trams": 1,
+            "SemiTrailers": 1
+          }
         }
       ]
     },
     "FF": {
       "totalCap": 200,
-      "catalysts": [ "Tools" ],
+      "catalysts": [
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "Wheat": 1, "Corn": 1, "Milk": 1, "Eggs": 1, "Pigs": 1, "Cows": 1, "Poultry": 1, "Sheep": 1, "Goats": 1, "SunflowerSeeds": 1, "TemperateFruits": 1, "Vegetables": 1, "Flour": 1 },
-          "outputs": { "Bread": 1, "DairyProducts": 1, "MeatProducts": 1, "CannedFood": 1, "CatFood": 1, "Alcohol": 1 }
+          "inputs": {
+            "Wheat": 1,
+            "Corn": 1,
+            "Milk": 1,
+            "Eggs": 1,
+            "Pigs": 1,
+            "Cows": 1,
+            "Poultry": 1,
+            "Sheep": 1,
+            "Goats": 1,
+            "SunflowerSeeds": 1,
+            "TemperateFruits": 1,
+            "Vegetables": 1,
+            "Flour": 1
+          },
+          "outputs": {
+            "Bread": 1,
+            "DairyProducts": 1,
+            "MeatProducts": 1,
+            "CannedFood": 1,
+            "CatFood": 1,
+            "Alcohol": 1
+          }
         }
       ]
     },
     "OR": {
       "totalCap": 100,
-      "catalysts": [ "Methane", "Tools" ],
+      "catalysts": [
+        "Methane",
+        "Tools"
+      ],
       "recipes": [
         {
-          "inputs": { "CrudeOil": 3 },
-          "outputs": { "Gasoline": 2, "Diesel": 1 }
+          "inputs": {
+            "CrudeOil": 3
+          },
+          "outputs": {
+            "Gasoline": 2,
+            "Diesel": 1
+          }
         }
       ]
     },
     "OWN": {
       "totalCap": 50,
       "source": true,
-      "catalysts": [ "Tools" ]
+      "catalysts": [
+        "Tools"
+      ]
     },
     "OWC": {
       "totalCap": 50,
       "source": true,
-      "catalysts": [ "Tools" ]
+      "catalysts": [
+        "Tools"
+      ]
     },
     "CME": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "MiningTrucks", "Excavators" ],
-      "catalysts": [ "Tools", "CraneParts" ]
+      "machines": [
+        "MiningTrucks",
+        "Excavators"
+      ],
+      "catalysts": [
+        "Tools",
+        "CraneParts"
+      ]
     },
     "CMS": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "MiningTrucks", "Excavators" ],
-      "catalysts": [ "Tools", "CraneParts" ]
+      "machines": [
+        "MiningTrucks",
+        "Excavators"
+      ],
+      "catalysts": [
+        "Tools",
+        "CraneParts"
+      ]
     },
     "IME": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "MiningTrucks", "Excavators" ],
-      "catalysts": [ "Tools", "CraneParts" ]
+      "machines": [
+        "MiningTrucks",
+        "Excavators"
+      ],
+      "catalysts": [
+        "Tools",
+        "CraneParts"
+      ]
     },
     "IMW": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "MiningTrucks", "Excavators" ],
-      "catalysts": [ "Tools", "CraneParts" ]
+      "machines": [
+        "MiningTrucks",
+        "Excavators"
+      ],
+      "catalysts": [
+        "Tools",
+        "CraneParts"
+      ]
     },
     "FRC": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "ForestryTrailers" ],
-      "catalysts": [ "Tools", "Tractors" ]
+      "machines": [
+        "ForestryTrailers"
+      ],
+      "catalysts": [
+        "Tools",
+        "Tractors"
+      ]
     },
     "FRS": {
       "totalCap": 50,
       "source": true,
-      "machines": [ "ForestryTrailers" ],
-      "catalysts": [ "Tools", "Tractors" ]
+      "machines": [
+        "ForestryTrailers"
+      ],
+      "catalysts": [
+        "Tools",
+        "Tractors"
+      ]
     },
     "FM": {
       "totalCap": 200,
       "source": true,
-      "machines": [ "Tractors" ],
-      "catalysts": [ "Tools", "AmmoniumNitrate" ]
+      "machines": [
+        "Tractors"
+      ],
+      "catalysts": [
+        "Tools",
+        "AmmoniumNitrate"
+      ]
     }
   }
 }
