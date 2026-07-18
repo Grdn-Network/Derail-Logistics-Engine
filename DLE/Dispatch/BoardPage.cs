@@ -172,6 +172,18 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
  </section>
  <section class='card col12'>
   <h2>Dispatch log <span class='sub'>production, conversion, loading, deliveries; newest first</span></h2>
+  <div class='formrow' style='margin-bottom:6px'>
+   <label>Type<select id='dlType'>
+    <option value=''>all</option>
+    <option value='production'>produced</option>
+    <option value='converted'>made</option>
+    <option value='delivered'>received</option>
+    <option value='loaded'>loaded</option>
+    <option value='unloaded'>unloaded</option>
+    <option value='haul_created'>haul posted</option>
+   </select></label>
+   <label>Yard<input id='dlYard' style='width:70px' placeholder='any'></label>
+  </div>
   <div id='dlog' style='max-height:260px;overflow-y:auto;font-size:12.5px'></div>
  </section>
  <section class='card col12' id='finder'>
@@ -339,9 +351,14 @@ function buildNet(econ,opts){
   em[k].stock+=o.stock}
  return {nodes,edges:Object.values(em)};
 }
+let lastHist=[];
 function renderLog(hist){
  const box=$('dlog');if(!box)return;
- if(!hist||!hist.length){box.innerHTML=`<div class='empty'>nothing has happened yet</div>`;return}
+ lastHist=hist||[];
+ const ty=($('dlType')||{}).value||'';
+ const yd=((($('dlYard')||{}).value)||'').trim().toUpperCase();
+ hist=lastHist.filter(e=>(!ty||e.Type===ty)&&(!yd||String(e.Yard||'').toUpperCase().includes(yd)));
+ if(!hist.length){box.innerHTML=`<div class='empty'>${lastHist.length?'nothing matches the filter':'nothing has happened yet'}</div>`;return}
  const verb={production:'produced',converted:'made',delivered:'received',loaded:'loaded',unloaded:'unloaded',haul_created:'posted a haul for'};
  box.innerHTML=[...hist].reverse().map(e=>{
   const t=e.Utc?new Date(e.Utc).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
@@ -572,6 +589,8 @@ function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
  keepSelect($('hDest'),opt?opt.consumers:[])}
 $('hOrigin').addEventListener('change',originChanged);
 $('hCargo').addEventListener('change',cargoChanged);
+$('dlType').onchange=()=>renderLog(lastHist);
+$('dlYard').oninput=()=>renderLog(lastHist);
 refresh();setInterval(refresh,5000);
 </script></body></html>
 ";

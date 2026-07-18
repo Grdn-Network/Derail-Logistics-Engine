@@ -54,10 +54,12 @@ namespace DLE.Dispatch
         }
 
         /// <summary>
-        /// Dispatcher deletes one open haul from the board: the booklet expires exactly
-        /// like the lock-on purge does, and the chain teardown returns its supply hold.
-        /// Taken hauls are refused: a crew owns that work; deleting it out from under a
-        /// moving train (and its consumed, on-car supply) is a different operation.
+        /// Dispatcher deletes one haul from the board. Open paper expires exactly like
+        /// the lock-on purge does. A TAKEN haul with no cars attached is abandoned
+        /// through the game's own path (the crew's booklet voids itself); per the supply
+        /// rules, any cancel before loading returns the hold, taken or not. Only a haul
+        /// with cars already attached is refused: its supply was consumed onto real
+        /// cars, and that cargo must be delivered or crew-abandoned in-game.
         /// </summary>
         public static Result DeleteHaul(string jobId)
         {
@@ -65,20 +67,35 @@ namespace DLE.Dispatch
             if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
                 return Result.Fail($"unknown job '{jobId}'");
             var job = def.LiveJob;
-            if (job.State != JobState.Available)
-                return Result.Fail($"{jobId} is {job.State}; only open (untaken) hauls can be deleted. Unassign it and have the crew abandon it instead.");
-            try
+
+            bool hasCars = def.carsToTransport != null && def.carsToTransport.Count > 0;
+            if (job.State == JobState.Available)
             {
-                job.ExpireJob();
+                try { job.ExpireJob(); }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Dispatch] {jobId} delete failed: {ex.GetType().Name}: {ex.Message}");
+                    return Result.Fail($"the game refused to expire {jobId}; see the log");
+                }
+                AssignmentStore.Instance.Unassign(jobId);
+                Main.LogAlways($"[Dispatch] {jobId} deleted via board (was open); supply returned.");
+                return Result.Done($"{jobId} deleted; its supply returned to the pile");
             }
-            catch (Exception ex)
+            if (job.State == JobState.InProgress && !hasCars)
             {
-                Main.LogAlways($"[Dispatch] {jobId} delete failed: {ex.GetType().Name}: {ex.Message}");
-                return Result.Fail($"the game refused to expire {jobId}; see the log");
+                try { SingletonBehaviour<JobsManager>.Instance.AbandonJob(job); }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Dispatch] {jobId} abandon-delete failed: {ex.GetType().Name}: {ex.Message}");
+                    return Result.Fail($"the game refused to abandon {jobId}; see the log");
+                }
+                AssignmentStore.Instance.Unassign(jobId);
+                Main.LogAlways($"[Dispatch] {jobId} deleted via board (was taken, never loaded); supply returned.");
+                return Result.Done($"{jobId} deleted; the crew's booklet is void and its supply returned");
             }
-            AssignmentStore.Instance.Unassign(jobId);
-            Main.LogAlways($"[Dispatch] {jobId} deleted via board; supply returned.");
-            return Result.Done($"{jobId} deleted; its supply returned to the pile");
+            if (hasCars)
+                return Result.Fail($"{jobId} has cars attached; its supply is on those cars. Deliver it or have the crew abandon it in-game.");
+            return Result.Fail($"{jobId} is {job.State}; nothing to delete");
         }
 
         public static Result TakeJob(string jobId, string player)
