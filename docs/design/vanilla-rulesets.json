@@ -1,0 +1,2732 @@
+{
+ "CME": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Coal"
+    ],
+    "destinations": [
+     "SM",
+     "CP"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "CMS": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Coal"
+    ],
+    "destinations": [
+     "SM",
+     "CP"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "CP": {
+  "starting": {
+   "load": false,
+   "haul": false,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Coal"
+    ],
+    "destinations": [
+     "CMS",
+     "CME"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "CS": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Fish"
+    ],
+    "destinations": [
+     "FF",
+     "GF",
+     "MF",
+     "CW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "CW": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Fish"
+    ],
+    "destinations": [
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "FF": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "HB",
+     "GF",
+     "MF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Alcohol"
+    ],
+    "destinations": [
+     "HB",
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "HB",
+     "GF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Nitrogen"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Pigs",
+     "Cows",
+     "Poultry",
+     "Sheep",
+     "Goats",
+     "Wheat",
+     "Corn",
+     "SunflowerSeeds",
+     "TemperateFruits",
+     "Vegetables",
+     "Milk",
+     "Eggs",
+     "Flour"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Fish"
+    ],
+    "destinations": [
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "FM": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Pigs",
+     "Cows",
+     "Poultry",
+     "Sheep",
+     "Goats",
+     "Wheat",
+     "Corn",
+     "SunflowerSeeds",
+     "TemperateFruits",
+     "Vegetables",
+     "Milk",
+     "Eggs",
+     "Flour"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Cotton",
+     "Wool",
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "HB",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Flour"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Tractors"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "AmmoniumNitrate"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "FRC": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Logs"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Tractors"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "FRS": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Logs"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Tractors"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "GF": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "HB",
+     "FF",
+     "MF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Pipes"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "CME",
+     "CMS",
+     "CP",
+     "FM",
+     "FRC",
+     "FRS",
+     "IME",
+     "IMW",
+     "OR",
+     "OWC",
+     "OWN",
+     "SM",
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "FF",
+     "HB",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Alcohol"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CryoHydrogen",
+     "Ammonia",
+     "SodiumHydroxide"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Cotton",
+     "Wool",
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SteelRolls",
+     "SteelBillets",
+     "SteelSlabs",
+     "SteelBentPlates"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Fish"
+    ],
+    "destinations": [
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Plywood",
+     "Boards"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "WoodChips"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "HB": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Acetylene"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "GF",
+     "FF",
+     "MF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "CP",
+     "FM",
+     "FRC",
+     "FRS",
+     "OR",
+     "OWC",
+     "OWN",
+     "SM",
+     "SW",
+     "CME",
+     "CMS",
+     "IME",
+     "IMW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex"
+    ],
+    "destinations": [
+     "GF",
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "GF",
+     "FF",
+     "MF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CryoHydrogen",
+     "Ammonia",
+     "SodiumHydroxide"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Argon"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CryoOxygen"
+    ],
+    "destinations": [
+     "MF",
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Nitrogen"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "IME",
+     "IMW",
+     "CME"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapContainers"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "AmmoniumNitrate"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "FRC",
+     "FRS",
+     "SW"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "CrudeOil"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "FF",
+     "GF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Trams"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SemiTrailers"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Tractors"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Alcohol"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Pipes"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Flour"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SteelRolls",
+     "SteelBillets",
+     "SteelSlabs",
+     "SteelBentPlates"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SteelRails"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Plywood",
+     "Boards"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Sleepers"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline",
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "HMB": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "SpentNuclearFuel"
+    ],
+    "destinations": [
+     "MB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Ammunition"
+    ],
+    "destinations": [
+     "MB",
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryTrucks"
+    ],
+    "destinations": [
+     "MB",
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitarySupplies"
+    ],
+    "destinations": [
+     "MB",
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "AttackHelicopters"
+    ],
+    "destinations": [
+     "MB",
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Missiles"
+    ],
+    "destinations": [
+     "MB",
+     "MFMB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Ammunition"
+    ],
+    "destinations": [
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Tanks"
+    ],
+    "destinations": [
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryCars"
+    ],
+    "destinations": [
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Biohazard"
+    ],
+    "destinations": [
+     "MB"
+    ]
+   }
+  ]
+ },
+ "IME": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "IronOre"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "IMW": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "IronOre"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "MB": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Biohazard"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Ammunition"
+    ],
+    "destinations": [
+     "MFMB",
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Tanks"
+    ],
+    "destinations": [
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryCars"
+    ],
+    "destinations": [
+     "MFMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SpentNuclearFuel"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryTrucks"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitarySupplies"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "AttackHelicopters"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Missiles"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   }
+  ]
+ },
+ "MF": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "NewCars"
+    ],
+    "destinations": [
+     "HB",
+     "GF",
+     "FF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CityBuses"
+    ],
+    "destinations": [
+     "HB",
+     "GF",
+     "FF",
+     "CW",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Trams"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SemiTrailers"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptySunOmni"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyIskar",
+     "EmptyObco",
+     "EmptyGoorsk"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "EmptyKrugmann",
+     "EmptyBrohm",
+     "EmptyAAG",
+     "EmptySperex",
+     "EmptyNovae",
+     "EmptyTraeg",
+     "EmptyChemlek",
+     "EmptyNeoGamma"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Tractors"
+    ],
+    "destinations": [
+     "FM",
+     "HB",
+     "FRC",
+     "FRS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Excavators",
+     "MiningTrucks",
+     "CraneParts"
+    ],
+    "destinations": [
+     "HB",
+     "CME",
+     "IME",
+     "IMW",
+     "CMS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "FRC",
+     "FRS",
+     "SW",
+     "HB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Bread",
+     "DairyProducts",
+     "MeatProducts",
+     "CannedFood",
+     "CatFood"
+    ],
+    "destinations": [
+     "FF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Acetylene"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel",
+     "Gasoline"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsKrugmann",
+     "ElectronicsAAG",
+     "ElectronicsNovae",
+     "ElectronicsTraeg",
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg",
+     "ChemicalsSperex",
+     "ClothingNeoGamma",
+     "ClothingNovae",
+     "ClothingTraeg",
+     "Medicine",
+     "ImportedNewCars",
+     "TropicalFruits",
+     "Fish"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CryoOxygen"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar",
+     "Furniture",
+     "ClothingObco"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ElectronicsIskar",
+     "ToolsIskar",
+     "ChemicalsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Eggs",
+     "TemperateFruits",
+     "Vegetables"
+    ],
+    "destinations": [
+     "FM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SteelRolls",
+     "SteelBillets",
+     "SteelSlabs",
+     "SteelBentPlates"
+    ],
+    "destinations": [
+     "SM"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Fish"
+    ],
+    "destinations": [
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Boards"
+    ],
+    "destinations": [
+     "SW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "OR"
+    ]
+   }
+  ]
+ },
+ "MFMB": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Ammunition"
+    ],
+    "destinations": [
+     "MB",
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Tanks"
+    ],
+    "destinations": [
+     "MB",
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryCars"
+    ],
+    "destinations": [
+     "MB",
+     "HMB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Ammunition"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitaryTrucks"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "MilitarySupplies"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "AttackHelicopters"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Missiles"
+    ],
+    "destinations": [
+     "HMB"
+    ]
+   }
+  ]
+ },
+ "OR": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Gasoline"
+    ],
+    "destinations": [
+     "CW",
+     "FF",
+     "GF",
+     "HB",
+     "MF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Diesel"
+    ],
+    "destinations": [
+     "CW",
+     "FF",
+     "GF",
+     "HB",
+     "MF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Gasoline",
+     "Diesel"
+    ],
+    "destinations": [
+     "CW",
+     "FF",
+     "GF",
+     "HB",
+     "MF",
+     "CS"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "CrudeOil"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "OWC",
+     "OWN"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "OWC": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "CrudeOil"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "HB",
+     "GF",
+     "FF",
+     "MF",
+     "CW",
+     "OR",
+     "CS"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "OWN": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "CrudeOil"
+    ],
+    "destinations": [
+     "HB",
+     "OR"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Methane"
+    ],
+    "destinations": [
+     "HB",
+     "GF",
+     "FF",
+     "MF",
+     "CW",
+     "OR"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "SM": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "SteelRolls",
+     "SteelBillets",
+     "SteelSlabs",
+     "SteelBentPlates"
+    ],
+    "destinations": [
+     "GF",
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "SteelRails"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Coal"
+    ],
+    "destinations": [
+     "CMS",
+     "CME"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapMetal"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "FF",
+     "HB",
+     "GF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "IronOre"
+    ],
+    "destinations": [
+     "IME",
+     "IMW"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Argon"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "CryoOxygen"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapContainers"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ },
+ "SW": {
+  "starting": {
+   "load": true,
+   "haul": true,
+   "unload": true,
+   "emptyHaul": true
+  },
+  "outputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Plywood",
+     "Boards"
+    ],
+    "destinations": [
+     "GF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Boards"
+    ],
+    "destinations": [
+     "MF"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "Sleepers"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "WoodChips"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ],
+  "inputCargoGroups": [
+   {
+    "cargoTypes": [
+     "Logs"
+    ],
+    "destinations": [
+     "FRS",
+     "FRC"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ScrapWood"
+    ],
+    "destinations": [
+     "CW",
+     "MF",
+     "FF",
+     "HB",
+     "GF",
+     "CS"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ForestryTrailers"
+    ],
+    "destinations": [
+     "MF",
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsBrohm",
+     "ToolsAAG",
+     "ToolsNovae",
+     "ToolsTraeg"
+    ],
+    "destinations": [
+     "HB"
+    ]
+   },
+   {
+    "cargoTypes": [
+     "ToolsIskar"
+    ],
+    "destinations": [
+     "GF"
+    ]
+   }
+  ]
+ }
+}
