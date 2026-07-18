@@ -474,11 +474,15 @@ namespace DLE.Economy
         // Room is the shared pool (#92), and a conversion frees its input space as it
         // fills output space: the check is the NET stock change, so a full station can
         // still convert 2-in-2-out (net zero) but a 1-in-2-out recipe needs a free slot.
+        // A non-growing conversion passes UNCONDITIONALLY: a station already over its
+        // total (stock carried across the cap conversion) must be able to digest its
+        // way back down, or it deadlocks with dead demand and blocked recipes at once.
         private bool HasOutputRoom(string yardId, FacilityDef f, RecipeDef r)
         {
             float net = 0f;
             foreach (var o in r.Outputs) net += o.Amount;
             foreach (var i in r.Inputs) net -= i.Amount;
+            if (net <= 0f) return true;
             return TotalStock(yardId) + net <= f.TotalCap + 0.001f;
         }
 
