@@ -157,12 +157,28 @@ namespace DLE.Dispatch
                     if (TryApplyAttach(kv.Key, kv.Value))
                         _pendingAttaches.Remove(kv.Key);
 
-            if (printBooklet) PrintFaxedBooklet(jobId);
+            if (printBooklet && !PrintFaxedBooklet(jobId))
+                _pendingFaxes.Add(jobId); // job not delivered by DVMP yet; retry below
+            if (_pendingFaxes.Count > 0)
+                foreach (var pending in _pendingFaxes.ToList())
+                    if (PrintFaxedBooklet(pending))
+                        _pendingFaxes.Remove(pending);
         }
+
+        private static readonly HashSet<string> _pendingFaxes =
+            new HashSet<string>(StringComparer.Ordinal);
 
         private static Job FindClientJob(string jobId)
         {
+            // allJobs first: it holds every live job regardless of state. The original
+            // lookup (jobToJobCars + availableJobs) missed TAKEN carless jobs entirely,
+            // which is exactly what a faxed job usually is: taken via the board, no cars
+            // yet. That was the live-test "fax arrived but the job is not in this world"
+            // failure.
             var jm = SingletonBehaviour<JobsManager>.Instance;
+            if (jm?.allJobs != null)
+                foreach (var j in jm.allJobs)
+                    if (j != null && j.ID == jobId) return j;
             if (jm != null)
                 foreach (var j in jm.jobToJobCars.Keys)
                     if (j != null && j.ID == jobId) return j;
@@ -207,16 +223,18 @@ namespace DLE.Dispatch
             return true;
         }
 
-        private static void PrintFaxedBooklet(string jobId)
+        /// <summary>Print a faxed booklet locally; false when the job has not been
+        /// delivered by DVMP yet (the caller queues a retry on the next packet).</summary>
+        private static bool PrintFaxedBooklet(string jobId)
         {
             var job = FindClientJob(jobId);
             if (job == null)
             {
-                Main.LogAlways($"[MpChannel] fax for {jobId} arrived but the job is not in this world yet; ask dispatch to resend.");
-                return;
+                Main.LogAlways($"[MpChannel] fax for {jobId} arrived before the job itself; will retry on the next sync.");
+                return false;
             }
             var target = PlayerManager.PlayerTransform;
-            if (target == null) return;
+            if (target == null) return false;
             var pos = target.position + target.forward * 0.6f + Vector3.up * 1.1f;
             var rot = Quaternion.LookRotation(target.forward);
             GameObject booklet = null;
@@ -227,22 +245,24 @@ namespace DLE.Dispatch
             }
             catch (Exception ex)
             {
+                // The print itself failed (not a missing job): report done, no retry loop.
                 Main.LogAlways($"[MpChannel] fax print failed: {ex.GetType().Name}: {ex.Message}");
-                return;
+                return true;
             }
-            if (booklet == null) return;
+            if (booklet == null) return true;
             try
             {
                 var inv = SingletonBehaviour<DV.InventorySystem.Inventory>.Instance;
                 if (inv != null && inv.CanAddItem(booklet) && inv.AddItemToInventory(booklet, false) >= 0)
                 {
                     Main.LogAlways($"[MpChannel] {jobId} faxed into the inventory.");
-                    return;
+                    return true;
                 }
             }
             catch (Exception ex) { Main.Log($"[MpChannel] fax inventory stash failed: {ex.Message}"); }
             try { SingletonBehaviour<StorageController>.Instance?.AddItemToWorldStorageAfterOneFrame(booklet); } catch { }
             Main.LogAlways($"[MpChannel] {jobId} faxed; printed in front of you (inventory was full).");
+            return true;
         }
 
         /// <summary>Host: everything a newly hello'd client needs about live jobs.
