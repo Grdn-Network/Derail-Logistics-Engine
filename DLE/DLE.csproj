@@ -41,6 +41,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Soft dependency: shipped by DVMP, never copied to output. All code touching it
+         lives in DleMpTransport method bodies, so the assembly only loads when DVMP is
+         actually present; pure singleplayer installs never resolve it. -->
+    <Reference Include="MultiplayerAPI">
+      <HintPath>lib\MultiplayerAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Assembly-CSharp">
       <HintPath>lib\Assembly-CSharp.dll</HintPath>
       <Private>False</Private>
