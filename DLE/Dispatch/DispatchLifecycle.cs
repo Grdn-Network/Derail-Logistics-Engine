@@ -31,15 +31,22 @@ namespace DLE.Dispatch
         /// board matches the world. Assigned or taken hauls survive: dispatch prepared
         /// those on purpose. Expiry tears the chain down, which returns the job's
         /// pre-allocated supply to the stockpile.
+        /// Hauls with cars attached or cargo loaded are NEVER purged regardless of what
+        /// their state claims (#94): their supply lives on real cars, not in the pile, so
+        /// expiring them is data loss, not cleanup. State said Available on a crew's
+        /// loaded haul once already (the restore demotion) and this purge ate it.
         /// </summary>
         public static int ExpireUnassignedAvailable()
         {
             var doomed = new System.Collections.Generic.List<Job>();
             foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
             {
-                var job = kv.Value?.LiveJob;
+                var def = kv.Value;
+                var job = def?.LiveJob;
                 if (job == null || job.State != JobState.Available) continue;
                 if (AssignmentStore.Instance.Get(kv.Key) != null) continue;
+                if (def.carsToTransport != null && def.carsToTransport.Count > 0) continue;
+                if (def.loadedCarloads > 0) continue;
                 doomed.Add(job);
             }
             int expired = 0;
@@ -68,7 +75,12 @@ namespace DLE.Dispatch
                 return Result.Fail($"unknown job '{jobId}'");
             var job = def.LiveJob;
 
+            // Cars attached means the supply is on those cars, whatever the job state
+            // says (#94 hardening): deleting would strand real cargo behind a dead job.
             bool hasCars = def.carsToTransport != null && def.carsToTransport.Count > 0;
+            if (hasCars)
+                return Result.Fail($"{jobId} has cars attached; its supply is on those cars. Deliver it or have the crew abandon it in-game.");
+
             if (job.State == JobState.Available)
             {
                 try { job.ExpireJob(); }
@@ -81,7 +93,7 @@ namespace DLE.Dispatch
                 Main.LogAlways($"[Dispatch] {jobId} deleted via board (was open); supply returned.");
                 return Result.Done($"{jobId} deleted; its supply returned to the pile");
             }
-            if (job.State == JobState.InProgress && !hasCars)
+            if (job.State == JobState.InProgress)
             {
                 try { SingletonBehaviour<JobsManager>.Instance.AbandonJob(job); }
                 catch (Exception ex)
@@ -93,8 +105,6 @@ namespace DLE.Dispatch
                 Main.LogAlways($"[Dispatch] {jobId} deleted via board (was taken, never loaded); supply returned.");
                 return Result.Done($"{jobId} deleted; the crew's booklet is void and its supply returned");
             }
-            if (hasCars)
-                return Result.Fail($"{jobId} has cars attached; its supply is on those cars. Deliver it or have the crew abandon it in-game.");
             return Result.Fail($"{jobId} is {job.State}; nothing to delete");
         }
 

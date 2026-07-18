@@ -139,13 +139,18 @@ namespace DLE.Economy
         /// New game: give each facility a starting stock of its outputs AND its inputs.
         /// The input side is the working buffer: a sawmill spawns with logs to consume,
         /// so conversion runs from the first tick instead of waiting on a delivery.
+        /// SOURCES seed outputs only (#91): their inputs are booster tools, and seeding
+        /// every brand at every mine put ~30 carloads of free tools in each pit. Tools
+        /// are a boost someone hauls in, not furniture the world spawns with.
         /// </summary>
         public void SeedInitialStock(int amount)
         {
             if (amount <= 0) return;
             int seeded = 0;
             foreach (var f in _facilities.Values)
-                foreach (var cargo in f.Outputs.Concat(f.Inputs).Distinct())
+            {
+                var cargos = f.IsSource ? f.Outputs : f.Outputs.Concat(f.Inputs).Distinct();
+                foreach (var cargo in cargos)
                 {
                     Credit(f.YardId, cargo, amount);
                     // Input buffers seed as imported: consumables to work through, not
@@ -154,7 +159,8 @@ namespace DLE.Economy
                         MarkImported(f.YardId, cargo, amount);
                     seeded++;
                 }
-            Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) (outputs and inputs).");
+            }
+            Main.Log($"[Economy] seeded {amount} carloads into {seeded} stockpile(s) (outputs, plus inputs at factories; sources get no free tools).");
         }
 
         public void ReloadRecipes(string modPath)
@@ -273,15 +279,31 @@ namespace DLE.Economy
         public float GetUnpaidAvailable(string yardId, CargoType cargo) =>
             GetStock(yardId, cargo) - SumReservations(yardId, cargo, includeSoft: false);
 
+        /// <summary>Every carload on hand at a station, all cargo together: what counts
+        /// against the shared storage total (#92).</summary>
+        public float TotalStock(string yardId)
+        {
+            if (!_stock.TryGetValue(yardId, out var m)) return 0f;
+            float total = 0f;
+            foreach (var v in m.Values) total += v;
+            return total;
+        }
+
+        /// <summary>The station's shared storage total; unlimited for yards with no
+        /// facility definition.</summary>
+        public float TotalCapOf(string yardId) =>
+            _facilities.TryGetValue(yardId, out var f) ? f.TotalCap : float.MaxValue;
+
         /// <summary>
-        /// Storage room left for a cargo at a station: its cap minus what is on hand. A
-        /// consumer with no room stops accepting deliveries, which is what caps demand and
-        /// ends the source-to-consumer grind (finite demand, not just finite supply).
+        /// Storage room left at a station. Capacity is ONE shared pool (#92): every cargo
+        /// pile counts against the same total, so room is the same whatever you deliver
+        /// (the cargo parameter stays for call-site clarity). A consumer with no room
+        /// stops accepting deliveries, which is what caps demand and ends the
+        /// source-to-consumer grind (finite demand, not just finite supply).
         /// </summary>
         public float GetRoom(string yardId, CargoType cargo)
         {
-            float cap = _facilities.TryGetValue(yardId, out var f) ? f.Cap(cargo) : float.MaxValue;
-            return Math.Max(0f, cap - GetStock(yardId, cargo));
+            return Math.Max(0f, TotalCapOf(yardId) - TotalStock(yardId));
         }
 
         public bool HasRoomFor(string yardId, CargoType cargo, float amount) =>
@@ -378,9 +400,11 @@ namespace DLE.Economy
         {
             if (!_stock.TryGetValue(yardId, out var m))
                 _stock[yardId] = m = new Dictionary<CargoType, float>();
-            float cap = _facilities.TryGetValue(yardId, out var f) ? f.Cap(cargo) : float.MaxValue;
+            // Clamp against the SHARED total (#92): whatever exceeds the station's free
+            // space is dropped, exactly as the old per-cargo clamp dropped overflow.
+            float room = Math.Max(0f, TotalCapOf(yardId) - TotalStock(yardId));
             m.TryGetValue(cargo, out var cur);
-            m[cargo] = Math.Min(cap, cur + amount);
+            m[cargo] = cur + Math.Min(amount, room);
         }
 
         private void Consume(string yardId, CargoType cargo, float amount)
@@ -447,8 +471,16 @@ namespace DLE.Economy
         private bool HasInputs(string yardId, RecipeDef r) =>
             r.Inputs.All(i => GetStock(yardId, i.Cargo) - GetReserved(yardId, i.Cargo) >= i.Amount);
 
-        private bool HasOutputRoom(string yardId, FacilityDef f, RecipeDef r) =>
-            r.Outputs.All(o => GetStock(yardId, o.Cargo) + o.Amount <= f.Cap(o.Cargo) + 0.001f);
+        // Room is the shared pool (#92), and a conversion frees its input space as it
+        // fills output space: the check is the NET stock change, so a full station can
+        // still convert 2-in-2-out (net zero) but a 1-in-2-out recipe needs a free slot.
+        private bool HasOutputRoom(string yardId, FacilityDef f, RecipeDef r)
+        {
+            float net = 0f;
+            foreach (var o in r.Outputs) net += o.Amount;
+            foreach (var i in r.Inputs) net -= i.Amount;
+            return TotalStock(yardId) + net <= f.TotalCap + 0.001f;
+        }
 
         private static string Describe(List<CargoStack> stacks) =>
             string.Join(", ", stacks.Select(s => $"{s.Amount:0.#} {s.Cargo}"));

@@ -115,10 +115,9 @@ namespace DLE.Economy
                         facilities[kv.Key] = facility;
                     }
                     var so = kv.Value;
-                    if (so.defaultCap.HasValue) facility.DefaultCap = so.defaultCap.Value;
-                    if (so.caps != null)
-                        foreach (var c in so.caps)
-                            if (TryCargo(c.Key, out var cargo)) facility.StorageCaps[cargo] = c.Value;
+                    if (so.totalCap.HasValue) facility.TotalCap = so.totalCap.Value;
+                    else if (so.defaultCap.HasValue) { facility.TotalCap = so.defaultCap.Value * 2f; _legacyDefaultCapSeen = true; }
+                    if (so.caps != null) _legacyCapsSeen = true;
                     if (so.recipes != null)
                         facility.Recipes = so.recipes.Select(ToRecipe).Where(r => r != null).ToList();
                     facility.Role = ParseRole(so.role, facility.Role);
@@ -142,6 +141,17 @@ namespace DLE.Economy
                 if (!f.IsSource) continue;
                 if (f.Recipes.Count > 0) f.Recipes.Clear();
                 f.Inputs = f.Boosters.SelectMany(b => b.Cargo).Distinct().ToList();
+            }
+
+            if (_legacyCapsSeen)
+            {
+                Main.LogAlways("[Economy] economy.json still sets per-cargo 'caps': storage is now ONE shared pool per station (#92), so those entries are ignored. Set 'totalCap' instead.");
+                _legacyCapsSeen = false;
+            }
+            if (_legacyDefaultCapSeen)
+            {
+                Main.LogAlways("[Economy] economy.json still uses 'defaultCap': it now counts as HALF the station total (doubled on read, matching the storage conversion). Rename it to 'totalCap' with the doubled value to silence this.");
+                _legacyDefaultCapSeen = false;
             }
 
             // Warn when a role contradicts the station's derived economy, so a config
@@ -174,8 +184,6 @@ namespace DLE.Economy
             {
                 f.Outputs.RemoveAll(excluded.Contains);
                 f.Inputs.RemoveAll(excluded.Contains);
-                foreach (var key in f.StorageCaps.Keys.Where(excluded.Contains).ToList())
-                    f.StorageCaps.Remove(key);
                 foreach (var r in f.Recipes)
                 {
                     r.Inputs.RemoveAll(s => excluded.Contains(s.Cargo));
@@ -185,6 +193,9 @@ namespace DLE.Economy
             }
         }
 
+        private static bool _legacyCapsSeen;
+        private static bool _legacyDefaultCapSeen;
+
         private static void ApplyDefaults(FacilityDef f, OverlayDefaults d)
         {
             if (d == null) return;
@@ -192,7 +203,8 @@ namespace DLE.Economy
             if (d.remoteLoad.HasValue) f.RemoteLoad = d.remoteLoad.Value;
             if (d.remoteUnload.HasValue) f.RemoteUnload = d.remoteUnload.Value;
             if (d.remoteSecondsPerCar.HasValue) f.RemoteSecondsPerCar = d.remoteSecondsPerCar.Value;
-            if (d.defaultCap.HasValue) f.DefaultCap = d.defaultCap.Value;
+            if (d.totalCap.HasValue) f.TotalCap = d.totalCap.Value;
+            else if (d.defaultCap.HasValue) { f.TotalCap = d.defaultCap.Value * 2f; _legacyDefaultCapSeen = true; }
         }
 
         private static ServiceRole ParseRole(string s, ServiceRole fallback)

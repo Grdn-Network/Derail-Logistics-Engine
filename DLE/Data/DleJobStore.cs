@@ -11,8 +11,9 @@ namespace DLE.Data
     /// job save, which cannot reload a ComplexTransport chain). On save, every live job is
     /// snapshotted; on world load the cars are found again by GUID (cars and their cargo
     /// persist through the vanilla save) and the same job is rebuilt with the same ID.
-    /// A job that was taken comes back as available at the origin office; the log says so.
-    /// Host or singleplayer only.
+    /// A job that was taken is re-taken after the rebuild (#94): restoring it as open
+    /// paper made a crew's loaded haul indistinguishable from un-taken booklets, and the
+    /// lock-on purge legally expired it. Host or singleplayer only.
     /// </summary>
     public static class DleJobStore
     {
@@ -34,6 +35,9 @@ namespace DLE.Data
             public int PlannedCars;
             public int LoadedCarloads;
             public bool UnpaidMove;
+            // Additive since 0.43.000: absent in older saves, defaulting to false, which
+            // restores the job as open paper exactly like those saves expect.
+            public bool WasTaken;
         }
 
         [Serializable]
@@ -65,6 +69,7 @@ namespace DLE.Data
                     PlannedCars = def.plannedCarCount,
                     LoadedCarloads = def.loadedCarloads,
                     UnpaidMove = def.unpaidMove,
+                    WasTaken = def.LiveJob?.State == JobState.InProgress,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -90,12 +95,12 @@ namespace DLE.Data
                 if (kv.Key?.carGuid != null)
                     byGuid[kv.Key.carGuid] = kv.Value;
 
-            int restored = 0;
+            int restored = 0, retaken = 0;
             foreach (var snap in payload.Jobs)
             {
                 try
                 {
-                    if (RestoreOne(snap, byGuid)) restored++;
+                    if (RestoreOne(snap, byGuid, ref retaken)) restored++;
                 }
                 catch (Exception ex)
                 {
@@ -104,14 +109,16 @@ namespace DLE.Data
             }
             ReconcileReservations();
 
-            Main.Log($"[JobStore] restored {restored}/{payload.Jobs.Count} Direct Haul job(s). " +
-                     "Previously taken jobs are available again at the origin office.");
+            // Always logged: this one line was the forensic key to #94 (it proved every
+            // job had been demoted to Available before the purge ran).
+            Main.LogAlways($"[JobStore] restored {restored}/{payload.Jobs.Count} Direct Haul job(s); " +
+                     $"{retaken} re-taken (in progress at save), the rest are open at their origin offices.");
         }
 
         /// <summary>
         /// After any restore outcome (including none): supply promised to jobs that did
-        /// not survive returns, and surviving jobs come back as open paper whose holds
-        /// drop to soft; taking them re-hardens through the normal accept gate.
+        /// not survive returns. Surviving OPEN paper drops its hold to soft (taking it
+        /// re-hardens through the normal accept gate); re-taken jobs keep hard holds.
         /// </summary>
         private static void ReconcileReservations()
         {
@@ -122,7 +129,7 @@ namespace DLE.Data
                 (d.LiveJob == null || d.LiveJob.State == DV.ThingTypes.JobState.Available));
         }
 
-        private static bool RestoreOne(JobSnapshot snap, Dictionary<string, TrainCar> byGuid)
+        private static bool RestoreOne(JobSnapshot snap, Dictionary<string, TrainCar> byGuid, ref int retaken)
         {
             if (string.IsNullOrEmpty(snap.JobId) || snap.CarGuids == null) return false;
             if (StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(snap.JobId)) return false;
@@ -167,6 +174,19 @@ namespace DLE.Data
                     if (snap.LoadedCarloads > 0 && rebuilt.loadedCarloads < snap.LoadedCarloads)
                         rebuilt.loadedCarloads = snap.LoadedCarloads;
                     rebuilt.unpaidMove = snap.UnpaidMove;
+
+                    // #94: a haul that was in progress at save comes back in progress, the
+                    // same way the vanilla save restores taken jobs. The rebuild leaves it
+                    // Available, so a crew's running (even loaded) haul looked exactly like
+                    // un-taken paper and the lock-on purge expired it among the open booklets.
+                    if (snap.WasTaken && rebuilt.LiveJob != null &&
+                        rebuilt.LiveJob.State == JobState.Available)
+                    {
+                        DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance
+                            .TakeJob(rebuilt.LiveJob, true);
+                        retaken++;
+                        Main.LogAlways($"[JobStore] {snap.JobId} restored as TAKEN; the crew's haul survives the restart.");
+                    }
                 }
             }
             return ok;

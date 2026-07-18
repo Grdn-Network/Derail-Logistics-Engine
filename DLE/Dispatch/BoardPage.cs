@@ -50,6 +50,11 @@ h2{margin:0 0 10px;font-size:13px;font-weight:700;letter-spacing:.1em;
 text-transform:uppercase;color:var(--dim)}
 h2 .sub{font-weight:400;letter-spacing:0;text-transform:none;margin-left:8px;font-size:12px}
 h2 .count{color:var(--violet);margin-left:6px}
+main section[data-sec] h2{cursor:pointer;user-select:none}
+main section[data-sec] h2:before{content:'\25BE';margin-right:7px;color:var(--line2)}
+main section[data-sec].closed h2:before{content:'\25B8'}
+main section[data-sec].closed>*:not(h2){display:none}
+main section[data-sec].closed h2{margin-bottom:0}
 label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)}
 input,select{font:inherit;background:var(--panel2);color:var(--text);
 border:1px solid var(--line2);border-radius:6px;padding:5px 8px;min-width:0}
@@ -139,7 +144,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   title='When ON, crews can only accept hauls assigned to them and Company Haul papers leave the station offices. Faxed booklets still work.'>LOCK &middot; &hellip;</button>
 </header>
 <main>
- <section class='card col12'>
+ <section class='card col12' data-sec='create'>
   <h2>Create a haul</h2>
   <div class='formrow'>
    <label>Origin<select id='hOrigin'></select></label>
@@ -149,16 +154,16 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <button class='primary' data-act='spawnHaul'>Spawn haul</button>
   </div>
  </section>
- <section class='card col12'>
+ <section class='card col12' data-sec='net'>
   <h2>Network <span class='sub'>the whole economy lives here: click a station for its recipes, storage and stock; click a route to fill the haul form</span></h2>
   <svg id='net' viewBox='0 0 1040 760' style='width:100%;height:auto;max-height:78vh'></svg>
   <div id='netDetail' class='netdetail'></div>
  </section>
- <section class='col12'>
+ <section class='col12' data-sec='acc'>
   <h2>Accepted hauls <span class='count' id='cAcc'></span></h2>
   <div class='cards' id='accCards'></div>
  </section>
- <section class='card col12'>
+ <section class='card col12' data-sec='logi'>
   <h2>Logistics runs <span class='sub'>unpaid coordination, no booklet</span></h2>
   <div class='formrow' style='margin-bottom:10px'>
    <label>From<input id='lFrom' style='width:64px'></label>
@@ -170,7 +175,21 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   </div>
   <div class='tablewrap'><table id='tLog'></table></div>
  </section>
- <section class='card col12'>
+ <section class='card col12' id='finder' data-sec='finder'>
+  <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh; blank the cargo field to clear</span></h2>
+  <div class='formrow' style='margin-bottom:10px'>
+   <label>Cargo<select id='fCargo'></select></label>
+   <label>Yard<input id='fYard' style='width:70px' placeholder='any'></label>
+   <button class='primary' data-act='findCars'>Find</button>
+   <span class='meta' id='fSummary'></span>
+  </div>
+  <div class='tablewrap'><table id='tFleet'></table></div>
+ </section>
+ <section class='col12' data-sec='avail'>
+  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
+  <div class='cards' id='availCards'></div>
+ </section>
+ <section class='card col12' data-sec='dlog'>
   <h2>Dispatch log <span class='sub'>production, conversion, loading, deliveries; newest first</span></h2>
   <div class='formrow' style='margin-bottom:6px'>
    <label>Type<select id='dlType'>
@@ -186,22 +205,8 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   </div>
   <div id='dlog' style='max-height:260px;overflow-y:auto;font-size:12.5px'></div>
  </section>
- <section class='card col12' id='finder'>
-  <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh</span></h2>
-  <div class='formrow' style='margin-bottom:10px'>
-   <label>Cargo<select id='fCargo'></select></label>
-   <label>Yard<input id='fYard' style='width:70px' placeholder='any'></label>
-   <button class='primary' data-act='findCars'>Find</button>
-   <span class='meta' id='fSummary'></span>
-  </div>
-  <div class='tablewrap'><table id='tFleet'></table></div>
- </section>
- <section class='col12'>
-  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
-  <div class='cards' id='availCards'></div>
- </section>
 </main>
-<footer>Derail Logistics Engine &middot; local board on 127.0.0.1:7246 &middot; refreshes every 5s</footer>
+<footer>Derail Logistics Engine &middot; refreshes every 5s</footer>
 <div id='toasts'></div>
 <datalist id='crewNames'></datalist>
 <script>
@@ -287,7 +292,7 @@ async function refresh(){
  $('chipJobs').textContent=state.jobCount+' hauls';
  keepSelect($('hOrigin'),[...new Set(options.map(o=>o.origin))]);
  originChanged();
- keepSelect($('fCargo'),['any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
+ keepSelect($('fCargo'),['','any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
  lastEconData=econ;
  const netKey=JSON.stringify(options)+JSON.stringify(econ);
  if(last.net!==netKey){last.net=netKey;drawNet()}
@@ -365,13 +370,13 @@ function renderLog(hist){
   const amt=e.Amount?Math.round(e.Amount*10)/10:'';
   return `<div style='padding:2px 0;border-bottom:1px solid var(--line)'><span class='meta num'>${t}</span> <b>${esc(e.Yard||'')}</b> ${verb[e.Type]||esc(e.Type)} ${amt} ${esc(e.Cargo||'')}${e.JobId?` <span class='meta'>(${esc(e.JobId)})</span>`:''}</div>`}).join('');
 }
-function stockRow(s){
- const pct=s.cap>0?Math.min(100,Math.round(100*s.amount/s.cap)):0;
+function stockRow(s,cap){
+ const pct=cap>0?Math.min(100,Math.round(100*s.amount/cap)):0;
  const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
  const recv=s.imported>=1?` &middot; ${Math.round(s.imported)} received`:'';
- return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed'>${esc(s.cargo)}</span>`+
-  `<div class='bar'><i class='${pct>=100?'full':''}' style='width:${pct}%'></i></div>`+
-  `<span class='nums num'>${Math.round(s.amount)} / ${Math.round(s.cap)}${held}${recv}</span></div>`;
+ return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed; bars show the share of the station total'>${esc(s.cargo)}</span>`+
+  `<div class='bar'><i style='width:${pct}%'></i></div>`+
+  `<span class='nums num'>${Math.round(s.amount)}${held}${recv}</span></div>`;
 }
 function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
 function netMissing(n){const out=[];
@@ -444,10 +449,18 @@ function renderNetDetail(nodes,edges,sel){
  if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
  for(const b of (n.boosters||[]))
   h+=`<div class='nrecipe' style='color:${b.active?'var(--green)':'var(--dim)'}'>${b.active?'boosted &#215;'+b.speedup:'runs &#215;'+b.speedup+' faster with'}: ${esc([...b.cargo].join(', '))} (any one)</div>`;
- const dprod=(n.stock||[]).filter(s=>(n.outputs||[]).includes(s.cargo));
- const dcons=(n.stock||[]).filter(s=>!(n.outputs||[]).includes(s.cargo));
- if(dprod.length)h+=`<div class='sublab'>producer storage</div>`+dprod.map(s=>stockRow(s)).join('');
- if(dcons.length)h+=`<div class='sublab'>consumer storage</div>`+dcons.map(s=>stockRow(s)).join('');
+ const rows=(n.stock||[]);
+ if(rows.length||n.totalCap){
+  const cap=Math.round(n.totalCap||0),used=Math.round(n.totalStock||0);
+  const upct=n.totalCap>0?Math.min(100,Math.round(100*used/n.totalCap)):0;
+  h+=`<div class='sublab'>storage &middot; one shared pool: every cargo counts against the same total</div>`;
+  h+=`<div class='stockrow'><span class='cname'><b>total</b></span>`+
+   `<div class='bar'><i class='${upct>=100?'full':''}' style='width:${upct}%'></i></div>`+
+   `<span class='nums num'>${used} / ${cap}</span></div>`;
+  const dprod=rows.filter(s=>(n.outputs||[]).includes(s.cargo));
+  const dcons=rows.filter(s=>!(n.outputs||[]).includes(s.cargo));
+  h+=dprod.concat(dcons).map(s=>stockRow(s,n.totalCap||0)).join('');
+ }
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
  if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
  if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.join(', '))}`).join(' &middot; ')+`</div>`;
@@ -561,7 +574,8 @@ const actions={
   const r=await j('/api/v1/jobs/'+id,'DELETE');toast(r.message||(r.ok?'Deleted '+id:'delete failed'),!r.ok);refresh()},
  cars:id=>{expanded.has(id)?expanded.delete(id):expanded.add(id);last.jobs=null;refresh()},
  findCars:async()=>{const c=$('fCargo').value,y=$('fYard').value.trim();
-  const q=[];if(c&&c!=='any cargo')q.push('cargo='+encodeURIComponent(c));
+  if(!c){clearFleet();return}
+  const q=[];if(c!=='any cargo')q.push('cargo='+encodeURIComponent(c));
   if(y)q.push('yard='+encodeURIComponent(y.toUpperCase()));
   const r=await j('/api/v1/fleet'+(q.length?'?'+q.join('&'):''));
   if(r.error){toast(r.error,true);return}
@@ -570,6 +584,7 @@ const actions={
   const sel=$('fCargo');
   if(![...sel.options].some(o=>o.value===x.cargo)){const o=document.createElement('option');o.textContent=x.cargo;sel.appendChild(o)}
   sel.value=x.cargo;$('fYard').value='';
+  openSec('finder');
   actions.findCars();$('finder').scrollIntoView({behavior:'smooth'})},
  postRun:async()=>{const b={from:$('lFrom').value,to:$('lTo').value,cars:parseInt($('lCars').value),
    cargo:$('lCargo').value||null,note:$('lNote').value||null};
@@ -591,6 +606,22 @@ $('hOrigin').addEventListener('change',originChanged);
 $('hCargo').addEventListener('change',cargoChanged);
 $('dlType').onchange=()=>renderLog(lastHist);
 $('dlYard').oninput=()=>renderLog(lastHist);
+// Blanking the cargo field clears the finder back to its fresh-page state; a separate
+// mechanic from collapsing the section (which just hides it).
+function clearFleet(){$('tFleet').innerHTML='';$('fSummary').textContent=''}
+$('fCargo').addEventListener('change',()=>{if(!$('fCargo').value)clearFleet()});
+// Collapsible sections: click a heading to fold it away. The dispatch log starts
+// folded; everything else starts open. Remembered per browser.
+const closedSecs=new Set(JSON.parse(localStorage.getItem('dleClosed')||'0')||['dlog']);
+function applySecs(){document.querySelectorAll('main section[data-sec]').forEach(s=>
+ s.classList.toggle('closed',closedSecs.has(s.dataset.sec)))}
+function openSec(k){if(!closedSecs.has(k))return;closedSecs.delete(k);
+ localStorage.setItem('dleClosed',JSON.stringify([...closedSecs]));applySecs()}
+document.addEventListener('click',e=>{const h=e.target.closest('h2');if(!h)return;
+ const s=h.closest('section[data-sec]');if(!s)return;
+ const k=s.dataset.sec;closedSecs.has(k)?closedSecs.delete(k):closedSecs.add(k);
+ localStorage.setItem('dleClosed',JSON.stringify([...closedSecs]));applySecs()});
+applySecs();
 refresh();setInterval(refresh,5000);
 </script></body></html>
 ";

@@ -35,7 +35,21 @@ namespace DLE.Dispatch
         private Dictionary<string, Assignment> _assignments =
             new Dictionary<string, Assignment>(StringComparer.Ordinal);
 
-        public bool LockEnabled { get; set; }
+        private bool _lockEnabled;
+
+        // The setter is the single choke point for lock changes (API, save restore), so
+        // every flip reaches DLE clients for their local paper sweep (#73). No-ops when
+        // nothing changed or no MP session is up.
+        public bool LockEnabled
+        {
+            get => _lockEnabled;
+            set
+            {
+                if (_lockEnabled == value) return;
+                _lockEnabled = value;
+                DleMpChannel.NotifyLockChanged(value);
+            }
+        }
 
         public IReadOnlyDictionary<string, Assignment> All => _assignments;
 

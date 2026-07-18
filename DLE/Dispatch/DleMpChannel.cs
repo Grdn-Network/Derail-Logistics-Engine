@@ -47,6 +47,11 @@ namespace DLE.Dispatch
         private static readonly Dictionary<string, string> _pendingAttaches =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
+        // CLIENT side: the host's assignment lock, synced at hello and on every toggle.
+        // Drives the local paper sweep (#73): when the lock is on, Company Haul papers
+        // leave THIS client's station offices the same way they leave the host's.
+        public static bool ClientLockOn;
+
         public static bool TransportUp { get; internal set; }
 
         /// <summary>
@@ -116,6 +121,15 @@ namespace DLE.Dispatch
             catch (Exception ex) { Main.Log($"[MpChannel] attach sync failed: {ex.Message}"); }
         }
 
+        /// <summary>Host: the assignment lock flipped; every DLE client mirrors it so
+        /// their local office papers follow the host's (#73).</summary>
+        public static void NotifyLockChanged(bool enabled)
+        {
+            if (!TransportUp) return;
+            try { DleMpTransport.SendLock(enabled); }
+            catch (Exception ex) { Main.Log($"[MpChannel] lock sync failed: {ex.Message}"); }
+        }
+
         /// <summary>Fax the booklet to a DLE-running client by username: their own mod
         /// prints it into their inventory. False when that player runs no DLE (the
         /// caller falls back to the world-print path).</summary>
@@ -174,6 +188,78 @@ namespace DLE.Dispatch
 
         private static readonly HashSet<string> _pendingFaxes =
             new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Fresh client session, fresh client state: job IDs are route-based and a NEW
+        /// world can legitimately mint the same IDs, so meta (and the lock flag) left
+        /// over from a previous session would let the paper sweep destroy the wrong
+        /// world's booklets. Called at client session start and stop.
+        /// </summary>
+        internal static void ResetClientState()
+        {
+            ClientJobPay.Clear();
+            ClientUnpaid.Clear();
+            ClientJobCargo.Clear();
+            ClientJobCars.Clear();
+            _pendingAttaches.Clear();
+            _pendingFaxes.Clear();
+            ClientLockOn = false;
+        }
+
+        internal static void ApplyLockState(bool enabled)
+        {
+            if (Main.IsHostOrSingleplayer()) return; // host loopback: its own sweep runs
+            bool changed = ClientLockOn != enabled;
+            ClientLockOn = enabled;
+            if (changed)
+                Main.LogAlways($"[MpChannel] host assignment lock is {(enabled ? "ON" : "off")}; local papers follow.");
+            try { SweepClientPapers(); }
+            catch (Exception ex) { Main.Log($"[MpChannel] client paper sweep failed: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Client-side stale-paper sweep (#73), the mirror of the host director's
+        /// DespawnManagedOverviews: the game respawns office overviews locally on every
+        /// peer, so a host-side destroy never reaches this client's copies. Swept here:
+        /// DLE papers while the lock is on, unpaid-move papers always, and papers whose
+        /// job is no longer Available (someone took or dispatch deleted it). Beyond the
+        /// UX, this removes the trigger for dv-mp's unguarded job-validate NRE: paper
+        /// the host no longer tracks can't be inserted into a validator here.
+        /// Only jobs this client KNOWS are DLE's (synced over the channel) are touched.
+        /// </summary>
+        internal static void SweepClientPapers()
+        {
+            if (Main.IsHostOrSingleplayer()) return;
+            if (StationController.allStations == null) return;
+            int removed = 0;
+            foreach (var sc in StationController.allStations)
+            {
+                var overviews = sc?.spawnedJobOverviews;
+                if (overviews == null) continue;
+                for (int i = overviews.Count - 1; i >= 0; i--)
+                {
+                    var ov = overviews[i];
+                    // Unity's overloaded == catches destroyed components; prune AND remove
+                    // here (DestroyJobOverview does not remove itself from this list) or the
+                    // next pass throws MissingReferenceException and aborts the sweep.
+                    if (ov == null)
+                    {
+                        overviews.RemoveAt(i);
+                        continue;
+                    }
+                    var id = ov.job?.ID;
+                    if (id == null || !ClientJobPay.ContainsKey(id)) continue;
+                    bool unpaid = ClientUnpaid.Contains(id);
+                    bool stale = ov.job.State != DV.ThingTypes.JobState.Available;
+                    if (!ClientLockOn && !unpaid && !stale) continue;
+                    overviews.RemoveAt(i);
+                    ov.DestroyJobOverview();
+                    removed++;
+                }
+            }
+            if (removed > 0)
+                Main.LogAlways($"[MpChannel] swept {removed} stale Company Haul paper(s) from local offices.");
+        }
 
         private static Job FindClientJob(string jobId)
         {
@@ -306,7 +392,7 @@ namespace DLE.Dispatch
             MPAPI.MultiplayerAPI.ServerStarted += OnServerStarted;
             MPAPI.MultiplayerAPI.ServerStopped += () => { _server = null; _dleClients.Clear(); DleMpChannel.TransportUp = false; };
             MPAPI.MultiplayerAPI.ClientStarted += OnClientStarted;
-            MPAPI.MultiplayerAPI.ClientStopped += () => { _client = null; };
+            MPAPI.MultiplayerAPI.ClientStopped += () => { _client = null; DleMpChannel.ResetClientState(); };
             // A session may already be live (mod loaded into a running game).
             if (MPAPI.MultiplayerAPI.Server != null) OnServerStarted(MPAPI.MultiplayerAPI.Server);
             if (MPAPI.MultiplayerAPI.Client != null) OnClientStarted(MPAPI.MultiplayerAPI.Client);
@@ -325,6 +411,9 @@ namespace DLE.Dispatch
                 Main.LogAlways($"[MpChannel] {sender.Username} runs DLE; syncing {rows.Count} live job(s) to them.");
                 foreach (var row in rows)
                     SendTo(sender, row.jobId, row.carIds, row.pay, row.unpaid, row.cargo, row.plannedCars, false);
+                // The lock state rides along so a client joining mid-session sweeps
+                // immediately instead of waiting for the next toggle.
+                SendLockTo(sender, AssignmentStore.Instance.LockEnabled);
             });
             server.OnPlayerDisconnected += player => _dleClients.Remove(player);
         }
@@ -333,10 +422,13 @@ namespace DLE.Dispatch
         private static void OnClientStarted(MPAPI.Interfaces.IClient client)
         {
             _client = client;
+            DleMpChannel.ResetClientState();
             client.RegisterPacket<DleJobSyncPacket>(packet =>
                 DleMpChannel.ApplyJobSync(packet.JobId ?? "", packet.CarIdsCsv ?? "",
                     packet.Pay, packet.Unpaid, packet.PrintBooklet,
                     packet.Cargo ?? "", packet.PlannedCars));
+            client.RegisterPacket<DleLockPacket>(packet =>
+                DleMpChannel.ApplyLockState(packet.Enabled));
             Main.LogAlways("[MpChannel] client session started; DLE sync handler registered.");
             // Say hello so the host knows to sync us. A non-DLE host logs one parse
             // warning and drops it; nothing breaks. Re-sent at world load in case this
@@ -382,6 +474,21 @@ namespace DLE.Dispatch
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void SendLockTo(MPAPI.Interfaces.IPlayer player, bool enabled)
+        {
+            ((MPAPI.Interfaces.IServer)_server).SendPacketToPlayer(
+                new DleLockPacket { Enabled = enabled }, player);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void SendLock(bool enabled)
+        {
+            if (_server == null) return;
+            foreach (var obj in _dleClients)
+                SendLockTo((MPAPI.Interfaces.IPlayer)obj, enabled);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
         internal static bool SendFax(string playerName, string jobId)
         {
             if (_server == null) return false;
@@ -418,5 +525,44 @@ namespace DLE.Dispatch
         public float Pay { get; set; }
         public bool Unpaid { get; set; }
         public bool PrintBooklet { get; set; }
+    }
+
+    /// <summary>Server-to-client: the host's assignment lock state. Sent at hello and on
+    /// every toggle; drives the client-side paper sweep. A 0.42.x client receiving this
+    /// unknown packet logs one dv-mp parse warning and drops it; nothing breaks (papers
+    /// just don't sweep there until the client updates). Auto-serialized.</summary>
+    public class DleLockPacket : MPAPI.Interfaces.Packets.IPacket
+    {
+        public bool Enabled { get; set; }
+    }
+
+    /// <summary>
+    /// Client-side sweep host: the game respawns office overviews locally every few
+    /// seconds while a player is near a station, so the sweep must repeat exactly like
+    /// the host director's does. Pure Unity/game types: safe without DVMP (it just never
+    /// gets started outside a client session).
+    /// </summary>
+    public class DleClientPaperSweeper : MonoBehaviour
+    {
+        private static GameObject _host;
+
+        public static void StartOnClient()
+        {
+            if (_host != null) Destroy(_host);
+            _host = new GameObject("DLE_ClientPaperSweeper");
+            DontDestroyOnLoad(_host);
+            _host.AddComponent<DleClientPaperSweeper>();
+        }
+
+        private System.Collections.IEnumerator Start()
+        {
+            var wait = new WaitForSeconds(3f);
+            while (true)
+            {
+                yield return wait;
+                try { DleMpChannel.SweepClientPapers(); }
+                catch (Exception ex) { Main.Log($"[MpChannel] client paper sweep failed: {ex.Message}"); }
+            }
+        }
     }
 }

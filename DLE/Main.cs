@@ -101,7 +101,13 @@ namespace DLE
             // fire before the connection settles, and the world being loaded is the one
             // moment we KNOW the session is fully up.
             Dispatch.DleMpChannel.TryInit();
-            if (!hostOrSp) Dispatch.DleMpChannel.AnnounceToHost();
+            if (!hostOrSp)
+            {
+                Dispatch.DleMpChannel.AnnounceToHost();
+                // Local stale-paper sweep (#73): the game respawns office overviews on
+                // every peer, so host-side destroys never reach this client's copies.
+                Dispatch.DleClientPaperSweeper.StartOnClient();
+            }
             if (hostOrSp)
             {
                 var data = SaveGameManager.Instance?.data;

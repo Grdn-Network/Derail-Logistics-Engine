@@ -38,14 +38,16 @@ namespace DLE.Economy
         public List<CargoType> Outputs = new List<CargoType>();
         public List<CargoType> Inputs = new List<CargoType>();
 
-        public Dictionary<CargoType, float> StorageCaps = new Dictionary<CargoType, float>();
-        public float DefaultCap = 50f;
+        // Storage is ONE shared pool per station (#92): every cargo pile at the yard
+        // counts against the same total. Deciding what to fill that space with is part
+        // of the challenge; per-cargo caps return as a 1.0 idea.
+        public float TotalCap = 100f;
 
         // Servicing config (economy.json). Role gates generation: a load-only station is
         // never a haul destination, an unload-only station is never an origin. The remote
         // flags say whether station staff will service cars parked anywhere in the yard,
         // and RemoteSecondsPerCar is the staff time cost per car; consumed by the servicing
-        // feature. StorageCaps/DefaultCap double as the storage capacity that caps demand.
+        // feature. TotalCap doubles as the storage capacity that caps demand.
         public ServiceRole Role = ServiceRole.Both;
         public bool RemoteLoad = true;
         public bool RemoteUnload = true;
@@ -63,9 +65,6 @@ namespace DLE.Economy
 
         public bool CanLoad => Role != ServiceRole.Unload;
         public bool CanUnload => Role != ServiceRole.Load;
-
-        public float Cap(CargoType cargo) =>
-            StorageCaps.TryGetValue(cargo, out var v) ? v : DefaultCap;
     }
 
     // economy.json overlay shape (cargo names are CargoType enum names).
@@ -104,17 +103,21 @@ namespace DLE.Economy
     }
 
     // Global servicing defaults applied to every station before per-station overrides.
+    // defaultCap/caps are the pre-0.43 per-cargo storage keys: defaultCap still parses
+    // (doubled into the station total, matching the #92 conversion), caps is ignored.
     public class OverlayDefaults
     {
         public string role;
         public bool? remoteLoad;
         public bool? remoteUnload;
         public float? remoteSecondsPerCar;
+        public float? totalCap;
         public float? defaultCap;
     }
 
     public class StationOverlay
     {
+        public float? totalCap;
         public float? defaultCap;
         public Dictionary<string, float> caps;
         public List<RecipeOverlay> recipes; // when present, replaces the derived recipes
