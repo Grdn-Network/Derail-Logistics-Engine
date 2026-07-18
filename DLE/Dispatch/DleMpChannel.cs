@@ -178,16 +178,27 @@ namespace DLE.Dispatch
                     if (TryApplyAttach(kv.Key, kv.Value))
                         _pendingAttaches.Remove(kv.Key);
 
-            if (printBooklet && !PrintFaxedBooklet(jobId))
-                _pendingFaxes.Add(jobId); // job not delivered by DVMP yet; retry below
-            if (_pendingFaxes.Count > 0)
-                foreach (var pending in _pendingFaxes.ToList())
-                    if (PrintFaxedBooklet(pending))
-                        _pendingFaxes.Remove(pending);
+            if (printBooklet && !PrintFaxedBooklet(jobId) && !_pendingFaxes.ContainsKey(jobId))
+            {
+                _pendingFaxes[jobId] = 0; // job not delivered by DVMP yet; retry below
+                Main.LogAlways($"[MpChannel] fax for {jobId} arrived before the job itself; retrying on later syncs.");
+            }
+            foreach (var pending in _pendingFaxes.Keys.ToList())
+            {
+                if (PrintFaxedBooklet(pending)) { _pendingFaxes.Remove(pending); continue; }
+                // A job deleted host-side before the fax lands can never resolve; give
+                // up quietly after enough packets instead of retrying forever.
+                if (++_pendingFaxes[pending] >= 100)
+                {
+                    _pendingFaxes.Remove(pending);
+                    Main.LogAlways($"[MpChannel] gave up on the fax for {pending}; the job never appeared in this world (deleted host-side?).");
+                }
+            }
         }
 
-        private static readonly HashSet<string> _pendingFaxes =
-            new HashSet<string>(StringComparer.Ordinal);
+        // jobId -> retry attempts (one per received packet while unresolved).
+        private static readonly Dictionary<string, int> _pendingFaxes =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         /// <summary>
         /// Fresh client session, fresh client state: job IDs are route-based and a NEW
@@ -263,11 +274,13 @@ namespace DLE.Dispatch
 
         private static Job FindClientJob(string jobId)
         {
-            // allJobs first: it holds every live job regardless of state. The original
-            // lookup (jobToJobCars + availableJobs) missed TAKEN carless jobs entirely,
-            // which is exactly what a faxed job usually is: taken via the board, no cars
-            // yet. That was the live-test "fax arrived but the job is not in this world"
-            // failure.
+            // allJobs first: on the HOST it holds every live job regardless of state.
+            // On a CLIENT it is empty: dv-mp builds jobs straight from packet data and
+            // never registers them there, so the station lists are the real client-side
+            // registry. A job someone else took lives in takenJobs (dv-mp's state-change
+            // handler calls Job.TakeJob, which moves it out of availableJobs): the
+            // 0.42.005 live logs showed faxes for board-taken jobs retrying forever
+            // because this lookup scanned availableJobs only.
             var jm = SingletonBehaviour<JobsManager>.Instance;
             if (jm?.allJobs != null)
                 foreach (var j in jm.allJobs)
@@ -278,10 +291,14 @@ namespace DLE.Dispatch
             if (StationController.allStations != null)
                 foreach (var sc in StationController.allStations)
                 {
-                    var avail = sc?.logicStation?.availableJobs;
-                    if (avail == null) continue;
-                    foreach (var j in avail)
-                        if (j != null && j.ID == jobId) return j;
+                    var station = sc?.logicStation;
+                    if (station == null) continue;
+                    if (station.availableJobs != null)
+                        foreach (var j in station.availableJobs)
+                            if (j != null && j.ID == jobId) return j;
+                    if (station.takenJobs != null)
+                        foreach (var j in station.takenJobs)
+                            if (j != null && j.ID == jobId) return j;
                 }
             return null;
         }
@@ -323,7 +340,9 @@ namespace DLE.Dispatch
             var job = FindClientJob(jobId);
             if (job == null)
             {
-                Main.LogAlways($"[MpChannel] fax for {jobId} arrived before the job itself; will retry on the next sync.");
+                // The caller logs the first miss once and counts retries; per-attempt
+                // lines flooded the 0.42.005 client log.
+                Main.Log($"[MpChannel] fax for {jobId}: job still not in this world; will retry.");
                 return false;
             }
             var target = PlayerManager.PlayerTransform;
