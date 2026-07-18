@@ -59,6 +59,11 @@ namespace DLE
             // MultiplayerAPI.dll is already in the AppDomain by then).
             ResolveDvmpApi();
 
+            // The packet channel (client booklet data, plates, fax) arms only when DVMP
+            // is really here; a pure singleplayer install never loads MultiplayerAPI.dll.
+            if (AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "MultiplayerAPI"))
+                Dispatch.DleMpChannel.TryInit();
+
             LogAlways("[Main] Derail Logistics Engine loaded.");
             return true;
         }

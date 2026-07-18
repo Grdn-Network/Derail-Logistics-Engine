@@ -65,6 +65,16 @@ namespace DLE.Dispatch
             }
             else
             {
+                // A crew running DLE gets the clean fax: their own mod prints the paper
+                // straight into their inventory. The world-print below stays the fallback
+                // for modless crews (the paper syncs poorly, but it is all DVMP offers).
+                if (DleMpChannel.NotifyFax(player, jobId))
+                {
+                    AssignFaxTarget(jobId, player, viaAssignment);
+                    Main.LogAlways($"[Fax] {jobId} faxed to {player}'s inventory via the DLE channel.");
+                    return Result.Done($"{jobId} faxed to {player}'s inventory");
+                }
+
                 target = FindNetworkedPlayer(player, out name);
                 isLocal = false;
                 if (target == null)
@@ -128,6 +138,13 @@ namespace DLE.Dispatch
 
             Main.LogAlways($"[Fax] {jobId} faxed; printed in front of {name}.");
             return Result.Done($"{jobId} faxed; printing in front of {name}");
+        }
+
+        /// <summary>Fax-to-crew implies assignment when nothing else set one.</summary>
+        private static void AssignFaxTarget(string jobId, string player, bool viaAssignment)
+        {
+            if (!viaAssignment && AssignmentStore.Instance.Get(jobId) == null)
+                AssignmentStore.Instance.Assign(jobId, player, "fax");
         }
 
         /// <summary>Every connected crew name: DVMP avatars are the REMOTE players only,

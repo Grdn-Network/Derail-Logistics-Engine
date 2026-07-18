@@ -202,10 +202,14 @@ namespace DLE.Patches
                 LocalizationAPI.L(destination.LocalizationKey), destination.Type, destination.StationColor,
                 cars, length, mass, value, timeLimit,
                 // The vanilla payment is zeroed (booklets are faux); the paper shows the
-                // real on-delivery pay so crews can see what a haul is worth.
+                // real on-delivery pay so crews can see what a haul is worth. On a DVMP
+                // client the definition is host state, so the pay comes from DLE's own
+                // packet channel instead.
                 (defForTrack != null && defForTrack.deliveryPayment > 0f
                     ? defForTrack.deliveryPayment
-                    : job.basePayment).ToString("N0", LocalizationAPI.CC),
+                    : Dispatch.DleMpChannel.ClientJobPay.TryGetValue(job.ID, out var syncedPay) && syncedPay > 0f
+                        ? syncedPay
+                        : job.basePayment).ToString("N0", LocalizationAPI.CC),
                 pageNumber, totalPages);
         }
 
