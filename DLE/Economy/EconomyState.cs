@@ -159,11 +159,17 @@ namespace DLE.Economy
                 foreach (var cargo in cargos)
                 {
                     if (f.Machines.Contains(cargo)) continue; // machines seed separately below
-                    Credit(f.YardId, cargo, amount);
+                    // Tools are the scarce catalyst (#100 ruling): the stations that take
+                    // them start with a token 1-2 carloads, never the full buffer.
+                    float amt = CargoCategories.IsToolsCargo(cargo)
+                        ? Math.Min(amount, RecipeProvider.Tuning.toolsSeed)
+                        : amount;
+                    if (amt <= 0f) continue;
+                    Credit(f.YardId, cargo, amt);
                     // Input buffers seed as imported: consumables to work through, not
                     // local product, so shipping the seed around cannot mint pay.
                     if (!f.Produces(cargo))
-                        MarkImported(f.YardId, cargo, amount);
+                        MarkImported(f.YardId, cargo, amt);
                     seeded++;
                 }
                 foreach (var machine in f.Machines)
@@ -510,12 +516,14 @@ namespace DLE.Economy
         }
 
         // Stock access ----------------------------------------------------------
+        // Every entry point canonicalises (#100 one-cargo ruling): tools, electronics
+        // and chemicals of any brand live in ONE pile per station.
 
         public float GetStock(string yardId, CargoType cargo) =>
-            _stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v) ? v : 0f;
+            _stock.TryGetValue(yardId, out var m) && m.TryGetValue(CargoCategories.Canon(cargo), out var v) ? v : 0f;
 
         public float GetImported(string yardId, CargoType cargo) =>
-            _imported.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var v)
+            _imported.TryGetValue(yardId, out var m) && m.TryGetValue(CargoCategories.Canon(cargo), out var v)
                 ? Math.Min(v, GetStock(yardId, cargo)) : 0f;
 
         public float GetProduced(string yardId, CargoType cargo) =>
@@ -524,6 +532,7 @@ namespace DLE.Economy
         private void MarkImported(string yardId, CargoType cargo, float amount)
         {
             if (amount <= 0f) return;
+            cargo = CargoCategories.Canon(cargo);
             if (!_imported.TryGetValue(yardId, out var m))
                 _imported[yardId] = m = new Dictionary<CargoType, float>();
             m.TryGetValue(cargo, out var cur);
@@ -536,6 +545,7 @@ namespace DLE.Economy
         private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount)
         {
             if (amount <= 0f) return;
+            cargo = CargoCategories.Canon(cargo);
             float imp = GetImported(yardId, cargo);
             if (imp > 0f && _imported.TryGetValue(yardId, out var m))
                 m[cargo] = Math.Max(0f, imp - amount);
@@ -577,7 +587,7 @@ namespace DLE.Economy
         private float SumReservations(string yardId, CargoType cargo, bool includeSoft, bool? paid = null)
         {
             float total = 0f;
-            var name = cargo.ToString();
+            var name = CargoCategories.Canon(cargo).ToString();
             foreach (var r in _reservations.Values)
             {
                 if (r.YardId != yardId || r.Cargo != name) continue;
@@ -656,7 +666,7 @@ namespace DLE.Economy
             _reservations[jobId] = new Reservation
             {
                 YardId = yardId,
-                Cargo = cargo.ToString(),
+                Cargo = CargoCategories.Canon(cargo).ToString(),
                 Amount = amount,
                 Soft = true,
                 Paid = paid,
@@ -743,6 +753,7 @@ namespace DLE.Economy
 
         public void Credit(string yardId, CargoType cargo, float amount)
         {
+            cargo = CargoCategories.Canon(cargo);
             if (!_stock.TryGetValue(yardId, out var m))
                 _stock[yardId] = m = new Dictionary<CargoType, float>();
             // Clamp against the SHARED total (#92): whatever exceeds the station's free
@@ -754,6 +765,7 @@ namespace DLE.Economy
 
         private void Consume(string yardId, CargoType cargo, float amount)
         {
+            cargo = CargoCategories.Canon(cargo);
             if (_stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var cur))
             {
                 var next = Math.Max(0f, cur - amount);
@@ -909,6 +921,14 @@ namespace DLE.Economy
             _imported = Unpack(payload.Imported);
             _generation = payload.Generation;
 
+            // One-cargo migration (#100): brand piles from older saves fold into the
+            // canonical pile so tools/electronics/chemicals arrive as one cargo each.
+            FoldCategories(_stock);
+            FoldCategories(_imported);
+            foreach (var r in _reservations.Values)
+                if (Enum.TryParse<CargoType>(r.Cargo, out var c))
+                    r.Cargo = CargoCategories.Canon(c).ToString();
+
             // Reservations for jobs that no longer exist after the load are released by
             // the job restore pass (the surviving jobs re-register via their save entries).
             if (payload.Reservations != null)
@@ -928,6 +948,21 @@ namespace DLE.Economy
                 // reservation was created by the paid path.
                 foreach (var r in _reservations.Values) { r.Paid = true; r.Soft = false; }
                 Main.LogAlways("[Economy] migrated v1 economy save: stock counted as produced.");
+            }
+        }
+
+        private static void FoldCategories(Dictionary<string, Dictionary<CargoType, float>> map)
+        {
+            foreach (var yard in map.Values)
+            {
+                foreach (var key in yard.Keys.ToList())
+                {
+                    var canonical = CargoCategories.Canon(key);
+                    if (canonical == key) continue;
+                    yard.TryGetValue(canonical, out var cur);
+                    yard[canonical] = cur + yard[key];
+                    yard.Remove(key);
+                }
             }
         }
 
