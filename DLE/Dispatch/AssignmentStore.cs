@@ -50,13 +50,15 @@ namespace DLE.Dispatch
                 AssignedBy = assignedBy,
                 AtUtc = DateTime.UtcNow.ToString("o"),
             };
-            Main.Log($"[Dispatch] {jobId} assigned to {player} by {assignedBy}.");
+            // Always-on: assign events are rare, and MP forensics need them in the default
+            // log (issue #79: an assignment reported missing with no trace to check).
+            Main.LogAlways($"[Dispatch] {jobId} assigned to {player} by {assignedBy}.");
         }
 
         public bool Unassign(string jobId)
         {
             var removed = _assignments.Remove(jobId);
-            if (removed) Main.Log($"[Dispatch] {jobId} unassigned.");
+            if (removed) Main.LogAlways($"[Dispatch] {jobId} unassigned.");
             return removed;
         }
 

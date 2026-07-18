@@ -37,6 +37,7 @@ button:hover{border-color:var(--violet)}
 button.primary{background:var(--vdeep);border-color:#54418c}
 button.primary:hover{background:#473378}
 button.mini{padding:2px 9px;font-size:12px;color:var(--dim)}
+button.mini.danger{color:#e06c6c;border-color:#8a3d3d}
 button.mini:hover{color:var(--text)}
 .lockbtn{font-weight:700;letter-spacing:.05em;font-size:12px;padding:6px 14px}
 .lockbtn.on{background:#4a3a14;border-color:var(--amber);color:var(--amber)}
@@ -246,7 +247,8 @@ function jobCard(x,avail){
    <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
    <input class='crew' id='a_${esc(x.id)}' placeholder='crew name' list='crewNames'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
-   <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>&times;</button>
+   <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>Unassign</button>
+   <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Delete this haul; its supply returns to the pile'>&times;</button>
   </div>
   ${expanded.has(x.id)?`<div class='carsbox' id='cars_${esc(x.id)}'>fetching&hellip;</div>`:''}
   ${pickOpen.has(x.id)?`<div class='carsbox' id='pick_${esc(x.id)}'>fetching&hellip;</div>`:''}
@@ -554,6 +556,8 @@ const actions={
   const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});
   toast(r.ok?'Assigned '+id+' to '+p:'assign failed',!r.ok);refresh()},
  unassign:async id=>{await j('/api/v1/assignments/'+id,'DELETE');toast('Unassigned '+id);refresh()},
+ delhaul:async id=>{if(!confirm('Delete '+id+'? Its supply returns to the pile.'))return;
+  const r=await j('/api/v1/jobs/'+id,'DELETE');toast(r.message||(r.ok?'Deleted '+id:'delete failed'),!r.ok);refresh()},
  cars:id=>{expanded.has(id)?expanded.delete(id):expanded.add(id);last.jobs=null;refresh()},
  findCars:async()=>{const c=$('fCargo').value,y=$('fYard').value.trim();
   const q=[];if(c&&c!=='any cargo')q.push('cargo='+encodeURIComponent(c));
