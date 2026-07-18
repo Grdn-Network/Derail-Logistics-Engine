@@ -222,6 +222,7 @@ namespace DLE.Economy
         public bool? importHub;             // harbor: imports scale to exports received
         public List<string> machines;       // required equipment cargo names
         public List<string> catalysts;      // cargo or category names
+        public Dictionary<string, List<string>> routes; // extra destinations per cargo/category, ADDED to the vanilla table
         public List<BoosterOverlay> boosters; // pre-0.44 key, ignored with a log pointer
     }
 

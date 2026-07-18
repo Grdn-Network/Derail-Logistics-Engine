@@ -82,6 +82,35 @@ namespace DLE.Economy
                 result[yardId] = facility;
             }
 
+            // Second pass: vanilla authors routes on BOTH sides and they are not
+            // perfectly symmetric (OWC's methane output group lists CS, OWN's does not,
+            // while CS's input group names both wells as sources). A station's input
+            // groups name their SOURCE stations, so each one is also a route from that
+            // source here. The table is the union of both directions.
+            foreach (var sc in StationController.allStations)
+            {
+                var destYard = sc.stationInfo.YardID;
+                if (ExcludedYards.Contains(destYard)) continue;
+                var groups = sc.proceduralJobsRuleset?.inputCargoGroups;
+                if (groups == null) continue;
+                foreach (var group in groups)
+                {
+                    if (group?.cargoTypes == null || group.stations == null) continue;
+                    foreach (var srcController in group.stations)
+                    {
+                        var srcYard = srcController?.stationInfo?.YardID;
+                        if (srcYard == null || srcYard == destYard) continue;
+                        if (!result.TryGetValue(srcYard, out var srcFacility)) continue;
+                        foreach (var cargo in group.cargoTypes)
+                        {
+                            if (!srcFacility.RouteMap.TryGetValue(cargo, out var set))
+                                srcFacility.RouteMap[cargo] = set = new HashSet<string>(StringComparer.Ordinal);
+                            set.Add(destYard);
+                        }
+                    }
+                }
+            }
+
             return result;
         }
 
@@ -187,6 +216,23 @@ namespace DLE.Economy
                         facility.Catalysts = so.catalysts
                             .Where(name => CargoCategories.TryGet(name, out _) || TryCargo(name, out _))
                             .ToList();
+                    if (so.routes != null)
+                        foreach (var route in so.routes)
+                        {
+                            // Route additions accept a cargo or a category; destinations
+                            // ADD to the vanilla table, they never remove from it.
+                            var cargos = CargoCategories.TryGet(route.Key, out var members)
+                                ? (IEnumerable<CargoType>)members
+                                : TryCargo(route.Key, out var single) ? new[] { single } : Array.Empty<CargoType>();
+                            foreach (var cargo in cargos)
+                            {
+                                if (!facility.RouteMap.TryGetValue(cargo, out var set))
+                                    facility.RouteMap[cargo] = set = new HashSet<string>(StringComparer.Ordinal);
+                                foreach (var dest in route.Value ?? new List<string>())
+                                    if (!string.IsNullOrEmpty(dest) && dest != facility.YardId)
+                                        set.Add(dest);
+                            }
+                        }
                 }
 
             if (_legacyCapsSeen)
@@ -249,7 +295,44 @@ namespace DLE.Economy
                                    $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
             ApplyExclusions(facilities);
+            AuditRoutes(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
+        }
+
+        /// <summary>
+        /// The mod only works when every recipe input, machine and catalyst can actually
+        /// ARRIVE where it is needed: a producer must exist whose route table reaches the
+        /// consumer. Gaps log unconditionally, naming the fix (a "routes" entry in
+        /// economy.json), instead of silently starving a recipe forever.
+        /// </summary>
+        private static void AuditRoutes(Dictionary<string, FacilityDef> facilities)
+        {
+            bool Reachable(string destYard, CargoType cargo) =>
+                facilities.Values.Any(p =>
+                    p.YardId != destYard && p.Outputs.Contains(cargo) && p.CanSend(cargo, destYard));
+
+            bool AnyReachable(string destYard, IEnumerable<CargoType> members) =>
+                members.Any(m => Reachable(destYard, m));
+
+            foreach (var f in facilities.Values)
+            {
+                foreach (var recipe in f.Recipes)
+                {
+                    foreach (var input in recipe.Inputs)
+                    {
+                        bool ok = input.Category != null && CargoCategories.TryGet(input.Category, out var members)
+                            ? AnyReachable(f.YardId, members)
+                            : Reachable(f.YardId, input.Cargo) || f.Produces(input.Cargo);
+                        if (!ok)
+                            Main.LogAlways($"[Economy] ROUTE GAP: no producer routes {input.Display} to {f.YardId}; its recipe will starve. Add a \"routes\" entry in economy.json at the producing station.");
+                    }
+                }
+                foreach (var machine in f.Machines)
+                    if (!Reachable(f.YardId, machine))
+                        Main.LogAlways($"[Economy] ROUTE GAP: no producer routes {machine} to {f.YardId}; the site cannot get replacement machines.");
+                if (f.Catalysts.Count > 0 && !AnyReachable(f.YardId, CatalystCargos(f)))
+                    Main.LogAlways($"[Economy] ROUTE GAP: no producer routes any catalyst ({string.Join(", ", f.Catalysts)}) to {f.YardId}.");
+            }
         }
 
         private static bool HasOverlayRecipes(EconomyOverlay overlay, string yardId) =>
