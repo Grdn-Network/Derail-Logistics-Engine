@@ -2,7 +2,7 @@
   "Id": "DerailLogisticsEngine",
   "DisplayName": "Derail Logistics Engine",
   "Author": "Grdn-Network",
-  "Version": "0.44.000",
+  "Version": "0.44.001",
   "AssemblyName": "DerailLogisticsEngine.dll",
   "EntryMethod": "DLE.Main.Load",
   "HomePage": "https://github.com/Grdn-Network/Derail-Logistics-Engine",
