@@ -459,7 +459,8 @@ function renderNetDetail(nodes,edges,sel){
    `<span class='nums num'>${used} / ${cap}</span></div>`;
   const dprod=rows.filter(s=>(n.outputs||[]).includes(s.cargo));
   const dcons=rows.filter(s=>!(n.outputs||[]).includes(s.cargo));
-  h+=dprod.concat(dcons).map(s=>stockRow(s,n.totalCap||0)).join('');
+  if(dprod.length)h+=`<div class='sublab'>produced</div>`+dprod.map(s=>stockRow(s,n.totalCap||0)).join('');
+  if(dcons.length)h+=`<div class='sublab'>consumed</div>`+dcons.map(s=>stockRow(s,n.totalCap||0)).join('');
  }
  const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
  if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
