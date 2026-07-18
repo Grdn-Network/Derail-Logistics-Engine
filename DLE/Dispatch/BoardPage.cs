@@ -149,14 +149,10 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <button class='primary' data-act='spawnHaul'>Spawn haul</button>
   </div>
  </section>
- <section class='card col7'>
-  <h2>Network <span class='sub'>live chains; click a station for its recipe, click a route to fill the form</span></h2>
-  <svg id='net' viewBox='0 0 1040 760' style='width:100%;height:auto'></svg>
+ <section class='card col12'>
+  <h2>Network <span class='sub'>the whole economy lives here: click a station for its recipes, storage and stock; click a route to fill the haul form</span></h2>
+  <svg id='net' viewBox='0 0 1040 760' style='width:100%;height:auto;max-height:78vh'></svg>
   <div id='netDetail' class='netdetail'></div>
- </section>
- <section class='card col5'>
-  <h2>Economy <span class='sub'>stock against storage cap</span></h2>
-  <div class='econ' id='econGrid'></div>
  </section>
  <section class='col12'>
   <h2>Accepted hauls <span class='count' id='cAcc'></span></h2>
@@ -304,18 +300,6 @@ async function refresh(){
    :`<tr><td class='empty' colspan='7'>no runs posted</td></tr>`)}
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
- const eKey=JSON.stringify(econ);
- if(last.econ!==eKey){last.econ=eKey;
-  const capOf=e=>e.stock.reduce((t,s)=>t+(s.cap||0),0);
-  $('econGrid').innerHTML=econ.filter(e=>e.stock.length)
-   .sort((a,b)=>capOf(b)-capOf(a)||a.yardId.localeCompare(b.yardId))
-   .map(e=>{
-    const prod=e.stock.filter(s=>(e.outputs||[]).includes(s.cargo));
-    const cons=e.stock.filter(s=>!(e.outputs||[]).includes(s.cargo));
-    return `<div class='yard'><div class='yhead'>${esc(e.yardId)}</div>`+
-     (prod.length?`<div class='sublab'>producer storage</div>`+prod.map(s=>stockRow(s)).join(''):'')+
-     (cons.length?`<div class='sublab'>consumer storage</div>`+cons.map(s=>stockRow(s)).join(''):'')+
-     `</div>`}).join('')||`<div class='empty'>no stock anywhere yet</div>`}
 }
 async function fillCars(id){
  const box=$('cars_'+id);if(!box)return;
