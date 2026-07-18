@@ -222,6 +222,15 @@ namespace DLE.Dispatch
                     isLocal = IPAddress.IsLoopback(ep.Address);
             }
             catch { }
+            // A tunnel or reverse proxy connects FROM loopback but relays a remote
+            // viewer, and every such relay stamps forwarding headers on the way through.
+            // Treat those as remote: otherwise anyone holding the tunnel URL reads the
+            // whole board (jobs, economy, fleet, crew names) without the password, and
+            // only actions ever prompt. A real local caller sends none of these.
+            if (isLocal && (headers["X-Forwarded-For"] != null ||
+                            headers["Cf-Connecting-Ip"] != null ||
+                            headers["X-Real-Ip"] != null))
+                isLocal = false;
 
             return new DleRequest
             {
