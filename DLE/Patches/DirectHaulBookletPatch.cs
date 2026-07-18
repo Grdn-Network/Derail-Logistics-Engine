@@ -46,21 +46,23 @@ namespace DLE.Patches
                 : (def?.displayCars ?? new List<Car_data>());
 
             // No definition (a DVMP client: the def is host state) and no attached cars:
-            // rebuild the display from the SYNCED task data. Every warehouse task carries
-            // its cargo, and a carless task's cargoAmount carries the planned car count,
-            // so the client's paper can show "4 loads of Scrap Metal" instead of 0 of
-            // nothing. Same livery pick as the host's synthetic display cars.
+            // rebuild the display from DLE's own channel meta first (authoritative: the
+            // host sends cargo and planned count in the job sync packet), then from the
+            // dv-mp task data as a backup. Same livery pick as the host's display cars.
             if (def == null && cars.Count == 0 && job.tasksData != null)
             {
                 var syncedCargo = CargoType.None;
                 int plannedFromSync = 0;
+                if (Dispatch.DleMpChannel.ClientJobCargo.TryGetValue(job.ID, out var chanCargo))
+                    Enum.TryParse(chanCargo, out syncedCargo);
+                Dispatch.DleMpChannel.ClientJobCars.TryGetValue(job.ID, out plannedFromSync);
                 foreach (var task in job.tasksData)
                 {
                     if (syncedCargo == CargoType.None && task.cargoTypePerCar != null)
                         foreach (var c in task.cargoTypePerCar)
                             if (c != CargoType.None) { syncedCargo = c; break; }
                     int hint = (int)task.totalCargoAmount;
-                    if (hint > plannedFromSync && hint <= 99) plannedFromSync = hint;
+                    if (plannedFromSync <= 0 && hint > 0 && hint <= 99) plannedFromSync = hint;
                 }
                 if (syncedCargo != CargoType.None && plannedFromSync > 0 &&
                     DV.Globals.G.Types.CargoType_to_v2.TryGetValue(syncedCargo, out var v2) &&
