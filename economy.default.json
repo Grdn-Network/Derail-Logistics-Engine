@@ -1,5 +1,5 @@
 {
-  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. configVersion marks the config generation: a file older than the shipped default is auto-replaced (your old file becomes economy.json.bak). EVERYTHING runs on in-game time (#100). 'settings': initialStock (carloads each output starts with), directorTickSeconds (generation heartbeat, real seconds), sourceCarloadsPerGameHour (base source rate, shared round-robin across outputs), factoryBatchesPerGameHour (base recipe rate), machineLifeCarloads (production before one machine unit is consumed), catalystWearFactor (machine wear divided by this while a catalyst is active), crawlFactor (speed without required machines), seedMachines (starter machines per site on a fresh world), catalystLifeGameHours (how long one catalyst carload lasts while producing), factoryBoostFactor (batch speed with an active catalyst), cityConsumptionPerHour (how fast consumers eat stock), carloadsPerScrap (consumed carloads per scrap emitted), globalBoostMax/globalBoostFullAt (consumption-driven productivity boost cap and the 24h consumption that reaches it), harborImportFactor (imports per export received), toolImportRarity (every Nth import carload is a tool), poolTrackFillPercent, maxPoolCars. Per-station keys: totalCap (ONE shared storage pool per station, also the demand cap); recipes (inputs may name a category: Tools, Electronics, Clothing, Chemicals, Gases; outputs are concrete cargos); machines (required equipment, one of EACH needed or the site crawls); catalysts (cargo or category names: slow machine wear at sources, double batches at factories); source; consumesStock; emitsScrap; importHub; role; remoteLoad/remoteUnload; remoteSecondsPerCar. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
+  "_readme": "Copied to economy.json on first run; edit that file and use 'Reload economy.json' in the mod settings. configVersion marks the config generation: a file older than the shipped default is auto-replaced (your old file becomes economy.json.bak). EVERYTHING runs on in-game time (#100). 'settings': initialStock (carloads each output starts with), directorTickSeconds (generation heartbeat, real seconds), sourceCarloadsPerGameHour (base source rate, shared round-robin across outputs), factoryBatchesPerGameHour (base recipe rate), machineLifeCarloads (production before one machine unit is consumed), catalystWearFactor (machine wear divided by this while a catalyst is active), crawlFactor (speed without required machines), seedMachines (starter machines per site on a fresh world), catalystLifeGameHours (how long one catalyst carload lasts while producing), factoryBoostFactor (batch speed with an active catalyst), cityConsumptionPerHour (how fast consumers eat stock), carloadsPerScrap (consumed carloads per scrap emitted), globalBoostMax/globalBoostFullAt (consumption-driven productivity boost cap and the 24h consumption that reaches it), harborImportFactor (imports per export received), toolImportRarity (every Nth import carload is a tool), poolTrackFillPercent, maxPoolCars. Per-station keys: totalCap (ONE shared storage pool per station, also the demand cap); recipes (inputs may name a category: Tools, Electronics, Clothing, Chemicals, Gases; outputs are concrete cargos); machines (required equipment, one of EACH needed or the site crawls); catalysts (cargo or category names: slow machine wear at sources, double batches at factories); source; consumesStock; emitsScrap; importHub; role; remoteLoad/remoteUnload; remoteSecondsPerCar. Per-station 'routes' adds destinations on top of the vanilla route table (cargo or category name to a list of yard ids); vanilla routes can never be removed, only extended. Unknown yard or cargo names are skipped with a log warning, so this file cannot break a load.",
   "configVersion": 2,
   "settings": {
     "initialStock": 6,
@@ -118,7 +118,7 @@
       ]
     },
     "GF": {
-      "totalCap": 200,
+      "totalCap": 300,
       "catalysts": [
         "Tools"
       ],
@@ -172,7 +172,7 @@
       ]
     },
     "MF": {
-      "totalCap": 200,
+      "totalCap": 300,
       "catalysts": [
         "Tools"
       ],
@@ -200,7 +200,7 @@
       ]
     },
     "FF": {
-      "totalCap": 200,
+      "totalCap": 300,
       "catalysts": [
         "Tools"
       ],
@@ -255,7 +255,12 @@
       "source": true,
       "catalysts": [
         "Tools"
-      ]
+      ],
+      "routes": {
+        "Methane": [
+          "CS"
+        ]
+      }
     },
     "OWC": {
       "totalCap": 50,
