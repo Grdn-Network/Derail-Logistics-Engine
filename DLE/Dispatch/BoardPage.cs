@@ -30,6 +30,13 @@ border-bottom:1px solid var(--line)}
 .dot.bad{background:var(--red)}
 .chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;
 padding:2px 10px;font-size:12px;color:var(--dim);white-space:nowrap}
+.chip.warn{border-color:var(--amber);color:var(--amber);font-weight:700}
+.machrow{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:2px 0}
+.machrow .mname{font-family:inherit;min-width:110px;color:var(--text)}
+.machrow .mcount{font-weight:700}
+.machrow .mcount.low{color:var(--amber)}
+.machrow .mcount.out{color:var(--red)}
+.machrow .mwear{color:var(--dim)}
 .spacer{flex:1}
 button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line2);
 background:transparent;color:var(--text);padding:5px 12px;transition:border-color .15s,background .15s}
@@ -139,6 +146,8 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
  <span class='chip' id='chipVer'></span>
  <span class='chip' id='chipStations'></span>
  <span class='chip' id='chipJobs'></span>
+ <span class='chip' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
+ <span class='chip warn' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='spacer'></div>
  <button class='lockbtn' id='bLock' data-act='lock'
   title='When ON, crews can only accept hauls assigned to them and Company Haul papers leave the station offices. Faxed booklets still work.'>LOCK &middot; &hellip;</button>
@@ -152,6 +161,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <label>Destination<select id='hDest'></select></label>
    <label>Cars<input id='hCars' type='number' value='4' min='1' max='20' style='width:64px'></label>
    <button class='primary' data-act='spawnHaul'>Spawn haul</button>
+   <span class='meta' id='hEstimate' title='Estimated from the car types this cargo loads into; staff loading is first car instant, then per-car time'></span>
   </div>
  </section>
  <section class='card col12' data-sec='net'>
@@ -290,6 +300,10 @@ async function refresh(){
  $('chipVer').textContent='v'+(state.modVersion||'?');
  $('chipStations').textContent=state.stationCount+' stations';
  $('chipJobs').textContent=state.jobCount+' hauls';
+ $('chipBoost').textContent='boost ×'+(state.globalBoost||1);
+ const mw=state.machineWarnings||[];
+ $('chipMachines').style.display=mw.length?'':'none';
+ $('chipMachines').textContent='MACHINES LOW: '+mw.join(', ');
  keepSelect($('hOrigin'),[...new Set(options.map(o=>o.origin))]);
  originChanged();
  keepSelect($('fCargo'),['','any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
@@ -378,7 +392,19 @@ function stockRow(s,cap){
   `<div class='bar'><i style='width:${pct}%'></i></div>`+
   `<span class='nums num'>${Math.round(s.amount)}${held}${recv}</span></div>`;
 }
-function stockAmt(n,cargo){const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
+// Brand bundles, mirroring the mod's CargoCategories: a recipe input naming a
+// category is satisfied by any member brand in stock.
+const CATS={Tools:['ToolsIskar','ToolsBrohm','ToolsAAG','ToolsNovae','ToolsTraeg'],
+ Electronics:['ElectronicsIskar','ElectronicsKrugmann','ElectronicsAAG','ElectronicsNovae','ElectronicsTraeg'],
+ Clothing:['ClothingObco','ClothingNeoGamma','ClothingNovae','ClothingTraeg'],
+ Chemicals:['ChemicalsIskar','ChemicalsSperex'],
+ Gases:['CryoHydrogen','Ammonia','SodiumHydroxide']};
+const MATERIALS=new Set(['IronOre','Coal','Logs','CrudeOil','Methane','ScrapMetal','ScrapWood',
+ 'Wheat','Corn','Milk','Eggs','Cotton','Wool','SunflowerSeeds','Pigs','Cows','Poultry','Sheep','Goats',
+ 'TemperateFruits','Vegetables','Flour']);
+function stockAmt(n,cargo){
+ if(CATS[cargo])return CATS[cargo].reduce((t,c)=>t+stockAmt(n,c),0);
+ const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
 function netMissing(n){const out=[];
  for(const r of (n.recipes||[]))for(const i of (r.inputs||[]))
   if(stockAmt(n,i.cargo)<i.amount&&!out.includes(i.cargo))out.push(i.cargo);
@@ -420,13 +446,13 @@ function drawNet(){
  }
  for(const id in nodes){
   const n=nodes[id];const p=NET_POS[id];
-  const cls=id==='HB'?'hub':((n.inputs||[]).length===0&&(n.outputs||[]).length>0?'source':((n.outputs||[]).length===0?'sink':'factory'));
+  const cls=n.importHub?'hub':(n.source?'source':(n.consumer||(n.outputs||[]).length===0?'sink':'factory'));
   const st=NET_STYLE[cls];
   const miss=netMissing(n);
   const r=cls==='hub'?36:30;
   const dim=sel&&id!==sel&&!edges.some(e=>(e.src===sel&&e.dst===id)||(e.dst===sel&&e.src===id));
   h+=`<g class='nnode' data-act='netNode' data-id='${esc(id)}' transform='translate(${p[0]},${p[1]})' opacity='${dim?0.25:1}'>
-   <circle r='${r}' fill='${st.fill}' stroke='${miss.length?'#e07a6a':st.stroke}' stroke-width='${sel===id?3:1.5}'/>
+   <circle r='${r}' fill='${st.fill}' stroke='${miss.length?'#e07a6a':(n.machineWarning?'#e8b64c':st.stroke)}' stroke-width='${sel===id?3:1.5}'/>
    <text y='-1' text-anchor='middle' dominant-baseline='middle' fill='#eef2f8' font-size='14' font-weight='700'>${esc(id)}</text>
    <text y='14' text-anchor='middle' fill='#8b95a5' font-size='8.5'>${esc(NET_NAMES[id]||'')}</text>
    <title>${esc(id)}${miss.length?': waiting on '+esc(miss.join(', ')):''}</title></g>`;
@@ -439,16 +465,32 @@ function renderNetDetail(nodes,edges,sel){
  if(!sel){d.className='netdetail';d.innerHTML='';return}
  const n=nodes[sel];
  let h=`<b>${esc(sel)}</b> <span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
+ if(n.source)
+  h+=`<div class='nrecipe'>produces materials over time: <b>${esc((n.outputs||[]).join(', '))}</b></div>`;
  if((n.recipes||[]).length)
   h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+i.cargo)).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+o.cargo)).join(' + ')}</div>`).join('');
- else if((n.inputs||[]).length===0&&(n.outputs||[]).length>0)
-  h+=`<div class='nrecipe'>produces <b>${esc(n.outputs.join(', '))}</b> over time</div>`;
- else if((n.outputs||[]).length===0)
-  h+=`<div class='nrecipe'>accepts <b>${esc(n.inputs.join(', '))}</b>; storage is the demand</div>`;
+ else if(!n.source&&(n.outputs||[]).length===0)
+  h+=`<div class='nrecipe'>${n.consumer?'consumes its stock on the clock; keeping it fed boosts every industry':'accepts <b>'+esc((n.inputs||[]).join(', '))+'</b>; storage is the demand'}</div>`;
+ if(n.importHub)
+  h+=`<div class='nrecipe'>imports scale with the exports delivered here; tools ride in rarely</div>`;
  const miss=netMissing(n);
  if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.join(', '))}</div>`;
- for(const b of (n.boosters||[]))
-  h+=`<div class='nrecipe' style='color:${b.active?'var(--green)':'var(--dim)'}'>${b.active?'boosted &#215;'+b.speedup:'runs &#215;'+b.speedup+' faster with'}: ${esc([...b.cargo].join(', '))} (any one)</div>`;
+ if((n.machines||[]).length){
+  h+=`<div class='sublab'>machines &middot; needs at least one of each for production</div>`;
+  for(const m of n.machines){
+   const cls=m.have<=0?'out':m.have<2?'low':'';
+   h+=`<div class='machrow'><span class='mname'>${esc(m.cargo)}</span>`+
+    `<span class='mcount ${cls}'>&times;${m.have}${m.have<=0?' &middot; CRAWLING':m.have<2?' &middot; last one':''}</span>`+
+    `<span class='mwear'>current unit: ${m.wearRemaining} carloads of work left</span></div>`;
+  }
+ }
+ if((n.catalysts||[]).length){
+  h+=`<div class='sublab'>catalyst &middot; ${esc(n.catalysts.join(' or '))}</div>`;
+  h+=`<div class='nrecipe' style='color:${n.catalystActive?'var(--green)':'var(--dim)'}'>`+
+   (n.catalystActive?`active &middot; ${n.catalystHoursLeft}h of work left on this carload`
+    :n.catalystStocked?'in stock, starts with the next shift':'none in stock')+
+   ` <span class='meta'>(${n.source?'slows machine wear':'doubles batch speed'})</span></div>`;
+ }
  const rows=(n.stock||[]);
  if(rows.length||n.totalCap){
   const cap=Math.round(n.totalCap||0),used=Math.round(n.totalStock||0);
@@ -603,9 +645,29 @@ function originChanged(){const o=$('hOrigin').value;
  keepSelect($('hCargo'),options.filter(x=>x.origin===o).map(x=>x.cargo));cargoChanged()}
 function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
  const opt=options.find(x=>x.origin===o&&x.cargo===c);
- keepSelect($('hDest'),opt?opt.consumers:[])}
+ keepSelect($('hDest'),opt?opt.consumers:[]);updateEstimate()}
+// Live haul estimate: weight, length, pay and staff loading time for the form
+// as it stands. Debounced; a stale response never overwrites a newer one.
+let estTimer=null,estSeq=0,lastEstQ='';
+function updateEstimate(){
+ clearTimeout(estTimer);
+ estTimer=setTimeout(async()=>{
+  const o=$('hOrigin').value,c=$('hCargo').value,d=$('hDest').value,n=parseInt($('hCars').value);
+  const box=$('hEstimate');
+  if(!o||!c||!d||!(n>0)){box.textContent='';lastEstQ='';return}
+  const q=`${o}|${c}|${d}|${n}`;
+  if(q===lastEstQ)return;
+  lastEstQ=q;
+  const seq=++estSeq;
+  try{const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${n}`);
+   if(seq!==estSeq)return;
+   box.innerHTML=`&#8776; ${r.tonnes} t &middot; ${r.lengthMeters} m &middot; <b style='color:var(--green)'>${money(r.pay)}</b> &middot; staff load ${fmtSecs(r.remoteLoadSeconds)}`}
+  catch(e){if(seq===estSeq)$('hEstimate').textContent=''}
+ },250)}
 $('hOrigin').addEventListener('change',originChanged);
 $('hCargo').addEventListener('change',cargoChanged);
+$('hDest').addEventListener('change',updateEstimate);
+$('hCars').addEventListener('input',updateEstimate);
 $('dlType').onchange=()=>renderLog(lastHist);
 $('dlYard').oninput=()=>renderLog(lastHist);
 // Blanking the cargo field clears the finder back to its fresh-page state; a separate

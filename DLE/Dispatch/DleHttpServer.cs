@@ -331,6 +331,15 @@ namespace DLE.Dispatch
                     Json(ctx, 200, payload);
                     return;
                 }
+                if (method == "GET" && path == "/api/v1/estimate")
+                {
+                    var payload = EstimatePayload(
+                        ctx.Request.QueryString["origin"], ctx.Request.QueryString["destination"],
+                        ctx.Request.QueryString["cargo"], ctx.Request.QueryString["cars"], out var estError);
+                    if (payload == null) { Json(ctx, 400, new { error = estError }); return; }
+                    Json(ctx, 200, payload);
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/history")
                 {
                     int limit = 200;
@@ -655,6 +664,36 @@ namespace DLE.Dispatch
             };
         }
 
+        /// <summary>
+        /// Create-a-haul estimates (#100): weight, length, pay and the remote staff
+        /// loading time for a haul of this shape, before anyone commits to it.
+        /// </summary>
+        private static object EstimatePayload(string origin, string destination, string cargoName, string carsRaw, out string error)
+        {
+            error = null;
+            var producer = StationController.GetStationByYardID(origin ?? "");
+            var consumer = StationController.GetStationByYardID(destination ?? "");
+            if (producer == null || consumer == null) { error = "unknown origin or destination"; return null; }
+            if (!Enum.TryParse<DV.ThingTypes.CargoType>(cargoName ?? "", out var cargo))
+            { error = $"unknown cargo '{cargoName}'"; return null; }
+            if (!int.TryParse(carsRaw, out var cars) || cars < 1 || cars > 40)
+            { error = "cars must be 1-40"; return null; }
+
+            if (!DirectHaulGenerator.EstimateHaul(producer, consumer, cargo, cars, out var tonnes, out var lengthM, out var pay))
+            { error = $"no loadable car type for {cargo}"; return null; }
+
+            float perCar = EconomyState.Instance.Facilities.TryGetValue(origin, out var f)
+                ? f.RemoteSecondsPerCar : 45f;
+            return new
+            {
+                tonnes = (int)Math.Round(tonnes),
+                lengthMeters = (int)Math.Round(lengthM),
+                pay = (int)Math.Round(pay),
+                // First car is instant, the rest queue on station staff.
+                remoteLoadSeconds = (int)Math.Round(Math.Max(0, cars - 1) * perCar),
+            };
+        }
+
         private static object OptionsPayload() =>
             EconomyDirector.GetOptions().Select(o => new
             {
@@ -671,6 +710,9 @@ namespace DLE.Dispatch
             lockEnabled = AssignmentStore.Instance.LockEnabled,
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
+            globalBoost = Math.Round(EconomyState.Instance.GlobalBoost, 2),
+            machineWarnings = EconomyState.Instance.Facilities.Keys
+                .Where(y => EconomyState.Instance.OnLastMachine(y)).ToList(),
         };
 
         private static object EconomyPayload()
@@ -680,18 +722,27 @@ namespace DLE.Dispatch
             {
                 yardId = f.YardId,
                 source = f.IsSource,
+                consumer = f.ConsumesStock,
+                importHub = f.IsImportHub,
                 // Storage is one shared pool per station (#92): the board scales every
                 // stock bar against the same total.
                 totalCap = f.TotalCap,
                 totalStock = econ.TotalStock(f.YardId),
                 outputs = f.Outputs.Select(c => c.ToString()),
                 inputs = f.Inputs.Select(c => c.ToString()),
-                boosters = f.Boosters.Select(b => new
+                // MACHINES and CATALYST (#100): required equipment with wear, and the
+                // consumable that slows wear (sources) or doubles batches (factories).
+                machines = econ.MachineStatus(f.YardId).Select(m => new
                 {
-                    cargo = b.Cargo.Select(c => c.ToString()),
-                    speedup = b.Speedup,
-                    active = b.Cargo.Any(c => econ.GetStock(f.YardId, c) >= 1f),
+                    cargo = m.Cargo,
+                    have = m.Have,
+                    wearRemaining = (int)Math.Ceiling(m.WearRemaining),
                 }),
+                machineWarning = econ.OnLastMachine(f.YardId),
+                catalysts = f.Catalysts,
+                catalystActive = econ.CatalystStatus(f.YardId).active,
+                catalystHoursLeft = Math.Round(econ.CatalystStatus(f.YardId).hoursLeft, 1),
+                catalystStocked = econ.CatalystStatus(f.YardId).anyStock,
                 stock = f.Outputs.Concat(f.Inputs).Distinct()
                     .Select(c => new
                     {
@@ -706,7 +757,7 @@ namespace DLE.Dispatch
                     .Where(s => s.amount > 0f || s.required),
                 recipes = f.Recipes.Select(r => new
                 {
-                    inputs = r.Inputs.Select(i => new { cargo = i.Cargo.ToString(), amount = i.Amount }),
+                    inputs = r.Inputs.Select(i => new { cargo = i.Display, amount = i.Amount }),
                     outputs = r.Outputs.Select(o => new { cargo = o.Cargo.ToString(), amount = o.Amount }),
                 }),
             }).ToList();

@@ -54,6 +54,50 @@ namespace DLE.Jobs
             return data;
         }
 
+        /// <summary>
+        /// Board estimates (#100): what a haul of this shape would weigh, measure and
+        /// pay, using the same livery data and payment call the real generator uses.
+        /// Returns false when the cargo has no loadable car type.
+        /// </summary>
+        public static bool EstimateHaul(
+            StationController producer,
+            StationController consumer,
+            CargoType cargo,
+            int carCount,
+            out float tonnes,
+            out float lengthMeters,
+            out float pay)
+        {
+            tonnes = 0f; lengthMeters = 0f; pay = 0f;
+            if (producer == null || consumer == null || carCount <= 0) return false;
+            if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
+                !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) ||
+                carTypes.Count == 0)
+                return false;
+            var usableTypes = carTypes.Where(t => t.liveries != null && t.liveries.Count > 0).ToList();
+            if (usableTypes.Count == 0) return false;
+
+            var liveryCounts = new Dictionary<TrainCarLivery, int>();
+            float massKg = 0f;
+            for (int i = 0; i < carCount; i++)
+            {
+                var shownType = usableTypes[i % usableTypes.Count];
+                var livery = shownType.liveries[i % shownType.liveries.Count];
+                var (length, tare, capacity) = LiveryDisplayData(livery);
+                lengthMeters += length;
+                massKg += tare + capacity * v2.massPerUnit;
+                liveryCounts.TryGetValue(livery, out var n);
+                liveryCounts[livery] = n + 1;
+            }
+            tonnes = massKg / 1000f;
+
+            float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
+            pay = JobPaymentCalculator.CalculateJobPayment(
+                JobType.Transport, distance,
+                new PaymentCalculationData(liveryCounts, new Dictionary<CargoType, int> { { cargo, carCount } }));
+            return true;
+        }
+
         public static string TryCreateCarless(
             StationController producer,
             StationController consumer,

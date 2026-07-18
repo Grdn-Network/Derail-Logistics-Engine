@@ -1,23 +1,30 @@
 namespace DLE.Economy
 {
     /// <summary>
-    /// Seam for the 1.0 living economy (issue #22): how a facility turns delivered inputs
-    /// into outputs. Instant conversion is the 0.x behavior; a ticked strategy (recipes
-    /// take an in-game day) replaces it at 1.0 without touching the delivery path.
+    /// Seam for how a facility turns delivered inputs into outputs. Since 0.44 the
+    /// economy runs on the in-game clock (issue #100): deliveries just stock the
+    /// warehouse and the hourly batch loop does the converting, so the default
+    /// strategy is a no-op on delivery. InstantConversion remains for debugging.
     /// </summary>
     public interface IConversionStrategy
     {
         void OnDelivered(EconomyState economy, string yardId);
     }
 
-    /// <summary>0.x behavior: convert everything possible the moment inputs arrive.</summary>
+    /// <summary>0.44 behavior: the game-clock batch loop converts; delivery only stocks.</summary>
+    public sealed class PacedConversion : IConversionStrategy
+    {
+        public void OnDelivered(EconomyState economy, string yardId) { }
+    }
+
+    /// <summary>Pre-0.44 behavior: convert everything possible the moment inputs arrive.</summary>
     public sealed class InstantConversion : IConversionStrategy
     {
-        public void OnDelivered(EconomyState economy, string yardId) => economy.Convert(yardId);
+        public void OnDelivered(EconomyState economy, string yardId) => economy.RunAllBatchesNow(yardId);
     }
 
     public static class Conversion
     {
-        public static IConversionStrategy Current { get; set; } = new InstantConversion();
+        public static IConversionStrategy Current { get; set; } = new PacedConversion();
     }
 }
