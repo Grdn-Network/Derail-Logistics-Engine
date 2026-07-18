@@ -81,6 +81,11 @@ namespace DLE.Dispatch
                     // valid candidate (suitable, empty, jobless, unreserved, in the yard).
                     if (pickedCarIds.Count != wanted)
                         return Result.Fail($"job wants {wanted} car(s); {pickedCarIds.Count} picked");
+                    // Reject a repeated car id: a duplicate passes the count check but would
+                    // attach the same car twice, doubling the stock debit and malforming the
+                    // consist.
+                    if (pickedCarIds.Distinct(StringComparer.Ordinal).Count() != pickedCarIds.Count)
+                        return Result.Fail("the same car was picked more than once");
                     var eligible = AllLoadCandidates(def, sc);
                     if (eligible == null)
                         return Result.Fail($"no car type carries {def.transportedCargo}");
@@ -320,7 +325,11 @@ namespace DLE.Dispatch
                     }
                     c.LoadCargo(c.capacity, def.transportedCargo);
                     loaded++;
-                    def.loadedCarloads = Math.Max(def.loadedCarloads, loaded);
+                    // Tally the true physical count of loaded cars in the consist, not this
+                    // run's local counter: a split load (a second run finishing cars a first
+                    // run left) would otherwise high-water at the smaller run's count and
+                    // under-credit the payout and the unload room math.
+                    def.loadedCarloads = (def.carsToTransport ?? cars).Count(x => x != null && x.LoadedCargoAmount > 0f);
                 }
                 catch (Exception ex)
                 {

@@ -161,7 +161,7 @@ namespace DLE.Jobs
                 .GetWarehouseMachinesThatSupportCargoTypes(cargoList).FirstOrDefault();
             if (unloadMachine == null)
             {
-                Main.Log($"[DirectHaul] rebuild {jobId}: no unload machine for {cargo}; skipped.");
+                Main.LogAlways($"[DirectHaul] rebuild {jobId}: {consumer?.stationInfo?.YardID} no longer unloads {cargo} (recipe/overlay change?); the saved haul is dropped.");
                 return false;
             }
 

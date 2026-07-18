@@ -62,14 +62,10 @@ namespace DLE.Dispatch
             if (job.State != JobState.Available)
                 return Result.Fail($"job is {job.State}, not available");
 
-            // Accept-time supply check (#67): open paper holds soft; taking hardens the
-            // hold. Paper whose supply was promised away since printing is stale and
-            // expires here instead of lying to the crew.
-            if (!Economy.EconomyState.Instance.HardenReservation(jobId))
-            {
-                try { job.ExpireJob(); } catch (Exception ex) { Main.Log($"[Dispatch] stale-paper expire failed: {ex.Message}"); }
-                return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
-            }
+            // Rejection checks come BEFORE hardening the supply hold. Hardening is a state
+            // change (soft -> hard); doing it first meant a take refused below (wrong crew,
+            // missing name) left a permanent hard hold on a job nobody took, shrinking the
+            // pile for every other booklet until the next world load.
 
             // Unpaid moves are dispatch-run: taking one names the crew, which assigns it.
             if (def.unpaidMove && AssignmentStore.Instance.Get(jobId) == null && string.IsNullOrEmpty(player))
@@ -87,11 +83,20 @@ namespace DLE.Dispatch
                 if (!string.Equals(assignment.Player, player, StringComparison.OrdinalIgnoreCase))
                     return Result.Fail($"assignment lock is ON and this haul is assigned to {assignment.Player}");
             }
-            else if (!string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
+
+            // Accept-time supply check (#67): open paper holds soft; taking hardens the
+            // hold, now that the take is actually going ahead. Paper whose supply was
+            // promised away since printing is stale and expires here instead of lying.
+            if (!Economy.EconomyState.Instance.HardenReservation(jobId))
             {
-                // Keep the board honest about who is running the haul.
-                AssignmentStore.Instance.Assign(jobId, player, "board-take");
+                try { job.ExpireJob(); }
+                catch (Exception ex) { Main.LogAlways($"[Dispatch] {jobId} stale-paper expire failed: {ex.GetType().Name}: {ex.Message}"); }
+                return Result.Fail($"{jobId} is stale: its supply went to other hauls; the booklet expired");
             }
+
+            // Keep the board honest about who is running the haul (unlocked board-take).
+            if (!AssignmentStore.Instance.LockEnabled && !string.IsNullOrEmpty(player) && AssignmentStore.Instance.Get(jobId) == null)
+                AssignmentStore.Instance.Assign(jobId, player, "board-take");
 
             SingletonBehaviour<JobsManager>.Instance.TakeJob(job, false);
             Main.LogAlways($"[Dispatch] {jobId} taken via board{(string.IsNullOrEmpty(player) ? "" : $" for {player}")}.");

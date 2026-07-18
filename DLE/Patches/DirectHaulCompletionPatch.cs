@@ -37,6 +37,14 @@ namespace DLE.Patches
             }
             int accepted = EconomyState.Instance.OnDelivered(dest, def.transportedCargo, deliverable);
 
+            // The board/auto-close path waits for room so nothing is destroyed, but a crew
+            // can still force a turn-in through the vanilla office validator after hand or
+            // terminal unloading at a full destination. When that happens the surplus is
+            // gone; surface it so a "where did my cargo go" report is diagnosable (a room
+            // gate on the vanilla turn-in path is the real 0.5 fix).
+            if (accepted < deliverable)
+                Main.LogAlways($"[Economy] {lastJobInChain.ID}: {dest} had room for {accepted} of {deliverable} {def.transportedCargo}; {deliverable - accepted} carload(s) were lost to a full-station turn-in. Prefer the board/auto-close, which waits for room.");
+
             // Faux booklet paid nothing; the wallet is paid here, and only for the cargo the
             // destination actually accepted (nothing when it is full). This is the single
             // gated payout: loading and storage-unloads never reach it.

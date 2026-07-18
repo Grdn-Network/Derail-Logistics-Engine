@@ -1,4 +1,5 @@
 using DV.ThingTypes;
+using Newtonsoft.Json;
 using System.Collections.Generic;
 
 namespace DLE.Economy
@@ -89,6 +90,11 @@ namespace DLE.Economy
         // Default: the branded empty-container returns; moving a station's own
         // containers around is coordination work (logistics runs now, container
         // contracts at 1.0), not production cargo.
+        // Replace, not Auto: Json.NET's default would APPEND the file's list to these
+        // built-ins, so a user who deleted an entry could never un-exclude it. Replace
+        // makes the file authoritative when the key is present, and keeps these defaults
+        // when it is absent.
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<string> excludedCargos = new List<string>
         {
             "EmptySunOmni", "EmptyIskar", "EmptyObco", "EmptyGoorsk",

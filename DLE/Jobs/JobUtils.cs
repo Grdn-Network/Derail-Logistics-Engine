@@ -29,11 +29,30 @@ namespace DLE.Jobs
         {
             var key = $"{originYardId}-{destYardId}";
             _routeCounters.TryGetValue(key, out var count);
-            count = (count % 99) + 1;          // 1-99, then back to 1
-            _routeCounters[key] = count;
 
+            // Skip any slot a live job still holds. The counter wraps at 99, so on a
+            // long-lived route the naive "+1" could re-mint an ID an in-progress haul owns,
+            // overwriting its jobDefinitions entry and its supply reservation and cross-
+            // wiring two jobs. Walk forward to the first free slot instead.
+            for (int attempt = 0; attempt < 99; attempt++)
+            {
+                count = (count % 99) + 1;
+                var candidate = $"{originYardId}-{destYardId}-{count:D2}";
+                if (!StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(candidate))
+                {
+                    _routeCounters[key] = count;
+                    ManagedJobIds.Add(candidate);
+                    return candidate;
+                }
+            }
+
+            // All 99 slots on this route are live at once: effectively impossible in play,
+            // but rather than overwrite silently, advance one and say so.
+            count = (count % 99) + 1;
+            _routeCounters[key] = count;
             var id = $"{originYardId}-{destYardId}-{count:D2}";
             ManagedJobIds.Add(id);
+            Main.LogAlways($"[JobUtils] route {key} has 99 live jobs; reusing {id}. Demand at {destYardId} is not being consumed.");
             return id;
         }
 

@@ -99,13 +99,21 @@ namespace DLE.Dispatch
             {
                 IAsyncResult async;
                 try { async = _listener.BeginGetContext(null, null); }
-                catch { yield break; }
+                catch (Exception ex)
+                {
+                    // The listener died unexpectedly (not an orderly world reload, which
+                    // disposes it and sets _listener null): the whole board and API go dark,
+                    // so say why instead of exiting silently.
+                    if (_listener != null)
+                        Main.LogAlways($"[Http] listen loop stopped ({ex.GetType().Name}: {ex.Message}); the board and API are offline until reload.");
+                    yield break;
+                }
 
                 while (!async.IsCompleted) yield return null;
 
                 HttpListenerContext ctx = null;
                 try { ctx = _listener.EndGetContext(async); }
-                catch (Exception ex) { Main.Log($"[Http] context error: {ex.Message}"); }
+                catch (Exception ex) { Main.LogAlways($"[Http] request dropped at accept ({ex.GetType().Name}: {ex.Message})."); }
 
                 if (ctx != null) Handle(ctx);
             }
@@ -314,8 +322,10 @@ namespace DLE.Dispatch
                 if (method == "PUT" && path == "/api/v1/lock")
                 {
                     var req = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
+                    if (req?.enabled == null)
+                    { Json(ctx, 400, new { error = "enabled (true or false) required" }); return; }
                     bool wasLocked = AssignmentStore.Instance.LockEnabled;
-                    AssignmentStore.Instance.LockEnabled = req?.enabled ?? false;
+                    AssignmentStore.Instance.LockEnabled = req.enabled.Value;
                     Main.Log($"[Dispatch] lock {(AssignmentStore.Instance.LockEnabled ? "ENABLED" : "disabled")} via API.");
 
                     // Lock ON clears the public job board: the office papers are swept, so
@@ -341,7 +351,7 @@ namespace DLE.Dispatch
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class TakeRequest { public string player = null; }
-        private class LockRequest { public bool enabled = false; }
+        private class LockRequest { public bool? enabled = null; }
         private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }

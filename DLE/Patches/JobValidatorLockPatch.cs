@@ -21,15 +21,10 @@ namespace DLE.Patches
             if (job == null) return true;
             if (!JobUtils.ManagedJobIds.Contains(job.ID)) return true;
 
-            // Accept-time supply check (#67): paper whose supply went to other hauls
-            // since printing is stale; it expires in the crew's hand instead of taking.
-            if (job.State == DV.ThingTypes.JobState.Available &&
-                !Economy.EconomyState.Instance.HardenReservation(job.ID))
-            {
-                Main.LogAlways($"[Dispatch] {job.ID} rejected at validator: stale paper, supply is gone; expiring it.");
-                try { job.ExpireJob(); } catch { }
-                return false;
-            }
+            // Rejection checks come BEFORE hardening. Hardening the hold and THEN refusing
+            // the take (unpaid, or locked-unassigned) left a permanent hard hold on a job
+            // that stayed Available, shrinking the pile for every other booklet until the
+            // next world load and falsely expiring their paper as stale.
 
             // Unpaid moves are dispatch-run whatever the lock says: no assignment, no take.
             bool unpaidMove = Jobs.StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var mdef) && mdef.unpaidMove;
@@ -39,12 +34,24 @@ namespace DLE.Patches
                 return false;
             }
 
-            if (!AssignmentStore.Instance.LockEnabled) return true;
-            if (AssignmentStore.Instance.Get(job.ID) == null)
+            if (AssignmentStore.Instance.LockEnabled && AssignmentStore.Instance.Get(job.ID) == null)
             {
                 Main.Log($"[Dispatch] {job.ID} rejected at validator: lock is on and the job is unassigned.");
                 return false; // swallow; the overview stays printed, nothing happens
             }
+
+            // Accept-time supply check (#67): paper whose supply went to other hauls since
+            // printing is stale; it expires in the crew's hand instead of taking. Done last,
+            // so a hold only hardens when the take will actually proceed.
+            if (job.State == DV.ThingTypes.JobState.Available &&
+                !Economy.EconomyState.Instance.HardenReservation(job.ID))
+            {
+                Main.LogAlways($"[Dispatch] {job.ID} rejected at validator: stale paper, supply is gone; expiring it.");
+                try { job.ExpireJob(); }
+                catch (System.Exception ex) { Main.LogAlways($"[Dispatch] {job.ID} stale-paper expire threw: {ex.GetType().Name}: {ex.Message}"); }
+                return false;
+            }
+
             return true;
         }
     }

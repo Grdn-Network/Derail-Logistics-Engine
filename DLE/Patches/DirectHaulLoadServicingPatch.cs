@@ -66,13 +66,18 @@ namespace DLE.Patches
             if (__result == null) return;
             var jobId = task?.Job?.ID;
             if (jobId == null) return;
+            // Guard the whole body: this postfix fires for EVERY warehouse load in the
+            // game, so a vanilla (non-DLE) job leaves def null and the tally lines below
+            // would throw an NRE out of the postfix and stall the load. Braces matter here.
             if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+            {
                 def.loadedCarloads = Math.Min(def.carsToTransport?.Count ?? int.MaxValue, def.loadedCarloads + 1);
                 // One event when the terminal finishes the last car; staff loads record
                 // their own event in the servicing wrap-up.
                 if (def.loadedCarloads == (def.carsToTransport?.Count ?? -1))
                     Economy.EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId,
                         def.transportedCargo.ToString(), def.loadedCarloads, def.LiveJob?.ID);
+            }
         }
     }
 

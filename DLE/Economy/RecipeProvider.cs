@@ -76,9 +76,8 @@ namespace DLE.Economy
 
         public static void ApplyOverlay(Dictionary<string, FacilityDef> facilities, string modPath)
         {
-            Tuning = new TuningDef();
             var path = Path.Combine(modPath, "economy.json");
-            if (!File.Exists(path)) { ApplyExclusions(facilities); return; }
+            if (!File.Exists(path)) { Tuning = new TuningDef(); ApplyExclusions(facilities); return; }
 
             EconomyOverlay overlay;
             try
@@ -87,12 +86,15 @@ namespace DLE.Economy
             }
             catch (Exception ex)
             {
-                Main.LogAlways($"[Economy] economy.json failed to parse, ignoring it: {ex.Message}");
+                // Keep the last-good tuning: resetting it before the parse meant a single
+                // stray comma reverted maxPoolCars, tick rates and the rest to defaults on
+                // reload while the log claimed the file was merely "ignored".
+                Main.LogAlways($"[Economy] economy.json failed to parse, keeping the previous settings: {ex.Message}");
                 ApplyExclusions(facilities);
                 return;
             }
-            if (overlay == null) { ApplyExclusions(facilities); return; }
-            if (overlay.settings != null) Tuning = overlay.settings;
+            if (overlay == null) { Tuning = new TuningDef(); ApplyExclusions(facilities); return; }
+            Tuning = overlay.settings ?? new TuningDef();
             if (overlay.stations == null && overlay.defaults == null) { ApplyExclusions(facilities); return; }
 
             // Global defaults first: the baseline for every facility.
@@ -105,6 +107,9 @@ namespace DLE.Economy
                 {
                     if (!facilities.TryGetValue(kv.Key, out var facility))
                     {
+                        // No auto-derived facility for this yard id: usually a typo. Say so,
+                        // because the intended real station silently keeps its defaults.
+                        Main.LogAlways($"[Economy] economy.json station '{kv.Key}' has no auto-derived facility (typo'd yard id?); its overrides apply to an inert entry.");
                         facility = new FacilityDef { YardId = kv.Key };
                         ApplyDefaults(facility, overlay.defaults);
                         facilities[kv.Key] = facility;
@@ -192,7 +197,7 @@ namespace DLE.Economy
                 case "unload": return ServiceRole.Unload;
                 case "both": return ServiceRole.Both;
                 default:
-                    Main.Log($"[Economy] unknown role '{s}' in economy.json, using {fallback}.");
+                    Main.LogAlways($"[Economy] unknown role '{s}' in economy.json, using {fallback}. Fix the typo or the override is silently ignored.");
                     return fallback;
             }
         }
@@ -223,7 +228,7 @@ namespace DLE.Economy
         private static bool TryCargo(string name, out CargoType cargo)
         {
             if (Enum.TryParse(name, out cargo)) return true;
-            Main.Log($"[Economy] unknown cargo '{name}' in economy.json, skipped.");
+            Main.LogAlways($"[Economy] unknown cargo '{name}' in economy.json, skipped. A typo here silently drops the recipe/booster entry.");
             return false;
         }
     }
