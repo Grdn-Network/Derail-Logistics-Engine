@@ -256,7 +256,11 @@ namespace DLE.Jobs
                 reason = "booklet build failed; see game log";
                 return null;
             }
-            from.ProceduralJobsController.AddJobChainController(jcc);
+            // No AddJobChainController here: FinalizeSetupAndGenerateFirstJob fires
+            // OnJobGenerated, which registers the chain with the station derived from the
+            // job definition. Registering again would put the same chain in the station
+            // list twice, and this chain serialises normally, so the save would carry two
+            // copies and reload would rebuild two chains over the same cars.
 
             boundCars = cut.Count;
             var jobId = jcc.currentJobInChain?.ID;
@@ -398,7 +402,10 @@ namespace DLE.Jobs
                 return false;
             }
 
-            producer.ProceduralJobsController.AddJobChainController(jcc);
+            // No AddJobChainController here: OnJobGenerated already registered this chain
+            // during FinalizeSetupAndGenerateFirstJob. A second registration doubled every
+            // DLE chain in the station list, which is what made the save scrubber report
+            // twice the live haul count.
             return true;
         }
     }
