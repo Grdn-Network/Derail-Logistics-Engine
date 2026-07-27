@@ -152,10 +152,14 @@ namespace DLE.Economy
                 // accepted cargos put it at its cap before the first train ran. The
                 // import hub seeds only its import stock (exports arrive by rail);
                 // sources seed outputs only; factories also get input working buffers.
+                // One seed per FAMILY, in the domestic brand: seeding every brand of a
+                // family would multiply the starting pile by the number of brands and
+                // fragment it before the first train ran. Foreign brands arrive by ship.
                 IEnumerable<CargoType> cargos;
                 if (f.ConsumesStock) continue;
                 else if (f.IsSource || f.IsImportHub) cargos = f.Outputs;
-                else cargos = f.Outputs.Concat(f.Inputs).Distinct();
+                else cargos = f.Outputs.Concat(f.Inputs);
+                cargos = cargos.Select(CargoCategories.Canon).Distinct();
                 foreach (var cargo in cargos)
                 {
                     if (f.Machines.Contains(cargo)) continue; // machines seed separately below
@@ -250,7 +254,10 @@ namespace DLE.Economy
             while (ops.ProdCredit >= 1f)
             {
                 if (GetRoom(f.YardId, default) < 1f) break; // shared pool is full
-                var cargo = f.Outputs[ops.Rotation % f.Outputs.Count];
+                // Domestic production is always the domestic brand: imports are the only
+                // way a foreign brand enters the world, which keeps piles brand-dominant
+                // and makes an imported brand mean something.
+                var cargo = CargoCategories.Canon(f.Outputs[ops.Rotation % f.Outputs.Count]);
                 ops.Rotation++;
                 Credit(f.YardId, cargo, 1f);
                 EconomyHistory.Record("production", f.YardId, cargo.ToString(), 1);
@@ -516,15 +523,41 @@ namespace DLE.Economy
         }
 
         // Stock access ----------------------------------------------------------
-        // Every entry point canonicalises (#100 one-cargo ruling): tools, electronics
-        // and chemicals of any brand live in ONE pile per station.
+        // Brands are kept apart in the keys and summed on read (owner ruling 2026-07-27):
+        // asking for tools means asking for tools of any brand, but the pile remembers
+        // which brands are actually standing there, which is what the returning empty
+        // container needs (#116). Writes name a concrete brand; reads span the family.
+
+        private static float SumFamily(Dictionary<CargoType, float> pile, CargoType cargo)
+        {
+            if (pile == null) return 0f;
+            float total = 0f;
+            foreach (var brand in CargoCategories.Family(cargo))
+                if (pile.TryGetValue(brand, out var v)) total += v;
+            return total;
+        }
 
         public float GetStock(string yardId, CargoType cargo) =>
-            _stock.TryGetValue(yardId, out var m) && m.TryGetValue(CargoCategories.Canon(cargo), out var v) ? v : 0f;
+            _stock.TryGetValue(yardId, out var m) ? SumFamily(m, cargo) : 0f;
 
         public float GetImported(string yardId, CargoType cargo) =>
-            _imported.TryGetValue(yardId, out var m) && m.TryGetValue(CargoCategories.Canon(cargo), out var v)
-                ? Math.Min(v, GetStock(yardId, cargo)) : 0f;
+            _imported.TryGetValue(yardId, out var m)
+                ? Math.Min(SumFamily(m, cargo), GetStock(yardId, cargo)) : 0f;
+
+        /// <summary>
+        /// The brand of this family a producer should actually ship: the biggest pile it
+        /// holds. Generation resolves its canonical output through here so a haul carries
+        /// a real brand off the shelf rather than a nominal one the station never had.
+        /// </summary>
+        public CargoType BiggestBrandInStock(string yardId, CargoType cargo)
+        {
+            if (!_stock.TryGetValue(yardId, out var m)) return cargo;
+            CargoType best = cargo;
+            float bestAmount = -1f;
+            foreach (var brand in CargoCategories.Family(cargo))
+                if (m.TryGetValue(brand, out var v) && v > bestAmount) { best = brand; bestAmount = v; }
+            return bestAmount > 0f ? best : cargo;
+        }
 
         public float GetProduced(string yardId, CargoType cargo) =>
             GetStock(yardId, cargo) - GetImported(yardId, cargo);
@@ -532,11 +565,13 @@ namespace DLE.Economy
         private void MarkImported(string yardId, CargoType cargo, float amount)
         {
             if (amount <= 0f) return;
-            cargo = CargoCategories.Canon(cargo);
             if (!_imported.TryGetValue(yardId, out var m))
                 _imported[yardId] = m = new Dictionary<CargoType, float>();
             m.TryGetValue(cargo, out var cur);
-            m[cargo] = Math.Min(GetStock(yardId, cargo), cur + amount);
+            // Clamp against this BRAND's pile, not the family total, or one brand's
+            // imported figure could exceed the cars actually standing there.
+            float brandStock = _stock.TryGetValue(yardId, out var s) && s.TryGetValue(cargo, out var bv) ? bv : 0f;
+            m[cargo] = Math.Min(brandStock, cur + amount);
         }
 
         /// <summary>Consume drawing the imported portion down first: conversion inputs,
@@ -545,10 +580,20 @@ namespace DLE.Economy
         private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount)
         {
             if (amount <= 0f) return;
-            cargo = CargoCategories.Canon(cargo);
-            float imp = GetImported(yardId, cargo);
-            if (imp > 0f && _imported.TryGetValue(yardId, out var m))
-                m[cargo] = Math.Max(0f, imp - amount);
+            // Draw the imported marker down across the family in the same order the
+            // stock itself is drawn, so the two ledgers cannot drift apart.
+            if (_imported.TryGetValue(yardId, out var m))
+            {
+                float left = amount;
+                foreach (var brand in BrandsByPile(yardId, cargo))
+                {
+                    if (left <= 0f) break;
+                    if (!m.TryGetValue(brand, out var imp) || imp <= 0f) continue;
+                    float take = Math.Min(imp, left);
+                    m[brand] = imp - take;
+                    left -= take;
+                }
+            }
             Consume(yardId, cargo, amount);
         }
 
@@ -558,9 +603,27 @@ namespace DLE.Economy
             if (amount <= 0f) return;
             Consume(yardId, cargo, amount);
             // Re-clamp: produced may not cover it all (defensive), never let imported
-            // exceed the remaining pile.
-            if (_imported.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var imp))
-                m[cargo] = Math.Min(imp, GetStock(yardId, cargo));
+            // exceed the remaining pile of its own brand.
+            if (_imported.TryGetValue(yardId, out var m) && _stock.TryGetValue(yardId, out var s))
+                foreach (var brand in CargoCategories.Family(cargo))
+                    if (m.TryGetValue(brand, out var imp))
+                    {
+                        s.TryGetValue(brand, out var have);
+                        m[brand] = Math.Min(imp, have);
+                    }
+        }
+
+        /// <summary>
+        /// The family's brands at a station, biggest pile first. Consumption follows this
+        /// order so a station burns down its dominant brand before fragmenting into the
+        /// leftovers, which keeps the piles that hauls draw from as large as possible.
+        /// </summary>
+        private IEnumerable<CargoType> BrandsByPile(string yardId, CargoType cargo)
+        {
+            var family = CargoCategories.Family(cargo);
+            if (family.Length == 1) return family;
+            _stock.TryGetValue(yardId, out var m);
+            return family.OrderByDescending(b => m != null && m.TryGetValue(b, out var v) ? v : 0f);
         }
 
         // Supply reservations (#67, two tiers). Open (un-taken) paper holds SOFT: it
@@ -587,10 +650,12 @@ namespace DLE.Economy
         private float SumReservations(string yardId, CargoType cargo, bool includeSoft, bool? paid = null)
         {
             float total = 0f;
-            var name = CargoCategories.Canon(cargo).ToString();
+            // Family-wide: a hold on one brand of tools is a hold on the station's tools,
+            // since any brand can satisfy the haul that placed it.
+            var family = new HashSet<string>(CargoCategories.Family(cargo).Select(c => c.ToString()), StringComparer.Ordinal);
             foreach (var r in _reservations.Values)
             {
-                if (r.YardId != yardId || r.Cargo != name) continue;
+                if (r.YardId != yardId || !family.Contains(r.Cargo)) continue;
                 if (r.Soft && !includeSoft) continue;
                 if (paid.HasValue && r.Paid != paid.Value) continue;
                 total += r.Amount;
@@ -666,7 +731,9 @@ namespace DLE.Economy
             _reservations[jobId] = new Reservation
             {
                 YardId = yardId,
-                Cargo = CargoCategories.Canon(cargo).ToString(),
+                // Record the brand actually promised; the sums that read this match
+                // family-wide, so accounting is unchanged and the brand is not lost.
+                Cargo = cargo.ToString(),
                 Amount = amount,
                 Soft = true,
                 Paid = paid,
@@ -753,7 +820,7 @@ namespace DLE.Economy
 
         public void Credit(string yardId, CargoType cargo, float amount)
         {
-            cargo = CargoCategories.Canon(cargo);
+            // No canonicalisation: the brand that arrived is the brand that is stored.
             if (!_stock.TryGetValue(yardId, out var m))
                 _stock[yardId] = m = new Dictionary<CargoType, float>();
             // Clamp against the SHARED total (#92): whatever exceeds the station's free
@@ -765,11 +832,18 @@ namespace DLE.Economy
 
         private void Consume(string yardId, CargoType cargo, float amount)
         {
-            cargo = CargoCategories.Canon(cargo);
-            if (_stock.TryGetValue(yardId, out var m) && m.TryGetValue(cargo, out var cur))
+            if (amount <= 0f || !_stock.TryGetValue(yardId, out var m)) return;
+            // Eat across the family, biggest pile first: a request for tools is satisfied
+            // by whatever brands are standing there.
+            float left = amount;
+            foreach (var brand in BrandsByPile(yardId, cargo).ToList())
             {
-                var next = Math.Max(0f, cur - amount);
-                if (next <= 0f) m.Remove(cargo); else m[cargo] = next;
+                if (left <= 0f) break;
+                if (!m.TryGetValue(brand, out var cur) || cur <= 0f) continue;
+                float take = Math.Min(cur, left);
+                var next = cur - take;
+                if (next <= 0f) m.Remove(brand); else m[brand] = next;
+                left -= take;
             }
         }
 
@@ -921,13 +995,10 @@ namespace DLE.Economy
             _imported = Unpack(payload.Imported);
             _generation = payload.Generation;
 
-            // One-cargo migration (#100): brand piles from older saves fold into the
-            // canonical pile so tools/electronics/chemicals arrive as one cargo each.
-            FoldCategories(_stock);
-            FoldCategories(_imported);
-            foreach (var r in _reservations.Values)
-                if (Enum.TryParse<CargoType>(r.Cargo, out var c))
-                    r.Cargo = CargoCategories.Canon(c).ToString();
+            // Brand piles are NOT folded on load any more (owner ruling 2026-07-27): the
+            // brand a save recorded is the brand that comes back. Saves written while
+            // folding was in force simply load as single-brand piles and diversify from
+            // there as imports arrive.
 
             // Reservations for jobs that no longer exist after the load are released by
             // the job restore pass (the surviving jobs re-register via their save entries).
@@ -948,21 +1019,6 @@ namespace DLE.Economy
                 // reservation was created by the paid path.
                 foreach (var r in _reservations.Values) { r.Paid = true; r.Soft = false; }
                 Main.LogAlways("[Economy] migrated v1 economy save: stock counted as produced.");
-            }
-        }
-
-        private static void FoldCategories(Dictionary<string, Dictionary<CargoType, float>> map)
-        {
-            foreach (var yard in map.Values)
-            {
-                foreach (var key in yard.Keys.ToList())
-                {
-                    var canonical = CargoCategories.Canon(key);
-                    if (canonical == key) continue;
-                    yard.TryGetValue(canonical, out var cur);
-                    yard[canonical] = cur + yard[key];
-                    yard.Remove(key);
-                }
             }
         }
 

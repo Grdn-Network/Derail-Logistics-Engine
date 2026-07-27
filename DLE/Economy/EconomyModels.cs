@@ -2,6 +2,7 @@ using DV.ThingTypes;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DLE.Economy
 {
@@ -29,14 +30,19 @@ namespace DLE.Economy
         public static bool TryGet(string name, out CargoType[] members) =>
             Members.TryGetValue(name ?? "", out members);
 
-        // Tools, Electronics and Chemicals are ONE cargo type in the economy (#100
-        // owner ruling): every brand folds into the domestic Iskar pile at the stock
-        // layer, so the board shows one pile, hauls ship one cargo, and seeding
-        // happens once instead of per brand. Clothing keeps brand piles (only the
-        // recipes treat it as interchangeable); Gases is an input helper only.
-        private static readonly Dictionary<CargoType, CargoType> CanonicalMap = BuildCanonicalMap();
+        // Brands survive in the stock layer; collapsing is a DISPLAY job (owner ruling
+        // 2026-07-27). Folding brands into one pile at write time destroyed the
+        // information about which brand actually arrived, which the returning empty
+        // container needs (#116). So stock keys stay per brand, reads sum the family,
+        // and the board renders one row per family.
+        //
+        // Canon survives for one job only: naming the domestic brand that local
+        // PRODUCTION creates. Every factory makes the Iskar brand; other brands enter
+        // the world only by import, which keeps piles brand-dominant and hauls large.
+        private static readonly Dictionary<CargoType, CargoType> DomesticMap = BuildDomesticMap();
+        private static readonly Dictionary<CargoType, CargoType[]> FamilyMap = BuildFamilyMap();
 
-        private static Dictionary<CargoType, CargoType> BuildCanonicalMap()
+        private static Dictionary<CargoType, CargoType> BuildDomesticMap()
         {
             var map = new Dictionary<CargoType, CargoType>();
             foreach (var name in new[] { "Tools", "Electronics", "Chemicals" })
@@ -45,8 +51,52 @@ namespace DLE.Economy
             return map;
         }
 
+        private static Dictionary<CargoType, CargoType[]> BuildFamilyMap()
+        {
+            var map = new Dictionary<CargoType, CargoType[]>();
+            foreach (var pair in Members)
+            {
+                if (pair.Key == "Gases") continue; // input helper, not a stock family
+                foreach (var member in pair.Value)
+                    map[member] = pair.Value;
+            }
+            return map;
+        }
+
+        /// <summary>The brand local production creates. Not a stock key: use Family for reads.</summary>
         public static CargoType Canon(CargoType cargo) =>
-            CanonicalMap.TryGetValue(cargo, out var canonical) ? canonical : cargo;
+            DomesticMap.TryGetValue(cargo, out var domestic) ? domestic : cargo;
+
+        /// <summary>
+        /// Every interchangeable brand of this cargo, itself included. A cargo in no
+        /// family answers with just itself, so callers never special-case.
+        /// </summary>
+        public static CargoType[] Family(CargoType cargo) =>
+            FamilyMap.TryGetValue(cargo, out var members) ? members : new[] { cargo };
+
+        /// <summary>True when two cargos are interchangeable brands of the same product.</summary>
+        public static bool SameFamily(CargoType a, CargoType b) =>
+            a == b || (FamilyMap.TryGetValue(a, out var fa) && FamilyMap.TryGetValue(b, out var fb) && ReferenceEquals(fa, fb));
+
+        // Precomputed: the board rebuilds its payload every few seconds per open tab and
+        // asks for a display name per cargo per facility, so this must not be a scan.
+        private static readonly Dictionary<CargoType, string> DisplayMap = BuildDisplayMap();
+
+        private static Dictionary<CargoType, string> BuildDisplayMap()
+        {
+            var map = new Dictionary<CargoType, string>();
+            foreach (var pair in Members)
+            {
+                if (pair.Key == "Gases") continue;
+                foreach (var member in pair.Value)
+                    map[member] = pair.Key;
+            }
+            return map;
+        }
+
+        /// <summary>The family name a cargo displays under, or its own name when unbranded.</summary>
+        public static string DisplayName(CargoType cargo) =>
+            DisplayMap.TryGetValue(cargo, out var name) ? name : cargo.ToString();
 
         public static bool IsToolsCargo(CargoType cargo) => Canon(cargo) == CargoType.ToolsIskar;
     }
@@ -96,8 +146,17 @@ namespace DLE.Economy
 
         /// <summary>Vanilla destinations for a cargo shipped from here; null when the
         /// route table does not cover it (callers fall back to accept-list inference).</summary>
-        public HashSet<string> DestinationsFor(CargoType cargo) =>
-            RouteMap.TryGetValue(cargo, out var dests) && dests.Count > 0 ? dests : null;
+        /// Brands share a route: the table is keyed by whichever brand the vanilla data
+        /// or the overlay named, and a haul may carry any brand of that family, so a miss
+        /// on the exact key falls back to the family before giving up.
+        public HashSet<string> DestinationsFor(CargoType cargo)
+        {
+            if (RouteMap.TryGetValue(cargo, out var dests) && dests.Count > 0) return dests;
+            foreach (var brand in CargoCategories.Family(cargo))
+                if (brand != cargo && RouteMap.TryGetValue(brand, out var sibling) && sibling.Count > 0)
+                    return sibling;
+            return null;
+        }
 
         public bool CanSend(CargoType cargo, string destYard)
         {
@@ -145,8 +204,12 @@ namespace DLE.Economy
         public bool IsSource;
         public float RemoteSecondsPerCar = 45f;
 
-        public bool Consumes(CargoType cargo) => Inputs.Contains(cargo);
-        public bool Produces(CargoType cargo) => Outputs.Contains(cargo);
+        // Brand-blind: a station that accepts tools accepts any brand of tools, and the
+        // lists themselves may hold whichever brand the vanilla data named.
+        public bool Consumes(CargoType cargo) =>
+            Inputs.Contains(cargo) || Inputs.Any(i => CargoCategories.SameFamily(i, cargo));
+        public bool Produces(CargoType cargo) =>
+            Outputs.Contains(cargo) || Outputs.Any(o => CargoCategories.SameFamily(o, cargo));
 
         public bool CanLoad => Role != ServiceRole.Unload;
         public bool CanUnload => Role != ServiceRole.Load;
