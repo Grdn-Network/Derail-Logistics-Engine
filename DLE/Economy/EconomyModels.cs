@@ -168,7 +168,15 @@ namespace DLE.Economy
         public int initialStock = 6;
         public int directorTickSeconds = 120;
         public int poolTrackFillPercent = 90;
-        public int maxPoolCars = 500;
+        public int maxPoolCars = 700;
+
+        // Minimum cars in the pool per cargo, spawned before the random packing runs.
+        // The per-track draw picks uniformly among a producer's outputs, so a niche
+        // family at a station shipping several cargos can end up almost absent (#63).
+        // Key is a cargo name; a cargo with no entry has no floor. Cargos sharing a car
+        // type share the count, so the floor means "this many such cars exist", not
+        // "this many per cargo".
+        public Dictionary<string, int> minCarsPerCargo = new Dictionary<string, int>();
 
         // The economy clock (#100). Base production: carloads per game hour at a source
         // (shared round-robin across its outputs). Factories run batchesPerGameHour base.

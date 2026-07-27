@@ -19,7 +19,13 @@
     "harborImportFactor": 0.5,
     "toolImportRarity": 8,
     "poolTrackFillPercent": 90,
-    "maxPoolCars": 500,
+    "maxPoolCars": 700,
+    "minCarsPerCargo": {
+      "NewCars": 10,
+      "ImportedNewCars": 10,
+      "SemiTrailers": 10,
+      "ForestryTrailers": 10
+    },
     "excludedCargos": [
       "EmptySunOmni",
       "EmptyIskar",

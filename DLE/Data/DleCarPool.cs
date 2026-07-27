@@ -556,6 +556,11 @@ namespace DLE.Data
             // cap and shrink the repack by exactly that many phantom cars.
             PruneDeadGuids();
 
+            // Floors first, while empty tracks are still plentiful: the random packing
+            // below would otherwise consume the tracks a niche family needs.
+            var spawnedCars = new List<TrainCar>();
+            yield return SpawnFloorsRoutine(claimed, spawnedCars, n => totalSpawned += n);
+
             // Each producer offers its empty storage tracks, longest first; each track is
             // packed with a random mix of the cargos that producer ships. Consumers with
             // no outputs offer nothing and stay clear for deliveries.
@@ -575,7 +580,6 @@ namespace DLE.Data
 
             // One track per station per round, so the pool cap lands evenly across the
             // map instead of starving whichever stations iterate last.
-            var spawnedCars = new List<TrainCar>();
             int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             bool capHit = false;
             for (bool any = offers.Count > 0; any && !capHit;)
@@ -615,6 +619,113 @@ namespace DLE.Data
             SweepInFlight = false;
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
             onDone?.Invoke(totalSpawned);
+        }
+
+        /// <summary>
+        /// Bring every cargo listed in settings.minCarsPerCargo up to its floor before the
+        /// random packing runs. PackTrack draws uniformly among a producer's outputs, so a
+        /// niche family at a station shipping several cargos can end up nearly absent: a
+        /// live repack left about 6 vehicle carriers in the whole world (#63). Floors are
+        /// claimed first, while empty tracks are still plentiful. Cargos sharing a car type
+        /// share the count, since the count is recomputed per cargo from live cars.
+        /// </summary>
+        private IEnumerator SpawnFloorsRoutine(IDictionary<JobTrack, float> claimed,
+            List<TrainCar> collector, Action<int> onDone)
+        {
+            int spawned = 0;
+            var floors = Economy.RecipeProvider.Tuning.minCarsPerCargo;
+            if (floors == null || floors.Count == 0) { onDone?.Invoke(0); yield break; }
+
+            foreach (var entry in floors)
+            {
+                int floor = entry.Value;
+                if (floor <= 0) continue;
+                if (!Enum.TryParse<CargoType>(entry.Key, out var cargo))
+                {
+                    Main.LogAlways($"[CarPool] unknown cargo '{entry.Key}' in minCarsPerCargo; floor skipped.");
+                    continue;
+                }
+
+                var liveries = LiveriesCarrying(cargo);
+                if (liveries.Count == 0)
+                {
+                    Main.LogAlways($"[CarPool] no car type carries {cargo}; floor skipped.");
+                    continue;
+                }
+
+                // Producers only: a floor exists so the cargo has a workable cut where it
+                // is loaded, not so empties pile up at a consumer.
+                var producers = Economy.EconomyState.Instance.Facilities.Values
+                    .Where(f => f.Produces(cargo))
+                    .Select(f => StationController.GetStationByYardID(f.YardId))
+                    .Where(sc => sc != null)
+                    .ToList();
+                if (producers.Count == 0)
+                {
+                    Main.Log($"[CarPool] {cargo} has no producer; floor skipped.");
+                    continue;
+                }
+
+                int have = CountPoolWithLivery(liveries);
+                int remaining = floor - have;
+                if (remaining <= 0) continue;
+
+                // Round-robin the producers so a multi-source cargo gets cuts in more than
+                // one yard; one cut per pass keeps each spawn to a single track.
+                for (int i = 0; i < producers.Count && remaining > 0; i++)
+                {
+                    int want = Math.Min(remaining, Math.Max(2, floor / producers.Count));
+                    int got = SpawnEmpties(producers[i], cargo, want, claimed, collector);
+                    remaining -= got;
+                    spawned += got;
+                    yield return null;
+                }
+
+                if (remaining > 0)
+                    Main.LogAlways($"[CarPool] {cargo}: floor of {floor} short by {remaining} " +
+                                   "(no empty storage track fit the rest at its producers).");
+            }
+
+            if (spawned > 0)
+                Main.LogAlways($"[CarPool] minimum-stock pass spawned {spawned} car(s).");
+            onDone?.Invoke(spawned);
+        }
+
+        /// <summary>
+        /// The liveries of the car type that carries this cargo. Mirrors the single
+        /// carTypes[0] choice the rest of the pool makes, so floors count and spawn the
+        /// same cars the packing does.
+        /// </summary>
+        private static HashSet<TrainCarLivery> LiveriesCarrying(CargoType cargo)
+        {
+            var set = new HashSet<TrainCarLivery>();
+            if (DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) &&
+                DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) &&
+                carTypes.Count > 0 && carTypes[0].liveries != null)
+                foreach (var livery in carTypes[0].liveries)
+                    set.Add(livery);
+            return set;
+        }
+
+        /// <summary>
+        /// How many live pool cars wear one of these liveries. Counted from the registry
+        /// rather than tracked incrementally so cars lost to wrecks, radio-clears or MP
+        /// despawns since the last sweep never inflate the number.
+        /// </summary>
+        private int CountPoolWithLivery(HashSet<TrainCarLivery> liveries)
+        {
+            var registry = TrainCarRegistry.Instance;
+            if (registry == null) return 0;
+            int n = 0;
+            foreach (var kv in registry.logicCarToTrainCar)
+            {
+                var car = kv.Key;
+                var tc = kv.Value;
+                if (car?.carGuid == null || tc == null) continue;
+                if (!_guids.Contains(car.carGuid)) continue;
+                if (liveries.Contains(tc.carLivery)) n++;
+            }
+            return n;
         }
 
         /// <summary>
