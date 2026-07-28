@@ -63,6 +63,11 @@ namespace DLE.Economy
         /// respawning overviews for available jobs, so this sweeps them every few seconds
         /// rather than patching the spawner.
         /// </summary>
+        // Lock state as of the previous sweep, so the OFF transition can give the office
+        // paper back (#121). Starts true so a world that loads with the lock already off
+        // does one restoring pass, which costs nothing when there is nothing to restore.
+        private bool _lockLastSweep = true;
+
         private IEnumerator OverviewSweepLoop()
         {
             var wait = new WaitForSeconds(3f);
@@ -71,6 +76,18 @@ namespace DLE.Economy
                 yield return wait;
                 if (IsStale()) yield break; // a different world loaded; this director is done
                 if (!Main.IsHostOrSingleplayer()) continue;
+
+                // Turning the lock off has to undo itself. Vanilla only spawns office
+                // paper for a job it has not already processed, and our sweep destroyed
+                // the paper without touching that set, so every haul swept under the lock
+                // stayed paperless forever afterwards (#121).
+                bool lockNow = Dispatch.AssignmentStore.Instance.LockEnabled;
+                if (_lockLastSweep && !lockNow)
+                {
+                    try { AllowManagedOverviewsAgain(); }
+                    catch (System.Exception ex) { Main.LogAlways($"[Director] paper restore failed: {ex.GetType().Name}: {ex.Message}"); }
+                }
+                _lockLastSweep = lockNow;
 
                 // Paper is just paperwork: a haul whose cargo stands unloaded at the
                 // destination closes itself, pays, and frees the consumer to consume.
@@ -146,6 +163,35 @@ namespace DLE.Economy
                     Main.LogAlways($"[Logistics] {order.Id} ({order.JobId}) arrived; run closed automatically.");
                 }
             }
+        }
+
+        /// <summary>
+        /// Make managed hauls eligible for office paper again after the lock lifts.
+        ///
+        /// StationController.Update only creates an overview for a job it has not already
+        /// put in processedNewJobs, and vanilla clears that set in one place only: when
+        /// the station is vacated. Our sweep destroys the paper but leaves the entry, so
+        /// without this a haul swept under the lock never sees paper again, even with the
+        /// lock off, until every player leaves and returns (#121). Dropping just the
+        /// managed entries lets vanilla reprint ours and leaves its own bookkeeping alone.
+        /// </summary>
+        private static void AllowManagedOverviewsAgain()
+        {
+            if (StationController.allStations == null) return;
+            int freed = 0;
+            foreach (var sc in StationController.allStations)
+            {
+                var processed = sc?.processedNewJobs;
+                if (processed == null || processed.Count == 0) continue;
+                var managed = new System.Collections.Generic.List<DV.Logic.Job.Job>();
+                foreach (var job in processed)
+                    if (job?.ID != null && Jobs.JobUtils.ManagedJobIds.Contains(job.ID))
+                        managed.Add(job);
+                foreach (var job in managed)
+                    if (processed.Remove(job)) freed++;
+            }
+            if (freed > 0)
+                Main.LogAlways($"[Director] assignment lock lifted; {freed} Company Haul(s) may print office paper again.");
         }
 
         private static void DespawnManagedOverviews(bool lockOn)

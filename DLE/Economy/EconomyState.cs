@@ -339,7 +339,7 @@ namespace DLE.Economy
             {
                 var cargo = BiggestConsumablePile(f);
                 if (cargo == null) break;
-                ConsumeImportedFirst(f.YardId, cargo.Value, 1f);
+                ConsumeForUse(f.YardId, cargo.Value, 1f);
                 EconomyHistory.Record("consumed", f.YardId, cargo.Value.ToString(), 1);
                 _consumedByHour[_hourSlot] += 1f;
                 ops.ConsumeCredit -= 1f;
@@ -577,7 +577,8 @@ namespace DLE.Economy
         /// <summary>Consume drawing the imported portion down first: conversion inputs,
         /// machine wear, catalysts and unpaid moves all eat delivered goods before local
         /// product.</summary>
-        private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount)
+        private void ConsumeImportedFirst(string yardId, CargoType cargo, float amount,
+            List<KeyValuePair<CargoType, float>> eaten = null)
         {
             if (amount <= 0f) return;
             // Draw the imported marker down across the family in the same order the
@@ -594,7 +595,7 @@ namespace DLE.Economy
                     left -= take;
                 }
             }
-            Consume(yardId, cargo, amount);
+            Consume(yardId, cargo, amount, eaten);
         }
 
         /// <summary>Consume local product only; the imported portion stays intact.</summary>
@@ -830,11 +831,13 @@ namespace DLE.Economy
             m[cargo] = cur + Math.Min(amount, room);
         }
 
-        private void Consume(string yardId, CargoType cargo, float amount)
+        private void Consume(string yardId, CargoType cargo, float amount,
+            List<KeyValuePair<CargoType, float>> eaten = null)
         {
             if (amount <= 0f || !_stock.TryGetValue(yardId, out var m)) return;
             // Eat across the family, biggest pile first: a request for tools is satisfied
-            // by whatever brands are standing there.
+            // by whatever brands are standing there. The optional ledger reports which
+            // brands actually went, which is how a container knows what empty to leave.
             float left = amount;
             foreach (var brand in BrandsByPile(yardId, cargo).ToList())
             {
@@ -844,6 +847,35 @@ namespace DLE.Economy
                 var next = cur - take;
                 if (next <= 0f) m.Remove(brand); else m[brand] = next;
                 left -= take;
+                eaten?.Add(new KeyValuePair<CargoType, float>(brand, take));
+            }
+        }
+
+        /// <summary>
+        /// Consume stock because it is being USED, not because it is being shipped out
+        /// (#116). Using a container's contents leaves the container behind, so this is
+        /// the only consumption path that emits empties: a producer loading cars for a
+        /// haul goes through Debit and leaves nothing.
+        ///
+        /// The brand comes straight from the pile that was eaten, which only works
+        /// because stock keeps brands apart rather than folding them into one canonical
+        /// pile. An Iskar container that arrived goes back as an Iskar empty.
+        /// </summary>
+        private void ConsumeForUse(string yardId, CargoType cargo, float amount)
+        {
+            if (amount <= 0f) return;
+            var eaten = new List<KeyValuePair<CargoType, float>>();
+            ConsumeImportedFirst(yardId, cargo, amount, eaten);
+
+            foreach (var kv in eaten)
+            {
+                var empty = CargoCategories.EmptyLeftBy(kv.Key);
+                if (empty == null || kv.Value <= 0f) continue;
+                // Credit clamps to the station's free space, and empties compete for it
+                // like anything else (owner ruling): a yard nobody clears will fill up
+                // and stop accepting deliveries until someone runs the empties back.
+                Credit(yardId, empty.Value, kv.Value);
+                EconomyHistory.Record("emptied", yardId, empty.Value.ToString(), kv.Value);
             }
         }
 
@@ -889,7 +921,7 @@ namespace DLE.Economy
                 if (remaining <= 0f) break;
                 float take = Math.Min(remaining, GetStock(yardId, member));
                 if (take <= 0f) continue;
-                ConsumeImportedFirst(yardId, member, take);
+                ConsumeForUse(yardId, member, take);
                 remaining -= take;
             }
         }

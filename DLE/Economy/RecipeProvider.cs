@@ -295,6 +295,7 @@ namespace DLE.Economy
                                    $"{string.Join(", ", f.Inputs)}; those never arrive.");
             }
             ApplyExclusions(facilities);
+            WireEmptyContainers(facilities);
             NormalizeCategories(facilities);
             AuditRoutes(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
@@ -387,6 +388,69 @@ namespace DLE.Economy
                 else if (Enum.TryParse<CargoType>(name, out var cargo))
                     yield return cargo;
             }
+        }
+
+        /// <summary>
+        /// Spent containers ship back to the harbour (#116).
+        ///
+        /// Runs AFTER exclusions on purpose. The twelve Empty cargos stay excluded from
+        /// the vanilla derivation, because letting them into the derived input lists would
+        /// invent demand for empties at stations that only ever produce them. Instead any
+        /// facility that consumes a containerised cargo gains the matching empty as an
+        /// OUTPUT, routed to the import hub, so the director offers a run to clear them
+        /// and nothing else changes.
+        ///
+        /// Storage is deliberately not special-cased: empties compete for the station
+        /// total like any other cargo, so a yard nobody clears fills up and stops
+        /// accepting deliveries. That pressure is the point (owner ruling 2026-07-27).
+        /// </summary>
+        private static void WireEmptyContainers(Dictionary<string, FacilityDef> facilities)
+        {
+            var hub = facilities.Values.FirstOrDefault(f => f.IsImportHub)?.YardId;
+            if (hub == null)
+            {
+                Main.LogAlways("[Economy] no import hub in this world; empty containers have nowhere to go and stay unshippable.");
+                return;
+            }
+
+            int wired = 0;
+            foreach (var f in facilities.Values)
+            {
+                if (f.YardId == hub) continue; // the harbour is where they end up
+                var empties = new HashSet<CargoType>();
+                foreach (var input in f.Inputs)
+                {
+                    var empty = CargoCategories.EmptyLeftBy(input);
+                    if (empty != null) empties.Add(empty.Value);
+                }
+                // Recipe inputs count too: a factory eats containers its accept-list may
+                // describe as a category rather than a concrete cargo.
+                foreach (var recipe in f.Recipes)
+                    foreach (var stack in recipe.Inputs)
+                        foreach (var member in stack.Category != null && CargoCategories.TryGet(stack.Category, out var ms)
+                                     ? (IEnumerable<CargoType>)ms : new[] { stack.Cargo })
+                        {
+                            var empty = CargoCategories.EmptyLeftBy(member);
+                            if (empty != null) empties.Add(empty.Value);
+                        }
+
+                foreach (var empty in empties)
+                {
+                    if (!f.Outputs.Contains(empty)) f.Outputs.Add(empty);
+                    if (!f.RouteMap.TryGetValue(empty, out var dests))
+                        f.RouteMap[empty] = dests = new HashSet<string>(StringComparer.Ordinal);
+                    dests.Add(hub);
+                    wired++;
+                }
+            }
+
+            // The hub accepts every empty back, whatever brand it is.
+            if (facilities.TryGetValue(hub, out var hubDef))
+                foreach (var empty in CargoCategories.TryGet("EmptyContainers", out var all) ? all : new CargoType[0])
+                    if (!hubDef.Inputs.Contains(empty)) hubDef.Inputs.Add(empty);
+
+            if (wired > 0)
+                Main.Log($"[Economy] empty containers wired: {wired} station-cargo route(s) back to {hub}.");
         }
 
         /// <summary>
