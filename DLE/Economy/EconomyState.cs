@@ -163,6 +163,12 @@ namespace DLE.Economy
                 foreach (var cargo in cargos)
                 {
                     if (f.Machines.Contains(cargo)) continue; // machines seed separately below
+                    // Empty containers are a BYPRODUCT, never a starting stock (#116). They
+                    // are listed as an output so hauls can carry them back to the harbour,
+                    // and that alone put one seed per brand into every consuming station:
+                    // eight brands at six carloads each is 48 carloads of storage gone
+                    // before a single container had been delivered, let alone emptied.
+                    if (CargoCategories.IsEmptyContainer(cargo)) continue;
                     // Tools are the scarce catalyst (#100 ruling): the stations that take
                     // them start with a token 1-2 carloads, never the full buffer.
                     float amt = CargoCategories.IsToolsCargo(cargo)
