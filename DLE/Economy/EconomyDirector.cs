@@ -71,10 +71,16 @@ namespace DLE.Economy
             {
                 if (!producer.CanLoad) continue; // unload-only station is never an origin
                 if (perOrigin.TryGetValue(producer.YardId, out var active) && active >= perStation) continue;
-                foreach (var cargo in producer.Outputs)
+                // One entry per FAMILY: stock and holds are family-wide, so iterating five
+                // tool brands would offer five hauls against the same pile.
+                foreach (var listed in producer.Outputs.GroupBy(CargoCategories.DisplayName).Select(g => g.First()))
                 {
-                    float stock = econ.GetDirectorAvailable(producer.YardId, cargo);
+                    float stock = econ.GetDirectorAvailable(producer.YardId, listed);
                     if (stock < min) continue;
+
+                    // Outputs name the family; ship the brand actually on the shelf, so a
+                    // booklet never promises a brand this station does not hold.
+                    var cargo = econ.BiggestBrandInStock(producer.YardId, listed);
 
                     var consumer = FindConsumer(econ, cargo, producer);
                     if (consumer == null) continue;
@@ -115,8 +121,11 @@ namespace DLE.Economy
             foreach (var producer in econ.Facilities.Values)
             {
                 if (!producer.CanLoad) continue;
-                foreach (var cargo in producer.Outputs)
+                foreach (var listed in producer.Outputs.GroupBy(CargoCategories.DisplayName).Select(g => g.First()))
                 {
+                    // Same family-to-brand resolution the auto director uses, so a
+                    // dispatcher-picked haul ships what is really standing there.
+                    var cargo = econ.BiggestBrandInStock(producer.YardId, listed);
                     // Paid options draw produced stock; a pile that is all imported still
                     // offers an unpaid relocation so the form never hides movable goods.
                     float paidStock = econ.GetAvailable(producer.YardId, cargo);

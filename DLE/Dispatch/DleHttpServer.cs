@@ -743,16 +743,23 @@ namespace DLE.Dispatch
                 catalystActive = econ.CatalystStatus(f.YardId).active,
                 catalystHoursLeft = Math.Round(econ.CatalystStatus(f.YardId).hoursLeft, 1),
                 catalystStocked = econ.CatalystStatus(f.YardId).anyStock,
-                stock = f.Outputs.Concat(f.Inputs).Distinct()
-                    .Select(c => new
+                // One row per FAMILY, not per brand. Stock keeps brands apart so a
+                // returning empty container knows which brand it is (#116), but a
+                // dispatcher reading a factory wants "Tools 12", not seven brand piles.
+                // The stock accessors already sum the family, so grouping the labels is
+                // the whole of the collapse.
+                stock = f.Outputs.Concat(f.Inputs)
+                    .GroupBy(Economy.CargoCategories.DisplayName)
+                    .Select(g => new
                     {
-                        cargo = c.ToString(),
-                        amount = econ.GetStock(f.YardId, c),
-                        reserved = econ.GetReserved(f.YardId, c),
-                        imported = econ.GetImported(f.YardId, c),
+                        cargo = g.Key,
+                        amount = econ.GetStock(f.YardId, g.First()),
+                        reserved = econ.GetReserved(f.YardId, g.First()),
+                        imported = econ.GetImported(f.YardId, g.First()),
                         // Empty piles show when a recipe needs them: an idle factory's
                         // missing ingredient is information, an empty warehouse is noise.
-                        required = f.Recipes.Any(r => r.Inputs.Any(i => i.Cargo == c)),
+                        required = f.Recipes.Any(r => r.Inputs.Any(i =>
+                            g.Any(c => Economy.CargoCategories.SameFamily(i.Cargo, c)))),
                     })
                     .Where(s => s.amount > 0f || s.required),
                 recipes = f.Recipes.Select(r => new

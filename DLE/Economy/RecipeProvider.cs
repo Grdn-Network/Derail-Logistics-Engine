@@ -310,8 +310,12 @@ namespace DLE.Economy
         {
             foreach (var f in facilities.Values)
             {
-                f.Outputs = f.Outputs.Select(CargoCategories.Canon).Distinct().ToList();
-                f.Inputs = f.Inputs.Select(CargoCategories.Canon).Distinct().ToList();
+                // Brands stay in the lists (owner ruling 2026-07-27). The harbor's import
+                // rotation walks them to bring real variety into the world, and the board
+                // groups them back into one row per family. Only PRODUCTION canonicalises,
+                // so anything made inland is the domestic brand.
+                f.Outputs = f.Outputs.Distinct().ToList();
+                f.Inputs = f.Inputs.Distinct().ToList();
 
                 foreach (var key in f.RouteMap.Keys.ToList())
                 {
