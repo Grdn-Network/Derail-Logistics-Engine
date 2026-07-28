@@ -811,7 +811,19 @@ namespace DLE.Economy
             int accepted = (int)Math.Min(carloads, GetRoom(yardId, cargo) + 0.001f);
             if (accepted <= 0)
             {
-                Main.Log($"[Economy] {yardId} is full of {cargo}; delivery accepted nothing.");
+                // A refused delivery is the visible end of the storage-pressure rule, and
+                // the first question is always "full of WHAT". Name the biggest piles and
+                // call out the empties share, because that is the one a crew can fix.
+                float empties = 0f;
+                if (_stock.TryGetValue(yardId, out var piles))
+                    foreach (var kv in piles)
+                        if (CargoCategories.IsEmptyContainer(kv.Key)) empties += kv.Value;
+                var top = _stock.TryGetValue(yardId, out var p2)
+                    ? string.Join(", ", p2.OrderByDescending(kv => kv.Value).Take(3).Select(kv => $"{kv.Key} {kv.Value:0.#}"))
+                    : "nothing";
+                Main.LogAlways($"[Economy] {yardId} REFUSED a delivery of {carloads} {cargo}: storage " +
+                               $"{TotalStock(yardId):0.#}/{TotalCapOf(yardId):0.#} full. Biggest piles: {top}. " +
+                               $"Empty containers hold {empties:0.#} of it.");
                 return 0;
             }
             Credit(yardId, cargo, accepted);
@@ -877,11 +889,27 @@ namespace DLE.Economy
             {
                 var empty = CargoCategories.EmptyLeftBy(kv.Key);
                 if (empty == null || kv.Value <= 0f) continue;
-                // Credit clamps to the station's free space, and empties compete for it
-                // like anything else (owner ruling): a yard nobody clears will fill up
-                // and stop accepting deliveries until someone runs the empties back.
+
+                // Instrumented while the feature is unproven: the question this has to
+                // answer is "did the empty land, or did the station silently eat it",
+                // and a bare "emitted an empty" line cannot tell those apart. Credit
+                // clamps to free space, so measure the pile either side of the call and
+                // report the shortfall explicitly.
+                float roomBefore = Math.Max(0f, TotalCapOf(yardId) - TotalStock(yardId));
+                float before = GetStock(yardId, empty.Value);
                 Credit(yardId, empty.Value, kv.Value);
-                EconomyHistory.Record("emptied", yardId, empty.Value.ToString(), kv.Value);
+                float landed = GetStock(yardId, empty.Value) - before;
+
+                EconomyHistory.Record("emptied", yardId, empty.Value.ToString(), landed);
+
+                if (landed < kv.Value - 0.001f)
+                    Main.LogAlways($"[Empties] {yardId}: {kv.Key} consumed, only {landed:0.#}/{kv.Value:0.#} " +
+                                   $"{empty.Value} fit; station is FULL at {TotalStock(yardId):0.#}/{TotalCapOf(yardId):0.#}. " +
+                                   "Deliveries here will start bouncing until the empties are hauled out.");
+                else
+                    Main.LogAlways($"[Empties] {yardId}: {kv.Key} consumed -> +{landed:0.#} {empty.Value} " +
+                                   $"(now {GetStock(yardId, empty.Value):0.#}); storage {TotalStock(yardId):0.#}/{TotalCapOf(yardId):0.#}, " +
+                                   $"{roomBefore - (TotalCapOf(yardId) - TotalStock(yardId)):0.#} taken by this.");
             }
         }
 

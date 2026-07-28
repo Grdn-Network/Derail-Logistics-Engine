@@ -413,9 +413,18 @@ const MATERIALS=new Set(['SteelRolls','SteelBillets','SteelSlabs','SteelBentPlat
  'Boards','Plywood','Sleepers','WoodChips','Pipes','Gasoline','Diesel','ChemicalsIskar',
  'CryoHydrogen','Ammonia','SodiumHydroxide','Argon','CryoOxygen','Nitrogen','Acetylene','AmmoniumNitrate']);
 function cargoClass(c){return RESOURCES.has(c)?'resource':MATERIALS.has(c)?'material':'goods'}
+// Stock rows are keyed by FAMILY now, not by brand: the server groups them so a
+// factory reads Tools 12 instead of five brand piles. Recipe inputs still name
+// either a category or a concrete brand, so every lookup resolves to the family
+// name first. Without this, an input naming a brand (or a category whose members
+// are brands) found no row at all and every branded ingredient read as missing,
+// which is what put a false waiting-on line on a station that held plenty.
+function famOf(c){
+ if(CATS[c])return c;
+ for(const k in CATS)if(CATS[k].indexOf(c)>=0)return k;
+ return c}
 function stockAmt(n,cargo){
- if(CATS[cargo])return CATS[cargo].reduce((t,c)=>t+stockAmt(n,c),0);
- const s=(n.stock||[]).find(x=>x.cargo===cargo);return s?s.amount:0}
+ const s=(n.stock||[]).find(x=>x.cargo===famOf(cargo));return s?s.amount:0}
 function netMissing(n){const out=[];
  for(const r of (n.recipes||[]))for(const i of (r.inputs||[]))
   if(stockAmt(n,i.cargo)<i.amount&&!out.includes(i.cargo))out.push(i.cargo);
