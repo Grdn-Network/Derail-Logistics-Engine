@@ -25,7 +25,51 @@ namespace DLE.Economy
             ["Chemicals"] = new[] { CargoType.ChemicalsIskar, CargoType.ChemicalsSperex },
             // Internal helper for GF's chemicals recipe: any harbor gas works.
             ["Gases"] = new[] { CargoType.CryoHydrogen, CargoType.Ammonia, CargoType.SodiumHydroxide },
+            // Spent containers (#116). One line on the board, one interchangeable family
+            // for hauling: a container going back to the harbour is a container.
+            ["EmptyContainers"] = new[]
+            {
+                CargoType.EmptySunOmni, CargoType.EmptyIskar, CargoType.EmptyObco, CargoType.EmptyGoorsk,
+                CargoType.EmptyKrugmann, CargoType.EmptyBrohm, CargoType.EmptyAAG, CargoType.EmptySperex,
+                CargoType.EmptyNovae, CargoType.EmptyTraeg, CargoType.EmptyChemlek, CargoType.EmptyNeoGamma,
+            },
         };
+
+        /// <summary>
+        /// Which empty container a cargo leaves behind when its contents are used (#116),
+        /// derived from the names: every branded cargo ends in its brand, and every brand
+        /// has a matching Empty. ToolsIskar leaves an EmptyIskar, ClothingObco an
+        /// EmptyObco. Unbranded cargo (coal, ore, logs) leaves nothing.
+        /// </summary>
+        private static readonly Dictionary<CargoType, CargoType> EmptyMap = BuildEmptyMap();
+
+        private static Dictionary<CargoType, CargoType> BuildEmptyMap()
+        {
+            var map = new Dictionary<CargoType, CargoType>();
+            var all = (CargoType[])Enum.GetValues(typeof(CargoType));
+            foreach (var empty in all)
+            {
+                var name = empty.ToString();
+                if (!name.StartsWith("Empty", StringComparison.Ordinal)) continue;
+                var brand = name.Substring("Empty".Length);
+                if (brand.Length == 0) continue;
+                foreach (var cargo in all)
+                {
+                    var cn = cargo.ToString();
+                    if (cn.StartsWith("Empty", StringComparison.Ordinal)) continue;
+                    if (cn.Length > brand.Length && cn.EndsWith(brand, StringComparison.Ordinal))
+                        map[cargo] = empty;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>The empty container this cargo leaves behind, or null if it is not containerised.</summary>
+        public static CargoType? EmptyLeftBy(CargoType cargo) =>
+            EmptyMap.TryGetValue(cargo, out var empty) ? empty : (CargoType?)null;
+
+        public static bool IsEmptyContainer(CargoType cargo) =>
+            cargo.ToString().StartsWith("Empty", StringComparison.Ordinal);
 
         public static bool TryGet(string name, out CargoType[] members) =>
             Members.TryGetValue(name ?? "", out members);
