@@ -270,6 +270,13 @@ namespace DLE.Data
                     // Wrecked (derailed or impossibly tilted) OR interpenetrating another
                     // car: sleeping it just plants a mine that detonates when it wakes.
                     if (IsWreck(tc) || OverlapsAnotherCar(tc, snapshot)) { bad.Add(tc); continue; }
+                    // Hanging off the end of its track (#86). The spawner's own length
+                    // maths lets a cut overhang often enough to be a standing complaint,
+                    // so the logic layer gets the last word: a car the track does not
+                    // count as fully on it is not a car we keep. Checking each car
+                    // individually trims only the overhang instead of docking a car from
+                    // each end of every cut.
+                    if (HangsOffTrack(tc)) { bad.Add(tc); continue; }
                     tc.ForceSleep(true);
                     slept++;
                 }
@@ -362,6 +369,22 @@ namespace DLE.Data
             if (tc == null) return false;
             if (tc.derailed) return true;
             return Vector3.Angle(tc.transform.up, Vector3.up) > 8f;
+        }
+
+        /// <summary>
+        /// True when a car is not fully on the track it stands on: it overhangs an end
+        /// (#86). The logic layer is the authority here, not our own length arithmetic,
+        /// which is what let the overhang through in the first place. A car with no
+        /// current track at all has already left the rails and IsWreck catches it, so
+        /// this stays quiet rather than double-flagging.
+        /// </summary>
+        private static bool HangsOffTrack(TrainCar tc)
+        {
+            var car = tc?.logicCar;
+            var track = car?.CurrentTrack;
+            if (car == null || track == null) return false;
+            var onTrack = track.GetCarsFullyOnTrack();
+            return onTrack != null && !onTrack.Contains(car);
         }
 
         /// <summary>

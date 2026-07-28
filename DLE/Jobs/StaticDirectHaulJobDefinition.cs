@@ -120,6 +120,13 @@ namespace DLE.Jobs
                 // the pre-allocated supply returns. Attached jobs consumed it already.
                 if (carsToTransport == null || carsToTransport.Count == 0)
                     Economy.EconomyState.Instance.ReleaseReservation(_registeredJobId);
+
+                // The assignment dies with the job (#79). Only a board delete used to
+                // clear one, so a job that ended any other way left its crew recorded
+                // against an id that no longer exists: the store grew orphans for the
+                // life of the save, and a reused or re-created id could read back an
+                // assignment nobody made.
+                Dispatch.AssignmentStore.Instance.Unassign(_registeredJobId);
             }
         }
 

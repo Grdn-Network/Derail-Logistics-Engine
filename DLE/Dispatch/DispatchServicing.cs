@@ -346,8 +346,18 @@ namespace DLE.Dispatch
                 var loadTask = job.tasks.OfType<WarehouseTask>()
                     .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Loading);
                 if (loadTask != null) def.loadMachine?.RemoveWarehouseTask(loadTask);
-                EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId, def.transportedCargo.ToString(), loaded, job.ID);
-                Main.LogAlways($"[Servicing] {job.ID}: staff loaded {loaded} {def.transportedCargo} at {def.chainData?.chainOriginYardId}.");
+                // A run that loaded nothing is a no-op, not a load: every car was already
+                // full (the loop skips loaded cars), so recording it filed phantom
+                // "loaded 0" events against a job that really had been loaded (#112).
+                if (loaded > 0)
+                {
+                    EconomyHistory.Record("loaded", def.chainData?.chainOriginYardId, def.transportedCargo.ToString(), loaded, job.ID);
+                    Main.LogAlways($"[Servicing] {job.ID}: staff loaded {loaded} {def.transportedCargo} at {def.chainData?.chainOriginYardId}.");
+                }
+                else
+                {
+                    Main.Log($"[Servicing] {job.ID}: nothing to load; the cars were already full.");
+                }
             }
             catch (Exception ex)
             {
