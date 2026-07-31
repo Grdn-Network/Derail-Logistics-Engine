@@ -356,7 +356,7 @@ namespace DLE.Dispatch
                     if (req == null || string.IsNullOrEmpty(req.origin) || string.IsNullOrEmpty(req.destination) ||
                         string.IsNullOrEmpty(req.cargo) || req.cars <= 0)
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
-                    if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
+                    if (!TryResolveCargo(req.cargo, req.origin, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
                     var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason, out var unpaidMove);
                     if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
@@ -370,7 +370,7 @@ namespace DLE.Dispatch
                     var req = JsonConvert.DeserializeObject<EmptiesRequest>(ReadBody(ctx) ?? "");
                     if (req == null || string.IsNullOrEmpty(req.yardId) || string.IsNullOrEmpty(req.cargo) || req.count <= 0)
                     { Json(ctx, 400, new { error = "yardId, cargo, count required" }); return; }
-                    if (!Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var cargoType))
+                    if (!TryResolveCargo(req.cargo, req.yardId, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
                     var sc = StationController.GetStationByYardID(req.yardId);
                     if (sc == null) { Json(ctx, 404, new { error = $"unknown yard '{req.yardId}'" }); return; }
@@ -398,7 +398,7 @@ namespace DLE.Dispatch
                     if (fromSc != null && toSc != null)
                     {
                         DV.ThingTypes.CargoType? forCargo = null;
-                        if (!string.IsNullOrEmpty(req.cargo) && Enum.TryParse<DV.ThingTypes.CargoType>(req.cargo, out var ct))
+                        if (TryResolveCargo(req.cargo, req.from, out var ct))
                             forCargo = ct;
                         order.JobId = Jobs.DirectHaulGenerator.TryCreateLogiRun(
                             fromSc, toSc, forCargo, req.cars, out bookletNote, out var bound);
@@ -589,6 +589,31 @@ namespace DLE.Dispatch
             }
         }
 
+        /// <summary>
+        /// Parse a cargo the way a CALLER would name it, not the way the enum spells it.
+        ///
+        /// The board bundles brands into families for display (Tools, Clothing,
+        /// EmptyContainers), so a perfectly reasonable request can carry a name that is
+        /// not a CargoType at all. Rejecting those is how every empty-container haul was
+        /// refused at the door with "unknown cargo 'EmptyContainers'". Resolving here
+        /// fixes every caller at once, including anything typed by hand or sent later by
+        /// RemoteDispatch, rather than teaching one form to spell.
+        ///
+        /// A family resolves to the brand the ORIGIN actually holds, which is the same
+        /// choice generation makes, so a booklet never promises a brand nobody has.
+        /// </summary>
+        private static bool TryResolveCargo(string name, string originYard, out DV.ThingTypes.CargoType cargo)
+        {
+            cargo = default;
+            if (string.IsNullOrEmpty(name)) return false;
+            if (Enum.TryParse(name, out cargo)) return true;
+            if (!Economy.CargoCategories.TryGet(name, out var members) || members.Length == 0) return false;
+            cargo = string.IsNullOrEmpty(originYard)
+                ? members[0]
+                : Economy.EconomyState.Instance.BiggestBrandInStock(originYard, members[0]);
+            return true;
+        }
+
         // Set by JSON deserialization.
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class TakeRequest { public string player = null; }
@@ -610,7 +635,7 @@ namespace DLE.Dispatch
             List<DV.ThingTypes.TrainCarType_v2> loadable = null;
             if (!string.IsNullOrEmpty(cargoFilter))
             {
-                if (!Enum.TryParse<DV.ThingTypes.CargoType>(cargoFilter, out var cargoType))
+                if (!TryResolveCargo(cargoFilter, null, out var cargoType))
                 { error = $"unknown cargo '{cargoFilter}'"; return null; }
                 if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargoType, out var v2) ||
                     !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out loadable))
@@ -674,7 +699,7 @@ namespace DLE.Dispatch
             var producer = StationController.GetStationByYardID(origin ?? "");
             var consumer = StationController.GetStationByYardID(destination ?? "");
             if (producer == null || consumer == null) { error = "unknown origin or destination"; return null; }
-            if (!Enum.TryParse<DV.ThingTypes.CargoType>(cargoName ?? "", out var cargo))
+            if (!TryResolveCargo(cargoName, origin, out var cargo))
             { error = $"unknown cargo '{cargoName}'"; return null; }
             if (!int.TryParse(carsRaw, out var cars) || cars < 1 || cars > 40)
             { error = "cars must be 1-40"; return null; }
