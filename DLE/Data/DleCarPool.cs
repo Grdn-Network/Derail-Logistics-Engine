@@ -147,9 +147,17 @@ namespace DLE.Data
                 return 0;
             }
 
-            // Vary the livery per car instead of a wall of identical wagons.
-            var carType = carTypes[0];
-            var liverySet = carType.liveries;
+            // Vary the livery per car instead of a wall of identical wagons, and draw
+            // across EVERY car type that can carry this cargo rather than only the first
+            // one the game lists. Taking carTypes[0] made the alternatives unreachable.
+            var liverySet = new List<TrainCarLivery>();
+            foreach (var ct in carTypes)
+                if (ct?.liveries != null) liverySet.AddRange(ct.liveries);
+            if (liverySet.Count == 0)
+            {
+                Main.LogAlways($"[CarPool] {cargo} has car types but no liveries; nothing spawned.");
+                return 0;
+            }
             var liveries = Enumerable.Range(0, count)
                 .Select(_ => liverySet[UnityEngine.Random.Range(0, liverySet.Count)])
                 .ToList();
@@ -236,7 +244,7 @@ namespace DLE.Data
                 // One-off spawn (empties API): quarantine-check this cut on its own.
                 Economy.DleDirectorBehaviour.TryRun(ValidateAndSleepRoutine(new List<TrainCar>(spawned), null));
 
-            Main.Log($"[CarPool] spawned {spawned.Count} empty {carType.name} at " +
+            Main.Log($"[CarPool] spawned {spawned.Count} empty car(s) for {cargo} at " +
                      $"{station.stationInfo.YardID} track {track.ID?.FullDisplayID} (pool now {_guids.Count}).");
             return spawned.Count;
         }
@@ -590,7 +598,12 @@ namespace DLE.Data
             var offers = new List<(StationController sc, Economy.FacilityDef facility, Queue<JobTrack> tracks)>();
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values)
             {
-                if (facility.Outputs.Count == 0) continue;
+                // A station earns a pool by producing something real. Empty containers do
+                // not count: they are a byproduct listed as an output purely so hauls can
+                // take them away. Counting them turned every consumer into a spawn site,
+                // which is why CP, a city that had never spawned a car, came back packed
+                // with flatbeds.
+                if (!facility.Outputs.Any(c => !Economy.CargoCategories.IsEmptyContainer(c))) continue;
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
                 var empties = sc.logicStation.yard.StorageTracks
@@ -641,7 +654,37 @@ namespace DLE.Data
 
             SweepInFlight = false;
             Main.LogAlways($"[CarPool] station pools respawned: {totalSpawned} car(s) total.");
+            LogFleetMix();
             onDone?.Invoke(totalSpawned);
+        }
+
+        /// <summary>
+        /// Report what the pool is actually made of, biggest type first.
+        ///
+        /// The 700-car pool that came back 500 flatcars was only noticed by eye, because
+        /// nothing ever reported the mix. A lopsided fleet is a gameplay problem long
+        /// before it is a crash, so the composition belongs in the log next to the total.
+        /// </summary>
+        private void LogFleetMix()
+        {
+            var registry = TrainCarRegistry.Instance;
+            if (registry == null || _guids.Count == 0) return;
+            var byType = new Dictionary<string, int>(StringComparer.Ordinal);
+            int counted = 0;
+            foreach (var kv in registry.logicCarToTrainCar)
+            {
+                var car = kv.Key;
+                var tc = kv.Value;
+                if (car?.carGuid == null || tc == null || !_guids.Contains(car.carGuid)) continue;
+                var name = tc.carLivery?.parentType?.name ?? tc.carLivery?.name ?? "unknown";
+                byType.TryGetValue(name, out var n);
+                byType[name] = n + 1;
+                counted++;
+            }
+            if (counted == 0) return;
+            var mix = string.Join(", ", byType.OrderByDescending(kv => kv.Value)
+                .Select(kv => $"{kv.Key} {kv.Value} ({kv.Value * 100 / counted}%)"));
+            Main.LogAlways($"[CarPool] fleet mix over {counted} pool car(s): {mix}");
         }
 
         /// <summary>
@@ -770,10 +813,25 @@ namespace DLE.Data
             // Livery pools per output cargo; outputs nothing can carry are skipped.
             var perCargo = new List<System.Collections.Generic.IList<TrainCarLivery>>();
             foreach (var cargo in facility.Outputs)
-                if (DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) &&
-                    DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes) &&
-                    carTypes.Count > 0 && carTypes[0].liveries != null && carTypes[0].liveries.Count > 0)
-                    perCargo.Add(carTypes[0].liveries);
+            {
+                // Empty containers must never drive spawning. They are listed as an output
+                // so a haul can carry them back to the harbour, and the draw below is
+                // UNIFORM over a station's outputs, so a mine that consumes tools gained
+                // eight empty-container brands against its one ore cargo and spawned
+                // flatbeds eight times out of nine. A 700-car pool came back 500 flatcars.
+                // Cars for empties come from the general fleet like anything else.
+                if (Economy.CargoCategories.IsEmptyContainer(cargo)) continue;
+                if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2)) continue;
+                if (!DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes)) continue;
+
+                // EVERY car type that can carry this cargo, not just the first. Taking
+                // carTypes[0] meant a cargo haulable by both a gondola and a hopper only
+                // ever produced whichever sat at index 0, and the alternatives were dead.
+                var forCargo = new List<TrainCarLivery>();
+                foreach (var ct in carTypes)
+                    if (ct?.liveries != null && ct.liveries.Count > 0) forCargo.AddRange(ct.liveries);
+                if (forCargo.Count > 0) perCargo.Add(forCargo);
+            }
             if (perCargo.Count == 0) return 0;
 
             int fillPercent = Mathf.Clamp(Economy.RecipeProvider.Tuning.poolTrackFillPercent, 10, 100);
