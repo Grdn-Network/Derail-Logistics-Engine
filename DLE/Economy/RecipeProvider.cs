@@ -296,6 +296,7 @@ namespace DLE.Economy
             }
             ApplyExclusions(facilities);
             WireEmptyContainers(facilities);
+            WireCityScrap(facilities);
             NormalizeCategories(facilities);
             AuditRoutes(facilities);
             Main.Log($"[Economy] applied economy.json overlay ({overlay.stations?.Count ?? 0} station(s)).");
@@ -404,6 +405,22 @@ namespace DLE.Economy
         /// total like any other cargo, so a yard nobody clears fills up and stops
         /// accepting deliveries. That pressure is the point (owner ruling 2026-07-27).
         /// </summary>
+        /// <summary>
+        /// A station flagged emitsScrap makes ScrapMetal and ScrapWood as it consumes,
+        /// so both belong in its OUTPUTS: the board's options, the car spawner and the
+        /// route fallback all read outputs, and scrap missing from them meant a city
+        /// with a scrap pile it could never ship (the only hauls leaving were logi).
+        /// </summary>
+        private static void WireCityScrap(Dictionary<string, FacilityDef> facilities)
+        {
+            foreach (var f in facilities.Values)
+            {
+                if (!f.EmitsScrap) continue;
+                if (!f.Outputs.Contains(DV.ThingTypes.CargoType.ScrapMetal)) f.Outputs.Add(DV.ThingTypes.CargoType.ScrapMetal);
+                if (!f.Outputs.Contains(DV.ThingTypes.CargoType.ScrapWood)) f.Outputs.Add(DV.ThingTypes.CargoType.ScrapWood);
+            }
+        }
+
         private static void WireEmptyContainers(Dictionary<string, FacilityDef> facilities)
         {
             var hub = facilities.Values.FirstOrDefault(f => f.IsImportHub)?.YardId;

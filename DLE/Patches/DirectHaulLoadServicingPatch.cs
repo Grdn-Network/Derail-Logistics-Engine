@@ -336,27 +336,35 @@ namespace DLE.Patches
         }
 
         // Internal (not private): mixed hauls attach at creation and wire these same
-        // guards from the generator. Every warehouse task is walked, not just the first:
-        // a mixed job carries one task pair per cargo line, each with its own car subset.
-        internal static void DumpJobCargo(Job job)
+        // guards from the generator. The definition's car list is the authority when it
+        // exists (rider lines carry cars that appear in NO task); the task walk is the
+        // fallback for a job whose definition already unregistered.
+        private static IEnumerable<Car> AllJobCars(Job job)
         {
+            if (job?.ID != null &&
+                StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var def) &&
+                def.carsToTransport != null && def.carsToTransport.Count > 0)
+                return def.carsToTransport;
             var seen = new HashSet<Car>();
             foreach (var wt in job.tasks.OfType<WarehouseTask>())
                 foreach (var c in wt.cars)
-                {
-                    if (!seen.Add(c)) continue;
-                    if (c.LoadedCargoAmount > 0f) c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
-                    c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
-                }
+                    seen.Add(c);
+            return seen;
+        }
+
+        internal static void DumpJobCargo(Job job)
+        {
+            foreach (var c in AllJobCars(job))
+            {
+                if (c.LoadedCargoAmount > 0f) c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
+                c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
+            }
         }
 
         internal static void DumpPlates(Job job)
         {
-            var seen = new HashSet<Car>();
-            foreach (var wt in job.tasks.OfType<WarehouseTask>())
-                foreach (var c in wt.cars)
-                    if (seen.Add(c))
-                        c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
+            foreach (var c in AllJobCars(job))
+                c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
         }
     }
 }

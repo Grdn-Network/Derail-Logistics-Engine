@@ -205,7 +205,10 @@ namespace DLE.Jobs
                 allCars == null || allCars.Count == 0)
             { reason = "bad mixed haul request"; return null; }
 
-            var allCargos = lines.Select(l => l.Cargo).Distinct().ToList();
+            // Rider lines (CargoType.None) carry nothing: no warehouse, no pay, no debit.
+            var allCargos = lines.Where(l => l.Cargo != CargoType.None)
+                .Select(l => l.Cargo).Distinct().ToList();
+            if (allCargos.Count == 0) { reason = "every line is empty riders; make it a Logistics move"; return null; }
             var loadMachine = producer.logicStation.yard
                 .GetWarehouseMachinesThatSupportCargoTypes(allCargos).FirstOrDefault();
             var unloadMachine = consumer.logicStation.yard
@@ -225,6 +228,7 @@ namespace DLE.Jobs
             float wage = 0f;
             foreach (var line in lines)
             {
+                if (line.Unpaid || line.Cargo == CargoType.None) { line.Pay = 0f; continue; }
                 var liveryCounts = new Dictionary<TrainCarLivery, int>();
                 foreach (var id in line.CarIds)
                     if (byId.TryGetValue(id, out var tc) && tc.carLivery != null)
@@ -232,7 +236,7 @@ namespace DLE.Jobs
                         liveryCounts.TryGetValue(tc.carLivery, out var n);
                         liveryCounts[tc.carLivery] = n + 1;
                     }
-                line.Pay = line.Unpaid ? 0f : JobPaymentCalculator.CalculateJobPayment(
+                line.Pay = JobPaymentCalculator.CalculateJobPayment(
                     JobType.Transport, distance,
                     new PaymentCalculationData(liveryCounts,
                         new Dictionary<CargoType, int> { { line.Cargo, line.CarIds.Count } }));
@@ -253,8 +257,9 @@ namespace DLE.Jobs
             if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
             {
                 foreach (var line in lines)
-                    Economy.EconomyState.Instance.ConsumeForHaul(
-                        producer.stationInfo.YardID, line.Cargo, line.CarIds.Count, paid: !line.Unpaid);
+                    if (line.Cargo != CargoType.None)
+                        Economy.EconomyState.Instance.ConsumeForHaul(
+                            producer.stationInfo.YardID, line.Cargo, line.CarIds.Count, paid: !line.Unpaid);
                 def.unpaidMove = lines.All(l => l.Unpaid);
                 var job = def.LiveJob;
                 if (job != null)
@@ -269,8 +274,9 @@ namespace DLE.Jobs
                     foreach (var tc in allCars) tc.UpdateJobIdOnCarPlates(jobId);
                 }
                 foreach (var line in lines)
-                    Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID,
-                        line.Cargo.ToString(), line.CarIds.Count, jobId);
+                    if (line.Cargo != CargoType.None)
+                        Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID,
+                            line.Cargo.ToString(), line.CarIds.Count, jobId);
                 Dispatch.DleMpChannel.NotifyAttach(jobId,
                     def.carsToTransport.Select(c => c.ID), wage, def.unpaidMove,
                     lines.Count > 1 ? "Mixed freight" : lines[0].Cargo.ToString(), allCars.Count);

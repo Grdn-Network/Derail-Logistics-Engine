@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="512" height="512">
+  <rect width="32" height="32" fill="#17181a"></rect>
+  <g fill="#ef8a1f">
+    <text x="16" y="19.5" text-anchor="middle" font-family="Barlow Condensed, Barlow Semi Condensed, sans-serif" font-weight="600" font-size="22" letter-spacing="-0.5">DLE</text>
+    <rect x="1" y="23" width="30" height="2.8"></rect>
+    <rect x="4.5" y="27" width="4" height="3.8"></rect>
+    <rect x="14" y="27" width="4" height="3.8"></rect>
+    <rect x="23.5" y="27" width="4" height="3.8"></rect>
+  </g>
+</svg>
