@@ -194,7 +194,7 @@ namespace DLE.Economy
                 !originFacility.CanSend(cargo, destYard))
             {
                 var allowed = originFacility.DestinationsFor(cargo);
-                reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
+                reason = $"{cargo} from {originYard} goes to {(allowed != null && allowed.Count > 0 ? string.Join(", ", allowed.OrderBy(y => y)) : "nowhere on the route table")}, not {destYard}";
                 Main.Log($"[Director] {reason}");
                 return null;
             }
@@ -317,7 +317,7 @@ namespace DLE.Economy
                     if (originFacility != null && !originFacility.CanSend(cargo, destYard))
                     {
                         var allowed = originFacility.DestinationsFor(cargo);
-                        reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
+                        reason = $"{cargo} from {originYard} goes to {(allowed != null && allowed.Count > 0 ? string.Join(", ", allowed.OrderBy(y => y)) : "nowhere on the route table")}, not {destYard}";
                         return null;
                     }
 

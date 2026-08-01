@@ -565,9 +565,12 @@ namespace DLE.Jobs
             int licenseCarCount = logicCars.Count > 0 ? logicCars.Count : plannedCarCount;
             var chainData = new StationsChainData(
                 producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            // Rider lines carry CargoType.None, which the license manager cannot look
+            // up (it NRE'd the whole create): licenses come from the REAL cargos only.
             var licenseCargos = manifest != null && manifest.Count > 0
-                ? manifest.Select(l => l.Cargo).Distinct().ToList()
+                ? manifest.Select(l => l.Cargo).Where(c => c != CargoType.None).Distinct().ToList()
                 : new List<CargoType> { cargo };
+            if (licenseCargos.Count == 0) licenseCargos.Add(cargo);
             var requiredLicenses =
                 JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(licenseCargos))
                 | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(licenseCarCount)?.v1 ?? JobLicenses.Basic);

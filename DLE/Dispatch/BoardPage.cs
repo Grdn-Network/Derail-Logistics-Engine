@@ -284,7 +284,7 @@ let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},las
 // Job maker state: the picked cars, the compatible-car set for the chosen cargo,
 // the banked manifest lines, and the last yard snapshot. Selection survives
 // refreshes; a station change clears everything.
-let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[];
+let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[],jmDest=null;
 // Accepted-hauls station filter: click a chip to see only that origin, right-click
 // to hide a station you are not dispatching. Hidden set survives reloads.
 let accOnly=null;
@@ -397,15 +397,18 @@ async function refresh(){
  lastEconData=econ;
  const netKey=JSON.stringify(options)+JSON.stringify(econ);
  if(last.net!==netKey){last.net=netKey;drawNet()}
- const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+accOnly+'|'+[...accHidden].join();
+ const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+accOnly+'|'+[...accHidden].join()+'|'+lastEconData.length;
  if(last.jobs!==jKey){last.jobs=jKey;
   const snap=snapshotCrew();
   const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
-  const origins=[...new Set(ac.map(x=>x.origin))].sort();
+  // Every station gets a chip, hauls or not: a dispatcher sets their desk up
+  // BEFORE the work exists. The filter is per browser (nothing goes server-side).
+  const origins=[...new Set(lastEconData.map(e=>e.yardId))].sort();
+  const perOrigin={};for(const x of ac)perOrigin[x.origin]=(perOrigin[x.origin]||0)+1;
   const acShown=ac.filter(x=>accOnly?x.origin===accOnly:!accHidden.has(x.origin));
   $('accFilter').innerHTML=origins.map(o=>{
    const cls=accOnly===o?' on':accHidden.has(o)?' off':'';
-   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only ${esc(o)} &middot; right-click: hide/show ${esc(o)}'>${esc(o)}</span>`}).join('')
+   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only ${esc(o)} &middot; right-click: hide/show ${esc(o)}'>${esc(o)}${perOrigin[o]?' '+perOrigin[o]:''}</span>`}).join('')
    +(accOnly||accHidden.size?`<span class='fchip clear' data-act='accClear' title='show every station'>&times; all</span>`:'');
   $('cAvail').textContent=av.length||'';
   $('cAcc').textContent=acShown.length===ac.length?(ac.length||''):acShown.length+'/'+ac.length;
@@ -868,15 +871,19 @@ const actions={
  jmAddLine:async()=>{
   const c=$('hCargo').value,d=$('hDest').value,sel=[...jmSelSet];
   if(!c){toast('choose a cargo first',true);return}
+  if(!d){toast('choose the destination first: every line of the booklet goes there',true);return}
   if(!sel.length){toast('pick the cars for this line first',true);return}
   const line={cargo:c,cars:sel,pay:0,per:0};
-  try{if(d&&c!==LOGI){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0;line.per=r.perCarSeconds||0}}catch(e){}
+  try{if(c!==LOGI){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0;line.per=r.perCarSeconds||0}}catch(e){}
   jmLines.push(line);
-  jmSelSet.clear();renderManifest();syncSelUi();renderYard();
-  toast('Line banked: '+sel.length+' x '+lineDisp(c)+'; pick cars for the next cargo')},
+  if(jmLines.length===1)jmDest=d; // the first line locks the booklet's destination
+  jmSelSet.clear();renderManifest();syncSelUi();renderYard();originChanged();
+  toast('Line banked: '+sel.length+' x '+lineDisp(c)+' to '+jmDest+'; pick cars for the next cargo')},
  jmDelLine:(id,el)=>{const i=parseInt(el.dataset.id);if(!(i>=0)||i>=jmLines.length)return;
-  jmLines.splice(i,1);renderManifest();renderYard();syncSelUi()},
- jmClear:()=>{jmSelSet.clear();jmLines=[];renderManifest();syncSelUi();renderYard()},
+  jmLines.splice(i,1);if(!jmLines.length)jmDest=null;
+  renderManifest();renderYard();syncSelUi();originChanged()},
+ jmClear:()=>{jmSelSet.clear();jmLines=[];jmDest=null;
+  renderManifest();syncSelUi();renderYard();originChanged()},
  jmOpen:(id,el)=>{const v=el.dataset.id;const os=$('hOrigin');
   if(![...os.options].some(x=>x.value===v)){toast('station not on the board yet',true);return}
   openSec('create');os.value=v;originChanged();
@@ -970,23 +977,32 @@ async function afterCreate(jobId,forceTake){
  try{
   if(crew)await j('/api/v1/assignments/'+jobId,'PUT',{player:crew,assignedBy:'job maker'});
   if(take){const t=await j('/api/v1/jobs/'+jobId+'/take','POST',{player:crew||null});
-   if(!t.ok)toast('created, but take failed: '+(t.message||''),true)}
+   if(!t.ok){toast('created, but take failed: '+(t.message||''),true);return}
+   // A named crew on a taken booklet gets the paper in hand without asking.
+   if(crew){const f=await j('/api/v1/jobs/'+jobId+'/fax','POST',{player:crew});
+    toast(f.ok?'booklet faxed to '+crew:'fax failed: '+(f.message||''),!f.ok)}}
  }catch(e){}}
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;
  const fn=actions[el.dataset.act];if(fn)fn(el.dataset.id,el)});
 function originChanged(){const o=$('hOrigin').value;
- // A logi move ships from anywhere, so the option is always on the menu.
- keepSelect($('hCargo'),options.filter(x=>x.origin===o).map(x=>x.cargo).concat([LOGI]));
+ // A logi move ships from anywhere, so the option is always on the menu. With
+ // lines banked the destination is LOCKED, so only cargo that can actually go
+ // there stays on the menu: no booklet quietly changing its destination.
+ keepSelect($('hCargo'),options.filter(x=>x.origin===o&&(!jmDest||(x.consumers||[]).includes(jmDest))).map(x=>x.cargo).concat([LOGI]));
  if(o!==jmStation){jmStation=o;jmSelSet.clear();jmCompat=null;jmYardData=null;yardKey='';
-  jmLines=[];renderManifest();syncSelUi();renderYard();pollYard(true)}
+  jmLines=[];jmDest=null;renderManifest();syncSelUi();renderYard();pollYard(true)}
  cargoChanged()}
 function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
+ const locked=jmLines.length>0&&jmDest;
  if(c===LOGI){
-  // Any usable car can move; any other station can receive.
-  keepSelect($('hDest'),[...new Set(lastEconData.map(e=>e.yardId))].filter(y=>y!==o).sort());
+  // Any usable car can move; any other station can receive (or the locked one).
+  keepSelect($('hDest'),locked?[jmDest]:[...new Set(lastEconData.map(e=>e.yardId))].filter(y=>y!==o).sort());
+  $('hDest').disabled=!!locked;
   jmCompat=null;compatKey='';renderYard();updateEstimate();return}
  const opt=options.find(x=>x.origin===o&&x.cargo===c);
- keepSelect($('hDest'),opt?opt.consumers:[]);fetchCompat();updateEstimate()}
+ keepSelect($('hDest'),locked?[jmDest]:(opt?opt.consumers:[]));
+ $('hDest').disabled=!!locked;
+ fetchCompat();updateEstimate()}
 // Live haul estimate: weight, length, pay and staff loading time for the form
 // as it stands. Debounced; a stale response never overwrites a newer one.
 let estTimer=null,estSeq=0,lastEstQ='';
@@ -995,7 +1011,7 @@ function updateEstimate(){
  estTimer=setTimeout(async()=>{
   const o=$('hOrigin').value,c=$('hCargo').value,d=$('hDest').value,n=parseInt($('hCars').value);
   const box=$('hEstimate');
-  if(c===LOGI){box.textContent='unpaid move; closes on arrival';lastEstQ='';return}
+  if(c===LOGI){box.textContent=jmLines.length?'riders: these cars travel empty with the booklet':'unpaid move; closes on arrival';lastEstQ='';return}
   if(!o||!c||!d||!(n>0)){box.textContent='';lastEstQ='';return}
   const q=`${o}|${c}|${d}|${n}`;
   if(q===lastEstQ)return;
