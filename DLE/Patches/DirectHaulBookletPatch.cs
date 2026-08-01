@@ -293,12 +293,14 @@ namespace DLE.Patches
             var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", total);
             if (frontPage != null) pages.Add(frontPage);
 
+            // Booklet text rework (#87): each step teaches the DLE mechanic it uses,
+            // because the booklet is the whole contract between dispatch and crew.
             if (hasLoadStep)
             {
                 pages.Add(new TaskTemplatePaperData(
                     "1",
                     DirectHaulBooklet.SafeL("job/task_type_load", "LOAD"),
-                    "Bring empty cars to the loading track, unless dispatch has already loaded them remotely.",
+                    "Bring the empty cars to the loading track, or ask dispatch to load them remotely wherever they stand.",
                     origin?.YardID ?? string.Empty,
                     origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
                     DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
@@ -309,15 +311,24 @@ namespace DLE.Patches
             pages.Add(new TaskTemplatePaperData(
                 hasLoadStep ? "2" : "1",
                 DirectHaulBooklet.SafeL("job/task_type_unload", "UNLOAD"),
-                DirectHaulBooklet.SafeL("job/task_desc_unload", "Unload the cars at the destination warehouse."),
+                "Take the cars to the unloading track, or ask dispatch to unload them remotely wherever they stand.",
                 destination?.YardID ?? string.Empty,
                 destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
                 DirectHaulBooklet.GetTaskTrackDisplay(job, hasLoadStep ? 1 : 0), C.TRACK_COLOR,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
                 cars, null, hasLoadStep ? "4" : "3", total));
 
-            pages.Add(new ValidateJobTaskTemplatePaperData(
-                hasLoadStep ? "3" : "2", hasLoadStep ? "5" : "4", total));
+            // The vanilla validator page told crews to find a validator that this job
+            // never needs; a TURN IN step states what actually happens instead.
+            pages.Add(new TaskTemplatePaperData(
+                hasLoadStep ? "3" : "2",
+                "TURN IN",
+                "The order closes and pays out on its own once the cargo is unloaded. No validator, no handbrake ritual. Dispatch can cancel an open order from the board.",
+                destination?.YardID ?? string.Empty,
+                destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                string.Empty, C.TRACK_COLOR,
+                string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                new List<Car_data>(), null, hasLoadStep ? "5" : "4", total));
 
             __result = pages;
             return false;

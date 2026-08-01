@@ -340,6 +340,15 @@ namespace DLE.Dispatch
                     Json(ctx, 200, payload);
                     return;
                 }
+                // Yard view (#119): a station's tracks with their cars in consist order.
+                // The Job maker draws this as its canvas; read-only on its own.
+                if (method == "GET" && path == "/api/v1/yard")
+                {
+                    var payload = YardPayload(ctx.Request.QueryString["yard"], out var yardError);
+                    if (payload == null) { Json(ctx, 400, new { error = yardError }); return; }
+                    Json(ctx, 200, payload);
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/history")
                 {
                     int limit = 200;
@@ -686,6 +695,151 @@ namespace DLE.Dispatch
                 total = rows.Count,
                 usable,
                 cars = rows.Select(r => r.row).ToList(),
+            };
+        }
+
+        /// <summary>
+        /// One station's yard as the dispatcher sees it from the tower (#119): every
+        /// yard track, cars grouped into cuts (coupled consists) and ordered along the
+        /// track, so the board can draw the yard instead of a flat list. Order comes
+        /// from projecting car positions onto the longest chord between cars on the
+        /// track: yard tracks are near-straight, and the chord needs no track geometry.
+        /// </summary>
+        private static object YardPayload(string yardId, out string error)
+        {
+            error = null;
+            var sc = StationController.GetStationByYardID(yardId ?? "");
+            if (sc == null) { error = $"unknown yard '{yardId}'"; return null; }
+
+            // Warehouse tracks get a badge and their cargo list; the loading track is
+            // where staff servicing happens, so the dispatcher needs it marked.
+            var whCargos = new Dictionary<DV.Logic.Job.Track, List<string>>();
+            try
+            {
+                foreach (var c in WarehouseMachineController.allControllers)
+                {
+                    var wt = c?.warehouseMachine?.WarehouseTrack;
+                    if (wt?.ID == null || !string.Equals(wt.ID.yardId, yardId, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!whCargos.TryGetValue(wt, out var list)) whCargos[wt] = list = new List<string>();
+                    foreach (var ct in c.warehouseMachine.SupportedCargoTypes)
+                    {
+                        var n = Economy.CargoCategories.DisplayName(ct);
+                        if (!list.Contains(n)) list.Add(n);
+                    }
+                }
+            }
+            catch { }
+
+            var tracks = DispatchServicing.StationTracks(sc, null);
+            foreach (var wt in whCargos.Keys) tracks.Add(wt);
+
+            var reservedBy = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var kv in StaticDirectHaulJobDefinition.jobDefinitions)
+                if (kv.Value?.reservedCarIds != null)
+                    foreach (var rid in kv.Value.reservedCarIds)
+                        reservedBy[rid] = kv.Key;
+
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            var trackRows = new List<(string sortKey, object row)>();
+            foreach (var track in tracks)
+            {
+                var cars = track?.GetCarsFullyOnTrack();
+                var entries = new List<(DV.Logic.Job.Car car, TrainCar tc, Vector3 pos)>();
+                if (cars != null)
+                    foreach (var car in cars)
+                    {
+                        var tc = car.TrainCar();
+                        if (tc == null) continue;
+                        entries.Add((car, tc, tc.transform.position));
+                    }
+
+                // Longest chord between any two cars on this track is the sort axis.
+                Vector3 axisA = Vector3.zero, axisB = Vector3.right;
+                float best = -1f;
+                for (int i = 0; i < entries.Count; i++)
+                    for (int k = i + 1; k < entries.Count; k++)
+                    {
+                        float d = (entries[i].pos - entries[k].pos).sqrMagnitude;
+                        if (d > best) { best = d; axisA = entries[i].pos; axisB = entries[k].pos; }
+                    }
+                var axis = axisB - axisA;
+                if (axis.sqrMagnitude < 0.01f) axis = Vector3.right;
+                float Proj(Vector3 p) => Vector3.Dot(p - axisA, axis);
+
+                // Cuts: cars sharing a trainset are coupled; the trainset's own car list
+                // carries the coupling order, filtered to the cars standing on this track.
+                var cuts = new List<List<(DV.Logic.Job.Car car, TrainCar tc, Vector3 pos)>>();
+                var byTrainset = new Dictionary<object, List<(DV.Logic.Job.Car, TrainCar, Vector3)>>();
+                foreach (var e in entries)
+                {
+                    var key = (object)e.tc.trainset ?? e.tc;
+                    if (!byTrainset.TryGetValue(key, out var cut))
+                        byTrainset[key] = cut = new List<(DV.Logic.Job.Car, TrainCar, Vector3)>();
+                    cut.Add(e);
+                }
+                foreach (var cut in byTrainset.Values)
+                {
+                    // Keep trainset order inside the cut, then orient it along the axis
+                    // so neighbouring cuts read in one direction.
+                    if (cut.Count > 1 && cut[0].Item2.trainset?.cars != null)
+                    {
+                        var order = cut[0].Item2.trainset.cars;
+                        cut.Sort((x, y) => order.IndexOf(x.Item2).CompareTo(order.IndexOf(y.Item2)));
+                    }
+                    if (cut.Count > 1 && Proj(cut[0].Item3) > Proj(cut[cut.Count - 1].Item3))
+                        cut.Reverse();
+                    cuts.Add(cut.Select(x => (x.Item1, x.Item2, x.Item3)).ToList());
+                }
+                cuts.Sort((x, y) => Proj(x[0].pos).CompareTo(Proj(y[0].pos)));
+
+                float usedM = 0f;
+                var cutRows = new List<object>();
+                foreach (var cut in cuts)
+                {
+                    var carRows = new List<object>();
+                    foreach (var (car, tc, _) in cut)
+                    {
+                        usedM += (float)car.length;
+                        var jobOfCar = jobsManager != null ? jobsManager.GetJobOfCar(car) : null;
+                        reservedBy.TryGetValue(car.ID, out var holder);
+                        bool free = !tc.IsLoco && car.LoadedCargoAmount == 0f && jobOfCar == null &&
+                                    holder == null && !car.playerSpawnedCar;
+                        carRows.Add(new
+                        {
+                            carId = car.ID,
+                            type = tc.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
+                            loco = tc.IsLoco,
+                            lengthM = (int)Math.Round(car.length),
+                            cargo = car.LoadedCargoAmount > 0f
+                                ? Economy.CargoCategories.DisplayName(car.CurrentCargoTypeInCar) : null,
+                            jobId = jobOfCar?.ID,
+                            reservedBy = holder,
+                            playerSpawned = car.playerSpawnedCar,
+                            usable = free,
+                        });
+                    }
+                    cutRows.Add(carRows);
+                }
+
+                var id = track?.ID?.FullDisplayID ?? "?";
+                whCargos.TryGetValue(track, out var whList);
+                trackRows.Add((id, new
+                {
+                    track = id,
+                    lengthM = (int)Math.Round(track?.length ?? 0),
+                    usedM = (int)Math.Round(usedM),
+                    warehouse = whList != null,
+                    warehouseCargos = whList,
+                    carCount = entries.Count,
+                    cuts = cutRows,
+                }));
+            }
+            trackRows.Sort((a, b) => string.CompareOrdinal(a.sortKey, b.sortKey));
+            return new
+            {
+                yard = sc.stationInfo?.YardID ?? yardId,
+                name = sc.stationInfo?.Name,
+                tracks = trackRows.Select(t => t.row).ToList(),
             };
         }
 
