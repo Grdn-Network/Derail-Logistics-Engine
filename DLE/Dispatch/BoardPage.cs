@@ -285,6 +285,10 @@ let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},las
 // the banked manifest lines, and the last yard snapshot. Selection survives
 // refreshes; a station change clears everything.
 let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[],jmDest=null;
+// The destination is sticky the moment the dispatcher touches it: cargo changes
+// must never move it. Banked lines harden the stickiness into a hard lock.
+let jmDestPicked=false;
+function effDest(){return (jmLines.length&&jmDest)||(jmDestPicked?$('hDest').value:null)||null}
 // Accepted-hauls station filter: click a chip to see only that origin, right-click
 // to hide a station you are not dispatching. Hidden set survives reloads.
 let accOnly=null;
@@ -985,23 +989,31 @@ async function afterCreate(jobId,forceTake){
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;
  const fn=actions[el.dataset.act];if(fn)fn(el.dataset.id,el)});
 function originChanged(){const o=$('hOrigin').value;
- // A logi move ships from anywhere, so the option is always on the menu. With
- // lines banked the destination is LOCKED, so only cargo that can actually go
- // there stays on the menu: no booklet quietly changing its destination.
- keepSelect($('hCargo'),options.filter(x=>x.origin===o&&(!jmDest||(x.consumers||[]).includes(jmDest))).map(x=>x.cargo).concat([LOGI]));
  if(o!==jmStation){jmStation=o;jmSelSet.clear();jmCompat=null;jmYardData=null;yardKey='';
-  jmLines=[];jmDest=null;renderManifest();syncSelUi();renderYard();pollYard(true)}
+  jmLines=[];jmDest=null;jmDestPicked=false;renderManifest();syncSelUi();renderYard();pollYard(true)}
+ // A logi move ships from anywhere, so the option is always on the menu. Once a
+ // destination is chosen (touched or line-locked), cargo that cannot go there is
+ // HIDDEN, so an impossible line can never even be assembled.
+ const ed=effDest();
+ keepSelect($('hCargo'),options.filter(x=>x.origin===o&&(!ed||(x.consumers||[]).includes(ed))).map(x=>x.cargo).concat([LOGI]));
  cargoChanged()}
 function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
  const locked=jmLines.length>0&&jmDest;
- if(c===LOGI){
-  // Any usable car can move; any other station can receive (or the locked one).
-  keepSelect($('hDest'),locked?[jmDest]:[...new Set(lastEconData.map(e=>e.yardId))].filter(y=>y!==o).sort());
-  $('hDest').disabled=!!locked;
-  jmCompat=null;compatKey='';renderYard();updateEstimate();return}
- const opt=options.find(x=>x.origin===o&&x.cargo===c);
- keepSelect($('hDest'),locked?[jmDest]:(opt?opt.consumers:[]));
+ const allYards=[...new Set(lastEconData.map(e=>e.yardId))].filter(y=>y!==o).sort();
+ // The destination menu never narrows to one cargo's consumers once the pick is
+ // sticky: that narrowing was what silently swapped the booklet's destination.
+ const union=[...new Set([].concat(...options.filter(x=>x.origin===o).map(x=>x.consumers||[])))].sort();
+ let destOpts;
+ if(locked)destOpts=[jmDest];
+ else if(c===LOGI)destOpts=allYards;
+ else if(jmDestPicked)destOpts=union.length?union:allYards;
+ else{const opt0=options.find(x=>x.origin===o&&x.cargo===c);destOpts=opt0?opt0.consumers:[]}
+ // The sticky pick can never fall out of its own menu, whatever list is showing.
+ const ed2=effDest();
+ if(!locked&&ed2&&!destOpts.includes(ed2))destOpts=[ed2].concat(destOpts);
+ keepSelect($('hDest'),destOpts);
  $('hDest').disabled=!!locked;
+ if(c===LOGI){jmCompat=null;compatKey='';renderYard();updateEstimate();return}
  fetchCompat();updateEstimate()}
 // Live haul estimate: weight, length, pay and staff loading time for the form
 // as it stands. Debounced; a stale response never overwrites a newer one.
@@ -1024,7 +1036,7 @@ function updateEstimate(){
  },250)}
 $('hOrigin').addEventListener('change',originChanged);
 $('hCargo').addEventListener('change',cargoChanged);
-$('hDest').addEventListener('change',updateEstimate);
+$('hDest').addEventListener('change',()=>{jmDestPicked=true;originChanged()});
 $('hCars').addEventListener('input',updateEstimate);
 $('dlType').onchange=()=>renderLog(lastHist);
 $('dlYard').oninput=()=>renderLog(lastHist);
