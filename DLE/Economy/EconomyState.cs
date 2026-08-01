@@ -156,10 +156,28 @@ namespace DLE.Economy
                 // family would multiply the starting pile by the number of brands and
                 // fragment it before the first train ran. Foreign brands arrive by ship.
                 IEnumerable<CargoType> cargos;
-                if (f.ConsumesStock) continue;
+                if (f.ConsumesStock)
+                {
+                    // Cities open with a little outbound scrap so day one has work
+                    // LEAVING them too; consumption keeps the pile fed afterwards.
+                    if (f.EmitsScrap)
+                    {
+                        float half = Math.Max(2, amount / 2);
+                        Credit(f.YardId, CargoType.ScrapMetal, half);
+                        Credit(f.YardId, CargoType.ScrapWood, half);
+                        seeded += 2;
+                    }
+                    continue;
+                }
                 else if (f.IsSource || f.IsImportHub) cargos = f.Outputs;
                 else cargos = f.Outputs.Concat(f.Inputs);
-                cargos = cargos.Select(CargoCategories.Canon).Distinct();
+                // One representative per FAMILY. Canon alone only collapsed families
+                // with a domestic brand (Tools, Electronics, Chemicals); Clothing has
+                // none, so the harbour seeded all four brands at six carloads each and
+                // opened with 24 carloads of clothing (same defect class as the 48
+                // tools in 0.44).
+                cargos = cargos.GroupBy(CargoCategories.DisplayName)
+                    .Select(g => CargoCategories.Canon(g.First()));
                 foreach (var cargo in cargos)
                 {
                     if (f.Machines.Contains(cargo)) continue; // machines seed separately below
@@ -806,6 +824,19 @@ namespace DLE.Economy
         {
             if (paid) ConsumeProduced(yardId, cargo, amount);
             else ConsumeImportedFirst(yardId, cargo, amount);
+        }
+
+        /// <summary>
+        /// A haul unloaded back at its ORIGIN: the committed supply returns to the pile
+        /// it left. Paid lines return as local product; unpaid lines return as imported,
+        /// so a round trip can never launder imported goods into paid stock.
+        /// </summary>
+        public void ReturnSupply(string yardId, CargoType cargo, float amount, bool paid)
+        {
+            if (amount <= 0f) return;
+            Credit(yardId, cargo, amount);
+            if (!paid) MarkImported(yardId, cargo, amount);
+            Main.LogAlways($"[Economy] {yardId} took back {amount:0.#} {cargo} from a returned haul{(paid ? "" : " (imported)")}.");
         }
 
         /// <summary>

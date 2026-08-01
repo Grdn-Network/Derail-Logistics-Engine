@@ -383,7 +383,12 @@ namespace DLE.Dispatch
                         var kvLines = new List<KeyValuePair<DV.ThingTypes.CargoType, List<string>>>();
                         foreach (var l in req.lines)
                         {
-                            if (!TryResolveCargo(l.cargo, req.origin, out var lineCargo))
+                            DV.ThingTypes.CargoType lineCargo;
+                            // '__logi' marks a RIDER line: those cars travel empty with
+                            // the haul, an unpaid reposition folded into the booklet.
+                            if (string.Equals(l.cargo, "__logi", StringComparison.Ordinal))
+                                lineCargo = DV.ThingTypes.CargoType.None;
+                            else if (!TryResolveCargo(l.cargo, req.origin, out lineCargo))
                             { Json(ctx, 400, new { error = $"unknown cargo '{l.cargo}'" }); return; }
                             kvLines.Add(new KeyValuePair<DV.ThingTypes.CargoType, List<string>>(
                                 lineCargo, l.cars ?? new List<string>()));
@@ -586,6 +591,18 @@ namespace DLE.Dispatch
                     var jobId = path.Substring(jobCarsPrefix.Length,
                         path.Length - jobCarsPrefix.Length - "/unload".Length);
                     var r = DispatchServicing.UnloadJob(jobId);
+                    Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
+                    return;
+                }
+
+                // The undo: a haul standing back at its origin returns its supply and
+                // cancels. The board confirms before calling.
+                if (method == "POST" && path.StartsWith(jobCarsPrefix, StringComparison.Ordinal) &&
+                    path.EndsWith("/return", StringComparison.Ordinal))
+                {
+                    var jobId = path.Substring(jobCarsPrefix.Length,
+                        path.Length - jobCarsPrefix.Length - "/return".Length);
+                    var r = DispatchServicing.ReturnJob(jobId);
                     Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
                     return;
                 }
@@ -1017,7 +1034,24 @@ namespace DLE.Dispatch
                 pay = (int)Math.Round(pay),
                 // First car is instant, the rest queue on station staff.
                 remoteLoadSeconds = (int)Math.Round(Math.Max(0, cars - 1) * perCar),
+                perCarSeconds = (int)Math.Round(perCar),
             };
+        }
+
+        private static bool CarsAtOrigin(StaticDirectHaulJobDefinition def)
+        {
+            try
+            {
+                var cars = def.carsToTransport;
+                if (cars == null || cars.Count == 0) return false;
+                var sc = StationController.GetStationByYardID(def.chainData?.chainOriginYardId);
+                if (sc == null) return false;
+                var tracks = DispatchServicing.StationTracks(sc, def.loadMachine?.WarehouseTrack);
+                foreach (var c in cars)
+                    if (c.CurrentTrack == null || !tracks.Contains(c.CurrentTrack)) return false;
+                return true;
+            }
+            catch { return false; }
         }
 
         private static object OptionsPayload() =>
@@ -1124,6 +1158,9 @@ namespace DLE.Dispatch
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
                 reservedCars = kv.Value.reservedCarIds,
+                // The board offers "return supply" instead of a doomed unload when the
+                // whole consist is standing back where it started.
+                carsAtOrigin = CarsAtOrigin(kv.Value),
             }).ToList();
 
             // Logi moves ride the same list (#118): one work queue, no separate section.

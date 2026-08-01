@@ -12,6 +12,7 @@ namespace DLE.Dispatch
 <!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <meta name='theme-color' content='#0e1116'>
+<link rel='icon' type='image/png' href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACeUlEQVR4AexWS2gUQRB907NJ1CVKzGIk4MEPIioeRFjMQQQxN6MQryLqxYBEEHLwJHrxIAiKEC8qfsCLguYiCIJ4UBZEMBgRES9eVGIUwWCSmWm7alNL92yHLLibWUiWfV3dU1Vdb6qrZkZ1re3WWUIh498SAScD5/aF+HCmxcHo6RZc7QvRuSLgw1rZBjw+kmObW4dzfC09rO8I8HKgbJPej9a2n0MgvRGtW0Ogd5PCzf4QBUNCGR4E0tUDXgJ/pjWGSwkuvYjx7pvmOJsLAQ5tM9F5VftQ+qJx8Xni4HoprmzgJTBl9CPvE9x4nWDoSYwfkxqBiV1cZ4aKa22TzxMat9/EDoiUeHsJiJLkTxN8YpJmQK6euS9vCTUrMxMNJ7BhdYCjO0PGflPM6UNsOAGqm7N7FQiDPQqrlrnJbjgBO1yiAYJ9reEE7r9NsOXyDOPg3Qi/p+zwWARF6N5v9WreI+huD1DIB+wZpQ+Qr/7f4CXQZp7/fVsVTuxSuNAbomM5oE0B2U8wCrsmD24vaTOS1GqkE9htSHoCdYbovQTyrQEGigpDe0Js7yrf/cdxjUdjhoV4GrmxM+D2ohYTUKu1mzemUfOfgolO5MmiuUPWYv4inDbvhaefEhx/GGPcPJZn/eomnAycfxZzu0jbkNxxZQaDIzG/kCjqr7/AgTtRlR3ZEkg3+lWjZ3hum2MPItqK4RDgKws8NAcB+kzKApTs5sjA2HeNLFDJQP+9CFmgQoAmglO7FX9yS03QWnS2FL1IWydz8hU9SVqLTmRz1ICwyUJ6M2AX5FykbBua12Lns6kicO1V4hQkrX2O6aL12ZCvbUfrtN0/AAAA//89h+LdAAAABklEQVQDAI+K4FDa7/FNAAAAAElFTkSuQmCC'>
 <title>DLE Dispatch</title>
 <style>
 :root{--bg:#0e1116;--panel:#141a22;--panel2:#1a2129;--line:#232d3a;--line2:#313d4e;
@@ -172,6 +173,14 @@ border:1px solid var(--line);border-radius:6px;margin:3px 0;font-size:12.5px;fle
 .ycar.inline{background:#241d3a;border-color:#54418c;color:var(--dim)}
 .yend{flex:none;font-size:10px;font-weight:700;color:var(--dim);align-self:center;
 letter-spacing:.05em;user-select:none}
+.accf{margin-left:12px;display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
+.fchip{font-size:10.5px;font-weight:700;letter-spacing:.04em;border:1px solid var(--line2);
+border-radius:999px;padding:1px 8px;color:var(--dim);cursor:pointer;text-transform:none}
+.fchip:hover{color:var(--text);border-color:var(--violet)}
+.fchip.on{background:var(--vdeep);border-color:var(--violet);color:var(--text)}
+.fchip.off{opacity:.4;text-decoration:line-through}
+.fchip.clear{border-style:dashed}
+.shipto{margin:-1px 0 4px 170px;font-size:11px;color:var(--dim)}
 #toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;
 gap:8px;z-index:10;max-width:340px}
 .toast{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--green);
@@ -230,7 +239,8 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   <div id='netDetail' class='netdetail'></div>
  </section>
  <section class='col12' data-sec='acc'>
-  <h2>Accepted hauls <span class='count' id='cAcc'></span></h2>
+  <h2>Accepted hauls <span class='count' id='cAcc'></span>
+   <span id='accFilter' class='accf'></span></h2>
   <div class='cards' id='accCards'></div>
  </section>
  <section class='card col12' id='finder' data-sec='finder'>
@@ -275,6 +285,10 @@ let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},las
 // the banked manifest lines, and the last yard snapshot. Selection survives
 // refreshes; a station change clears everything.
 let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[];
+// Accepted-hauls station filter: click a chip to see only that origin, right-click
+// to hide a station you are not dispatching. Hidden set survives reloads.
+let accOnly=null;
+const accHidden=new Set(JSON.parse(localStorage.getItem('dleAccHidden')||'[]'));
 const LOGI='__logi';
 function isLogi(){return $('hCargo').value===LOGI}
 function lineCarSet(){const s=new Set();for(const l of jmLines)for(const c of l.cars)s.add(c);return s}
@@ -383,13 +397,20 @@ async function refresh(){
  lastEconData=econ;
  const netKey=JSON.stringify(options)+JSON.stringify(econ);
  if(last.net!==netKey){last.net=netKey;drawNet()}
- const jKey=JSON.stringify(jobs)+[...expanded].join();
+ const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+accOnly+'|'+[...accHidden].join();
  if(last.jobs!==jKey){last.jobs=jKey;
   const snap=snapshotCrew();
   const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
-  $('cAvail').textContent=av.length||'';$('cAcc').textContent=ac.length||'';
+  const origins=[...new Set(ac.map(x=>x.origin))].sort();
+  const acShown=ac.filter(x=>accOnly?x.origin===accOnly:!accHidden.has(x.origin));
+  $('accFilter').innerHTML=origins.map(o=>{
+   const cls=accOnly===o?' on':accHidden.has(o)?' off':'';
+   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only ${esc(o)} &middot; right-click: hide/show ${esc(o)}'>${esc(o)}</span>`}).join('')
+   +(accOnly||accHidden.size?`<span class='fchip clear' data-act='accClear' title='show every station'>&times; all</span>`:'');
+  $('cAvail').textContent=av.length||'';
+  $('cAcc').textContent=acShown.length===ac.length?(ac.length||''):acShown.length+'/'+ac.length;
   $('availCards').innerHTML=av.length?av.map(x=>jobCard(x,true)).join(''):`<div class='empty'>${lockOn?'lock is on: the director is paused; create hauls above and assign them to crews':'no open hauls; spawn one above or wait for the director'}</div>`;
-  $('accCards').innerHTML=ac.length?ac.map(x=>jobCard(x,false)).join(''):`<div class='empty'>nothing accepted yet</div>`;
+  $('accCards').innerHTML=acShown.length?acShown.map(x=>jobCard(x,false)).join(''):`<div class='empty'>${ac.length?'every haul here is hidden by the station filter':'nothing accepted yet'}</div>`;
   restoreCrew(snap)}
  for(const id of expanded)fillCars(id);
  for(const id of pickOpen)fillPicker(id);
@@ -449,11 +470,11 @@ function renderLog(hist){
   const amt=e.Amount?Math.round(e.Amount*10)/10:'';
   return `<div style='padding:2px 0;border-bottom:1px solid var(--line)'><span class='meta num'>${t}</span> <b>${esc(e.Yard||'')}</b> ${verb[e.Type]||esc(e.Type)} ${amt} ${esc(e.Cargo||'')}${e.JobId?` <span class='meta'>(${esc(e.JobId)})</span>`:''}</div>`}).join('');
 }
-function stockRow(s,cap){
+function stockRow(s,cap,tag){
  const pct=cap>0?Math.min(100,Math.round(100*s.amount/cap)):0;
  const held=s.reserved>=1?` &middot; ${Math.round(s.reserved)} held`:'';
  const recv=s.imported>=1?` &middot; ${Math.round(s.imported)} received`:'';
- return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed; bars show the share of the station total'>${esc(disp(s.cargo))} <span class='ctag'>${cargoClass(s.cargo)}</span></span>`+
+ return `<div class='stockrow'><span class='cname' title='held = committed to a taken haul; received = delivered here, ships onward unpaid until consumed; bars show the share of the station total'>${esc(disp(s.cargo))} <span class='ctag'>${cargoClass(s.cargo)}</span>${tag||''}</span>`+
   `<div class='bar'><i style='width:${pct}%'></i></div>`+
   `<span class='nums num'>${Math.round(s.amount)}${held}${recv}</span></div>`;
 }
@@ -469,8 +490,9 @@ const CATS={Tools:['ToolsIskar','ToolsBrohm','ToolsAAG','ToolsNovae','ToolsTraeg
 // Display names: the one-cargo bundles read as their category on the board; the
 // API keeps the real enum names underneath.
 const DISP={ToolsIskar:'Tools',ElectronicsIskar:'Electronics',ChemicalsIskar:'Chemicals',
- __logi:'Logistics move (no cargo, unpaid)'};
+ __logi:'Logistics move (no cargo, unpaid)',None:'Empty riders'};
 function disp(c){return DISP[c]||c}
+function lineDisp(c){return c===LOGI?'Empty riders':disp(c)}
 // Cargo classes: RESOURCES come out of the ground and the farm, MATERIALS are
 // processed intermediates, everything else is finished goods.
 const RESOURCES=new Set(['IronOre','Coal','Logs','CrudeOil','Methane','ScrapMetal','ScrapWood',
@@ -566,7 +588,8 @@ function renderNetDetail(nodes,edges,sel){
  let h=`<div class='sthead'><b style='font-size:15px'>${esc(sel)}</b><span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
  if(miss.length)h+=`<span class='stchip bad'>waiting on ${esc(miss.map(disp).join(', '))}</span>`;
  if(n.machineWarning)h+=`<span class='stchip warn'>machines low</span>`;
- if((n.catalysts||[]).length)h+=`<span class='stchip ${n.catalystActive?'good':'idle'}'>${n.catalystActive?'catalyst active &middot; '+n.catalystHoursLeft+'h left':n.catalystStocked?'catalyst stocked':'no catalyst'}</span>`;
+ const catNames=esc((n.catalysts||[]).map(disp).join(' or '));
+ if((n.catalysts||[]).length)h+=`<span class='stchip ${n.catalystActive?'good':'idle'}' title='${n.source?'slows machine wear':'doubles batch speed'} while active'>${n.catalystActive?'catalyst ('+catNames+') active &middot; '+n.catalystHoursLeft+'h left':n.catalystStocked?'catalyst ('+catNames+') stocked':'no catalyst ('+catNames+')'}</span>`;
  if(upct>=95)h+=`<span class='stchip bad'>storage full</span>`;
  else if(upct>=80)h+=`<span class='stchip warn'>storage ${upct}%</span>`;
  h+=`<span class='spacer'></span><button class='mini' data-act='jmOpen' data-id='${esc(sel)}'>Open in Job maker</button></div>`;
@@ -578,6 +601,8 @@ function renderNetDetail(nodes,edges,sel){
   if(have<i.amount&&!needs.some(x=>x.cargo===i.cargo))needs.push({cargo:i.cargo,have,need:i.amount})}
  if(needs.length){h+=`<div class='sublab'>needs</div>`;
   h+=needs.map(x=>`<div class='needrow'><b>${esc(disp(x.cargo))}</b><span class='num'>${Math.round(x.have)} of ${x.need} on hand</span></div>`).join('')}
+ // Shippable stock renders INSIDE the Produced fold as each pile's destinations;
+ // the panel's top level stays status, storage and needs only (owner ruling).
  const outs=edges.filter(e=>e.src===sel);
  const outFams=new Set((n.outputs||[]).map(famOf));
  const ship=[];
@@ -585,10 +610,7 @@ function renderNetDetail(nodes,edges,sel){
   if(!outFams.has(famOf(s.cargo))||s.amount<1)continue;
   const dests=[...new Set(outs.filter(e=>e.cargos.some(c=>famOf(c)===famOf(s.cargo))).map(e=>e.dst))];
   ship.push({cargo:s.cargo,amount:s.amount,dests})}
- if(ship.length){h+=`<div class='sublab'>can ship</div>`;
-  h+=ship.map(x=>`<div class='needrow'><b>${esc(disp(x.cargo))}${String(x.cargo).indexOf('Empty')===0?` <span class='tag'>empties</span>`:''}</b>`+
-   `<span class='num'>${Math.round(x.amount)}</span><span class='meta'>${x.dests.length?'&#8594; '+esc(x.dests.join(', ')):'no consumer has room'}</span></div>`).join('')}
- else if(!n.source&&(n.outputs||[]).length===0)
+ if(!n.source&&(n.outputs||[]).length===0)
   h+=`<div class='nrecipe meta'>${n.consumer?'consumes its stock on the clock; keeping it fed boosts every industry':'accepts <b>'+esc((n.inputs||[]).map(disp).join(', '))+'</b>; storage is the demand'}</div>`;
  if(n.source&&!ship.length)h+=`<div class='nrecipe meta'>produces ${esc((n.outputs||[]).map(disp).join(', '))} over time; nothing shippable yet</div>`;
  if(n.importHub)h+=`<div class='nrecipe meta'>imports scale with the exports delivered here</div>`;
@@ -603,8 +625,23 @@ function renderNetDetail(nodes,edges,sel){
  if((n.recipes||[]).length)
   recipesH+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+disp(i.cargo))).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+disp(o.cargo))).join(' + ')}</div>`).join('');
  if(!recipesH)recipesH=`<div class='meta'>no recipes; storage itself is the demand</div>`;
- const prodH=dprod.length?dprod.map(s=>stockRow(s,n.totalCap||0)).join(''):`<div class='meta'>nothing produced on hand</div>`;
- const consH=dcons.length?dcons.map(s=>stockRow(s,n.totalCap||0)).join(''):`<div class='meta'>nothing consumed on hand</div>`;
+ // Each produced pile carries its live destinations (the old Can-ship rows, folded
+ // in next to their totals); consumed piles are tagged when they are the machine
+ // or the catalyst, so what a pile is FOR is never a mystery.
+ const shipMap={};for(const x of ship)shipMap[famOf(x.cargo)]=x.dests;
+ const prodH=dprod.length?dprod.map(s=>{
+  const ds=shipMap[famOf(s.cargo)];
+  const shipTag=ds?` <span class='tag' style='background:#16283c;color:var(--blue)'>can ship</span>`:'';
+  return stockRow(s,n.totalCap||0,shipTag)+
+   (ds?`<div class='shipto'>&#8594; ${ds.length?esc(ds.join(', ')):'no consumer has room'}</div>`:'')}).join('')
+  :`<div class='meta'>nothing produced on hand</div>`;
+ const catSet=new Set((n.catalysts||[]).map(famOf));
+ const machSet=new Set((n.machines||[]).map(m=>famOf(m.cargo)));
+ const consH=dcons.length?dcons.map(s=>{
+  const f2=famOf(s.cargo);
+  const tag=machSet.has(f2)?` <span class='tag'>machine</span>`:catSet.has(f2)?` <span class='tag' style='background:#173424;color:var(--green)'>catalyst</span>`:'';
+  return stockRow(s,n.totalCap||0,tag)}).join('')
+  :`<div class='meta'>nothing on hand to work through</div>`;
  let machH='';
  if((n.machines||[]).length){
   for(const m of n.machines){
@@ -627,9 +664,9 @@ function renderNetDetail(nodes,edges,sel){
  h+=fold('inv','Full inventory',
   fold('inv-r','Recipes',recipesH)+
   fold('inv-p','Produced',prodH,gsum(dprod)||null)+
-  fold('inv-c','Consumed',consH,gsum(dcons)||null)+
+  fold('inv-c','Consumes',consH,gsum(dcons)||null)+
   fold('inv-m','Machines and catalyst',machH)+
-  fold('inv-i','Incoming supply',inH));
+  fold('inv-i','Consumption supply points',inH));
  d.className='netdetail show';d.innerHTML=h;
 }
 function renderFleet(r){
@@ -760,45 +797,50 @@ function renderManifest(){
  const box=$('jmManifest');if(!box)return;
  if(!jmLines.length){box.innerHTML='';return}
  let cars=0,pay=0;
- const rows=jmLines.map((l,i)=>{cars+=l.cars.length;pay+=l.pay||0;
-  return `<div class='mline'><b>${l.cars.length} &times; ${esc(disp(l.cargo))}</b>`+
+ let per=0;
+ const rows=jmLines.map((l,i)=>{cars+=l.cars.length;pay+=l.pay||0;if(l.per)per=l.per;
+  return `<div class='mline'><b>${l.cars.length} &times; ${esc(lineDisp(l.cargo))}</b>`+
    `<span class='meta'>${l.cars.map(esc).join(', ')}</span>`+
    `${l.pay?`<span class='num' style='color:var(--green)'>${money(l.pay)}</span>`:''}`+
    `<button class='mini danger' data-act='jmDelLine' data-id='${i}'>&times;</button></div>`});
+ const staff=cars>1&&per?` &middot; staff load &#8776; ${fmtSecs((cars-1)*per)}`:'';
  box.innerHTML=rows.join('')+
   `<div class='mline total'><b>${cars} car(s), ${jmLines.length} line(s)</b>`+
-  `${pay?`<span class='num' style='color:var(--green)'>&#8776; ${money(pay)}</span>`:''}`+
+  `${pay?`<span class='num' style='color:var(--green)'>&#8776; ${money(pay)}${staff}</span>`:''}`+
   `<span class='meta'>one booklet on create; picked cars still count as their own line</span></div>`}
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}
 const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
   toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
+ // One create path (#118): banked lines plus the current pick become the manifest.
+ // A LOGI line means empty riders; a manifest that is ONLY riders is a logi move.
  spawnHaul:async()=>{
   const o=$('hOrigin').value,d=$('hDest').value,c=$('hCargo').value;
   if(!d){toast('choose a destination first',true);return}
   const sel=[...jmSelSet];
-  if(isLogi()){
-   if(jmLines.length){toast('logi moves cannot mix with cargo lines',true);return}
-   if(!sel.length){toast('pick cars in the yard first',true);return}
-   const r=await j('/api/v1/hauls','POST',{origin:o,destination:d,logi:true,carIds:sel});
-   if(r.jobId){toast('Move '+r.jobId+' created; '+(r.note||'closes on arrival'));
-    const crew=$('hCrew').value;
-    if(crew)await j('/api/v1/assignments/'+r.jobId,'PUT',{player:crew,assignedBy:'job maker'});
-    jmSelSet.clear();syncSelUi()}
-   else toast('Failed: '+(r.error||'see game log'),true);
-   refresh();return}
-  if(jmLines.length||sel.length){
-   if(sel.length&&!c){toast('choose a cargo for the picked cars',true);return}
-   const lines=jmLines.map(l=>({cargo:l.cargo,cars:l.cars}));
-   if(sel.length)lines.push({cargo:c,cars:sel});
-   const r=await j('/api/v1/hauls','POST',{origin:o,destination:d,lines});
-   if(r.jobId){toast('Created '+r.jobId+(lines.length>1?' with '+lines.length+' cargo lines':''));
+  const lines=jmLines.map(l=>({cargo:l.cargo,cars:l.cars}));
+  if(sel.length){
+   if(!c){toast('choose a cargo for the picked cars',true);return}
+   lines.push({cargo:c,cars:sel})}
+  if(lines.length){
+   if(lines.every(l=>l.cargo===LOGI)){
+    const carIds=[].concat(...lines.map(l=>l.cars));
+    const r=await j('/api/v1/hauls','POST',{origin:o,destination:d,logi:true,carIds});
+    if(r.jobId){toast('Move '+r.jobId+' created; '+(r.note||'closes on arrival'));
+     const crew=$('hCrew').value;
+     if(crew)await j('/api/v1/assignments/'+r.jobId,'PUT',{player:crew,assignedBy:'job maker'});
+     jmLines=[];jmSelSet.clear();renderManifest();syncSelUi()}
+    else toast('Failed: '+(r.error||'see game log'),true);
+    refresh();return}
+   const body={origin:o,destination:d,lines:lines.map(l=>({cargo:l.cargo===LOGI?'__logi':l.cargo,cars:l.cars}))};
+   const r=await j('/api/v1/hauls','POST',body);
+   if(r.jobId){toast('Created '+r.jobId+(lines.length>1?' with '+lines.length+' line(s)':''));
     await afterCreate(r.jobId,false);
     jmLines=[];jmSelSet.clear();renderManifest();syncSelUi()}
    else toast('Failed: '+(r.error||'see game log'),true);
    refresh();return}
   const b={origin:o,destination:d,cargo:c,cars:parseInt($('hCars').value)};
-  if(!b.cargo){toast('choose cargo and destination first',true);return}
+  if(!b.cargo||isLogi()){toast(isLogi()?'pick the cars to move first':'choose cargo and destination first',true);return}
   const r=await j('/api/v1/hauls','POST',b);
   if(r.jobId){toast('Created '+r.jobId+(r.unpaid?' as an UNPAID move (produced stock is short; this relocates received goods)':''));
    await afterCreate(r.jobId,false)}
@@ -807,15 +849,17 @@ const actions={
  // The dispatcher-directions flow (#129): create the booklet (picked cars come
  // attached), take it, and put station staff straight onto the cars.
  spawnHaulLoad:async()=>{
-  if(isLogi()){toast('logi moves need no loading; use Create booklet',true);return}
   const o=$('hOrigin').value,d=$('hDest').value,c=$('hCargo').value;
   const sel=[...jmSelSet];
-  if(!jmLines.length&&!sel.length){toast('pick cars in the yard first',true);return}
-  if(sel.length&&!c){toast('choose a cargo for the picked cars',true);return}
-  if(!d){toast('choose a destination first',true);return}
   const lines=jmLines.map(l=>({cargo:l.cargo,cars:l.cars}));
-  if(sel.length)lines.push({cargo:c,cars:sel});
-  const r=await j('/api/v1/hauls','POST',{origin:o,destination:d,lines});
+  if(sel.length){
+   if(!c){toast('choose a cargo for the picked cars',true);return}
+   lines.push({cargo:c,cars:sel})}
+  if(!lines.length){toast('pick cars in the yard first',true);return}
+  if(lines.every(l=>l.cargo===LOGI)){toast('riders carry nothing; use Create booklet for a logi move',true);return}
+  if(!d){toast('choose a destination first',true);return}
+  const body={origin:o,destination:d,lines:lines.map(l=>({cargo:l.cargo===LOGI?'__logi':l.cargo,cars:l.cars}))};
+  const r=await j('/api/v1/hauls','POST',body);
   if(!r.jobId){toast('Failed: '+(r.error||'see game log'),true);return}
   await afterCreate(r.jobId,true); // staff loading needs the job taken
   const l=await j('/api/v1/jobs/'+r.jobId+'/load','POST');
@@ -823,14 +867,13 @@ const actions={
   jmLines=[];jmSelSet.clear();renderManifest();syncSelUi();setTimeout(refresh,1200)},
  jmAddLine:async()=>{
   const c=$('hCargo').value,d=$('hDest').value,sel=[...jmSelSet];
-  if(isLogi()){toast('a logi move is not a cargo line',true);return}
   if(!c){toast('choose a cargo first',true);return}
   if(!sel.length){toast('pick the cars for this line first',true);return}
-  const line={cargo:c,cars:sel,pay:0};
-  try{if(d){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0}}catch(e){}
+  const line={cargo:c,cars:sel,pay:0,per:0};
+  try{if(d&&c!==LOGI){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0;line.per=r.perCarSeconds||0}}catch(e){}
   jmLines.push(line);
   jmSelSet.clear();renderManifest();syncSelUi();renderYard();
-  toast('Line banked: '+sel.length+' x '+disp(c)+'; pick cars for the next cargo')},
+  toast('Line banked: '+sel.length+' x '+lineDisp(c)+'; pick cars for the next cargo')},
  jmDelLine:(id,el)=>{const i=parseInt(el.dataset.id);if(!(i>=0)||i>=jmLines.length)return;
   jmLines.splice(i,1);renderManifest();renderYard();syncSelUi()},
  jmClear:()=>{jmSelSet.clear();jmLines=[];renderManifest();syncSelUi();renderYard()},
@@ -880,7 +923,14 @@ const actions={
   toast(r.message||'failed',!r.ok);
   if(r.ok){pickOpen.delete(id);delete pickers[id];last.jobs=null}
   setTimeout(refresh,1200)},
- unload:async id=>{const r=await j('/api/v1/jobs/'+id+'/unload','POST');
+ // Unload doubles as the undo: a consist standing back at its ORIGIN returns the
+ // supply to the pile and cancels the booklet, after a confirm.
+ unload:async id=>{const x=lastJobs.find(v=>v.id===id);
+  if(x&&x.carsAtOrigin&&!x.logi){
+   if(!confirm('The cars are standing at the ORIGIN ('+x.origin+'). Return the supply to the station and cancel the booklet?'))return;
+   const r=await j('/api/v1/jobs/'+id+'/return','POST');
+   toast(r.message||'failed',!r.ok);setTimeout(refresh,1200);return}
+  const r=await j('/api/v1/jobs/'+id+'/unload','POST');
   toast(r.message||'failed',!r.ok);setTimeout(refresh,1200)},
  fax:async id=>{const r=await j('/api/v1/jobs/'+id+'/fax','POST',{player:crewVal(id)});
   toast(r.message||'failed',!r.ok)},
@@ -888,8 +938,16 @@ const actions={
   const r=await j('/api/v1/assignments/'+id,'PUT',{player:p,assignedBy:'board'});
   toast(r.ok?'Assigned '+id+' to '+p:'assign failed',!r.ok);refresh()},
  unassign:async id=>{await j('/api/v1/assignments/'+id,'DELETE');toast('Unassigned '+id);refresh()},
- delhaul:async id=>{if(!confirm('Delete '+id+'? Its supply returns to the pile.'))return;
+ delhaul:async id=>{const x=lastJobs.find(v=>v.id===id)||{};
+  const msg=x.logi?('Cancel move '+id+'? The cars free up where they stand.')
+   :x.loadedCars>0?('Abandon supply? '+x.loadedCars+' loaded carload(s) on '+id+' will be LOST. If the cars are back at '+x.origin+', use Unload there to return the supply instead.')
+   :x.cars>0?('Close '+id+'? Its cars free up; nothing was loaded, so no supply is lost.')
+   :('Delete '+id+'? Its supply returns to the pile.');
+  if(!confirm(msg))return;
   const r=await j('/api/v1/jobs/'+id,'DELETE');toast(r.message||(r.ok?'Deleted '+id:'delete failed'),!r.ok);refresh()},
+ accChip:(id,el)=>{const o=el.dataset.id;accOnly=accOnly===o?null:o;last.jobs=null;refresh()},
+ accClear:()=>{accOnly=null;accHidden.clear();
+  localStorage.setItem('dleAccHidden','[]');last.jobs=null;refresh()},
  cars:id=>{expanded.has(id)?expanded.delete(id):expanded.add(id);last.jobs=null;refresh()},
  findCars:async()=>{const c=$('fCargo').value,y=$('fYard').value.trim();
   if(!c){clearFleet();return}
@@ -965,10 +1023,18 @@ function applySecs(){document.querySelectorAll('main section[data-sec]').forEach
  s.classList.toggle('closed',closedSecs.has(s.dataset.sec)))}
 function openSec(k){if(!closedSecs.has(k))return;closedSecs.delete(k);
  localStorage.setItem('dleClosed',JSON.stringify([...closedSecs]));applySecs()}
-document.addEventListener('click',e=>{const h=e.target.closest('h2');if(!h)return;
+document.addEventListener('click',e=>{
+ if(e.target.closest('[data-act]'))return; // chips inside a heading are not a fold toggle
+ const h=e.target.closest('h2');if(!h)return;
  const s=h.closest('section[data-sec]');if(!s)return;
  const k=s.dataset.sec;closedSecs.has(k)?closedSecs.delete(k):closedSecs.add(k);
  localStorage.setItem('dleClosed',JSON.stringify([...closedSecs]));applySecs()});
+document.addEventListener('contextmenu',e=>{
+ const el=e.target.closest(`[data-act='accChip']`);if(!el)return;
+ e.preventDefault();const o=el.dataset.id;
+ accHidden.has(o)?accHidden.delete(o):accHidden.add(o);
+ localStorage.setItem('dleAccHidden',JSON.stringify([...accHidden]));
+ last.jobs=null;refresh()});
 applySecs();
 refresh();setInterval(refresh,5000);
 </script></body></html>

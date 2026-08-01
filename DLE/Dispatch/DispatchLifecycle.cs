@@ -75,11 +75,31 @@ namespace DLE.Dispatch
                 return Result.Fail($"unknown job '{jobId}'");
             var job = def.LiveJob;
 
-            // Cars attached means the supply is on those cars, whatever the job state
-            // says (#94 hardening): deleting would strand real cargo behind a dead job.
+            // Cars attached means the supply is on those cars. The dispatcher may still
+            // close it out, accepting the loss: cargo aboard is dumped and does NOT
+            // return to any pile (the board confirms with "Abandon supply?" first; the
+            // return flow at the origin is the no-loss alternative).
             bool hasCars = def.carsToTransport != null && def.carsToTransport.Count > 0;
             if (hasCars)
-                return Result.Fail($"{jobId} has cars attached; its supply is on those cars. Deliver it or have the crew abandon it in-game.");
+            {
+                int loaded = def.carsToTransport.Count(c => c.LoadedCargoAmount > 0f);
+                try
+                {
+                    if (job.State == JobState.InProgress) SingletonBehaviour<JobsManager>.Instance.AbandonJob(job);
+                    else job.ExpireJob();
+                }
+                catch (Exception ex)
+                {
+                    Main.LogAlways($"[Dispatch] {jobId} abandon failed: {ex.GetType().Name}: {ex.Message}");
+                    return Result.Fail($"the game refused to close {jobId}; see the log");
+                }
+                // Abandon fires the cargo dump through the job event; expire does not,
+                // so dump here too (idempotent: already-empty cars just lose plates).
+                try { Patches.DleWarehouseLoadAttachPatch.DumpJobCargo(job); } catch { }
+                AssignmentStore.Instance.Unassign(jobId);
+                Main.LogAlways($"[Dispatch] {jobId} abandoned via board; {loaded} loaded carload(s) lost, cars freed.");
+                return Result.Done($"{jobId} abandoned; {loaded} loaded carload(s) lost, cars freed");
+            }
 
             if (job.State == JobState.Available)
             {

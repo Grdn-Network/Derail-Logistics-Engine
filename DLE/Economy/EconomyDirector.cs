@@ -306,29 +306,37 @@ namespace DLE.Economy
                 var carIds = kv.Value;
                 if (carIds.Count == 0) continue;
 
-                if (originFacility != null && !originFacility.CanSend(cargo, destYard))
+                // Rider line (#118 wave 3): CargoType.None marks cars that travel EMPTY
+                // with the haul, repositioned unpaid. No routing, stock or car-type
+                // rules apply; the cars just have to be genuinely free.
+                bool rider = cargo == CargoType.None;
+                bool unpaidLine = rider;
+                List<DV.ThingTypes.TrainCarType_v2> loadable = null;
+                if (!rider)
                 {
-                    var allowed = originFacility.DestinationsFor(cargo);
-                    reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
-                    return null;
-                }
-
-                // Paid line when produced stock covers it; unpaid when only the total
-                // does (relocation); refused when neither does.
-                bool unpaidLine = false;
-                if (econ.GetAvailable(originYard, cargo) < carIds.Count)
-                {
-                    if (econ.GetUnpaidAvailable(originYard, cargo) < carIds.Count)
+                    if (originFacility != null && !originFacility.CanSend(cargo, destYard))
                     {
-                        reason = $"{originYard} cannot cover {carIds.Count} {cargo} (produced and imported both short)";
+                        var allowed = originFacility.DestinationsFor(cargo);
+                        reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
                         return null;
                     }
-                    unpaidLine = true;
-                }
 
-                if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
-                    !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var loadable))
-                { reason = $"no car type carries {cargo}"; return null; }
+                    // Paid line when produced stock covers it; unpaid when only the total
+                    // does (relocation); refused when neither does.
+                    if (econ.GetAvailable(originYard, cargo) < carIds.Count)
+                    {
+                        if (econ.GetUnpaidAvailable(originYard, cargo) < carIds.Count)
+                        {
+                            reason = $"{originYard} cannot cover {carIds.Count} {cargo} (produced and imported both short)";
+                            return null;
+                        }
+                        unpaidLine = true;
+                    }
+
+                    if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
+                        !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out loadable))
+                    { reason = $"no car type carries {cargo}"; return null; }
+                }
 
                 foreach (var id in carIds)
                 {
@@ -343,12 +351,14 @@ namespace DLE.Economy
                     if (reservedElsewhere.Contains(id)) { reason = $"{id} is reserved for another haul"; return null; }
                     if (car.CurrentTrack == null || !originTracks.Contains(car.CurrentTrack))
                     { reason = $"{id} is not standing in {originYard}"; return null; }
-                    if (!loadable.Contains(car.carType.parentType))
+                    if (loadable != null && !loadable.Contains(car.carType.parentType))
                     { reason = $"{id} cannot carry {cargo}"; return null; }
                     allCars.Add(tc);
                 }
                 lines.Add(new Jobs.CargoLine { Cargo = cargo, CarIds = new List<string>(carIds), Unpaid = unpaidLine });
             }
+            if (lines.Count > 0 && lines.All(l => l.Cargo == CargoType.None))
+            { reason = "every line is empty riders; make it a Logistics move instead"; return null; }
             if (lines.Count == 0) { reason = "no valid cargo lines"; return null; }
 
             return DirectHaulGenerator.TryCreateMixed(producerSc, consumerSc, lines, allCars, out reason);

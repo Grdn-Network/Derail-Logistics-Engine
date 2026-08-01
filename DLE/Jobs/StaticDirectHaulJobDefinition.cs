@@ -143,16 +143,20 @@ namespace DLE.Jobs
                         if (byId.TryGetValue(id, out var car)) cars.Add(car);
                     lineCars.Add(cars);
                 }
+                // Rider lines (CargoType.None) get NO warehouse tasks: their cars travel
+                // empty with the consist and only the booklet knows they belong.
                 if (includeLoadTask)
                     for (int i = 0; i < manifest.Count; i++)
-                        tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Loading,
-                            loadMachine, manifest[i].Cargo,
-                            lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count));
+                        if (manifest[i].Cargo != CargoType.None)
+                            tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Loading,
+                                loadMachine, manifest[i].Cargo,
+                                lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count));
                 for (int i = 0; i < manifest.Count; i++)
-                    tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Unloading,
-                        unloadMachine, manifest[i].Cargo,
-                        lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count,
-                        (long)timeLimit, true));
+                    if (manifest[i].Cargo != CargoType.None)
+                        tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Unloading,
+                            unloadMachine, manifest[i].Cargo,
+                            lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count,
+                            (long)timeLimit, true));
             }
             else
             {

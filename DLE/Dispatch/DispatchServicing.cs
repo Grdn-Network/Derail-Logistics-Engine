@@ -130,6 +130,73 @@ namespace DLE.Dispatch
             return Result.Done($"station staff loading {cars.Count} car(s): first now, one every {perCar:0}s after (about {perCar * Math.Max(0, cars.Count - 1):0}s)");
         }
 
+        /// <summary>
+        /// The undo (#118 wave 3): a haul standing back at its ORIGIN unloads into the
+        /// origin pile, the FULL attach debit returns (loaded or not: the debit charged
+        /// every attached car), and the booklet cancels with the cars freed where they
+        /// stand. Rider lines carried nothing and return nothing.
+        /// </summary>
+        public static Result ReturnJob(string jobId)
+        {
+            if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
+            if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
+                return Result.Fail($"unknown job '{jobId}'");
+            var job = def.LiveJob;
+            var cars = def.carsToTransport;
+            if (cars == null || cars.Count == 0)
+                return Result.Fail("no cars attached; just delete the booklet");
+
+            var originYard = def.chainData?.chainOriginYardId;
+            var originSc = StationController.GetStationByYardID(originYard);
+            var originTracks = StationTracks(originSc, def.loadMachine?.WarehouseTrack);
+            var away = cars.Where(c => c.CurrentTrack == null || !originTracks.Contains(c.CurrentTrack)).ToList();
+            if (away.Count > 0)
+                return Result.Fail($"{away.Count}/{cars.Count} car(s) not standing at {originYard} ({string.Join(", ", away.Take(4).Select(c => c.ID))})");
+
+            float returned = 0f;
+            if (def.manifest != null)
+            {
+                foreach (var line in def.manifest)
+                {
+                    if (line.Cargo == CargoType.None) continue;
+                    foreach (var c in cars)
+                        if (line.CarIds != null && line.CarIds.Contains(c.ID) && c.LoadedCargoAmount > 0f)
+                            c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
+                    int n = line.CarIds?.Count ?? 0;
+                    if (n > 0)
+                    {
+                        EconomyState.Instance.ReturnSupply(originYard, line.Cargo, n, paid: !line.Unpaid);
+                        returned += n;
+                    }
+                    line.Loaded = 0;
+                }
+            }
+            else
+            {
+                foreach (var c in cars)
+                    if (c.LoadedCargoAmount > 0f)
+                        c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
+                EconomyState.Instance.ReturnSupply(originYard, def.transportedCargo, cars.Count, paid: !def.unpaidMove);
+                returned = cars.Count;
+            }
+            def.loadedCarloads = 0;
+
+            foreach (var c in cars) c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
+            try
+            {
+                if (job.State == JobState.InProgress) SingletonBehaviour<JobsManager>.Instance.AbandonJob(job);
+                else if (job.State == JobState.Available) job.ExpireJob();
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[Servicing] {jobId}: return credited {returned:0} but the booklet would not die: {ex.GetType().Name}: {ex.Message}");
+                return Result.Done($"returned {returned:0} carload(s) to {originYard}; the booklet is stuck {job.State}, delete it from the board");
+            }
+            EconomyHistory.Record("returned", originYard, def.transportedCargo.ToString(), (int)returned, jobId);
+            Main.LogAlways($"[Servicing] {jobId}: returned {returned:0} carload(s) to {originYard}; booklet cancelled, cars freed.");
+            return Result.Done($"returned {returned:0} carload(s) to {originYard}; booklet cancelled, cars freed");
+        }
+
         public static Result UnloadJob(string jobId)
         {
             if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
@@ -327,8 +394,10 @@ namespace DLE.Dispatch
                         yield break;
                     }
                     // A mixed haul's manifest names each car's cargo; single-cargo jobs
-                    // load the one cargo they always did.
-                    c.LoadCargo(c.capacity, def.CargoFor(c.ID));
+                    // load the one cargo they always did. Rider cars travel empty.
+                    var lineCargo = def.CargoFor(c.ID);
+                    if (lineCargo == CargoType.None) continue;
+                    c.LoadCargo(c.capacity, lineCargo);
                     loaded++;
                     // Tally the true physical count of loaded cars in the consist, not this
                     // run's local counter: a split load (a second run finishing cars a first
