@@ -132,6 +132,36 @@ align-items:center;padding:2px 0;font-size:12.5px}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--violet))}
 .bar i.full{background:var(--amber)}
 .nums{text-align:right;color:var(--dim)}
+.yardbox{display:flex;flex-direction:column;gap:6px}
+.ytrack{display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--panel2);
+border:1px solid var(--line);border-radius:8px}
+.ytlabel{min-width:128px;font-size:11.5px;color:var(--dim);flex:none;line-height:1.3}
+.ytlabel b{color:var(--text);font-size:12.5px}
+.ycars{display:flex;gap:8px;overflow-x:auto;padding:2px 0;flex:1}
+.ycut{display:flex;gap:2px;flex:none}
+.ycar{flex:none;border:1px solid var(--line2);border-radius:4px;padding:2px 7px;font-size:11.5px;
+color:var(--dim);white-space:nowrap;user-select:none}
+.ycar.ok{color:var(--text);border-color:#2c5c3f;cursor:pointer}
+.ycar.ok:hover{border-color:var(--green)}
+.ycar.sel{background:var(--vdeep);border-color:var(--violet);color:var(--text)}
+.ycar.loaded{border-color:#6b5619;color:var(--amber)}
+.ycar.loco{background:#101c2c;border-color:#2c4a6e;color:var(--blue)}
+.ycar.incompat{opacity:.3}
+.ykey{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin-top:6px}
+.ykey i{display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid var(--line2);
+margin-right:4px;vertical-align:-1px;font-style:normal}
+.bar i.warn{background:var(--amber)}
+.bar i.crit{background:var(--red)}
+.sthead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.stchip{font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px}
+.stchip.bad{background:#3a1a14;color:var(--red)}
+.stchip.warn{background:#3a2e12;color:var(--amber)}
+.stchip.good{background:#173424;color:var(--green)}
+.stchip.idle{background:var(--panel2);color:var(--dim)}
+.needrow{display:flex;gap:8px;align-items:baseline;font-size:12.5px;padding:1px 0}
+.needrow b{min-width:120px;font-weight:600}
+.foldbtn{font-size:11px;color:var(--dim);cursor:pointer;user-select:none;margin-top:8px}
+.foldbtn:hover{color:var(--text)}
 #toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;
 gap:8px;z-index:10;max-width:340px}
 .toast{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--green);
@@ -155,15 +185,27 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 </header>
 <main>
  <section class='card col12' data-sec='create'>
-  <h2>Create a haul</h2>
-  <div class='formrow'>
-   <label>Origin<select id='hOrigin'></select></label>
+  <h2>Job maker <span class='sub'>pick a station, click the cars you want, choose cargo and destination; one booklet comes out</span></h2>
+  <div class='formrow' style='margin-bottom:8px'>
+   <label>Station<select id='hOrigin'></select></label>
+   <span class='meta' id='jmMeta'></span>
+  </div>
+  <div id='jmYard' class='yardbox'></div>
+  <div class='ykey'><span><i style='border-color:#2c5c3f'></i>selectable</span>
+   <span><i style='background:var(--vdeep);border-color:var(--violet)'></i>selected</span>
+   <span><i style='border-color:#6b5619'></i>loaded</span>
+   <span><i></i>on a job / reserved / player car</span>
+   <span><i style='background:#101c2c;border-color:#2c4a6e'></i>loco</span></div>
+  <div class='formrow' style='margin-top:10px'>
    <label>Cargo<select id='hCargo'></select></label>
    <label>Destination<select id='hDest'></select></label>
-   <label>Cars<input id='hCars' type='number' value='4' min='1' max='20' style='width:64px'></label>
-   <button class='primary' data-act='spawnHaul'>Spawn haul</button>
+   <label>Cars<input id='hCars' type='number' value='4' min='1' max='40' style='width:64px'></label>
+   <button class='primary' data-act='spawnHaul'>Create booklet</button>
+   <button data-act='spawnHaulLoad' title='Create the booklet and have station staff load the selected cars where they stand'>Create + load now</button>
+   <button class='mini' data-act='jmClear'>Clear picks</button>
    <span class='meta' id='hEstimate' title='Estimated from the car types this cargo loads into; staff loading is first car instant, then per-car time'></span>
   </div>
+  <div class='meta' id='jmSel' style='margin-top:4px'></div>
  </section>
  <section class='card col12' data-sec='net'>
   <h2>Network <span class='sub'>the whole economy lives here: click a station for its recipes, storage and stock; click a route to fill the haul form</span></h2>
@@ -224,6 +266,9 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',""'"":'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
+// Job maker state: the picked cars, the compatible-car set for the chosen cargo,
+// and the last yard snapshot. Selection survives refreshes; a station change clears it.
+let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null;
 async function authedFetch(u,m,b){
  const mk=()=>{const h={};const k=localStorage.getItem('dleKey');if(k)h['X-DLE-Key']=k;
   return {method:m||'GET',body:b?JSON.stringify(b):undefined,headers:h}};
@@ -305,7 +350,7 @@ async function refresh(){
  const mw=state.machineWarnings||[];
  $('chipMachines').style.display=mw.length?'':'none';
  $('chipMachines').textContent='MACHINES LOW: '+mw.join(', ');
- keepSelect($('hOrigin'),[...new Set(options.map(o=>o.origin))]);
+ keepSelect($('hOrigin'),[...new Set(econ.map(e=>e.yardId))].sort());
  originChanged();
  keepSelect($('fCargo'),['','any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
  lastEconData=econ;
@@ -321,6 +366,7 @@ async function refresh(){
   restoreCrew(snap)}
  for(const id of expanded)fillCars(id);
  for(const id of pickOpen)fillPicker(id);
+ pollYard();
  const lKey=JSON.stringify(logs);
  if(last.logs!==lKey){last.logs=lKey;
   $('tLog').innerHTML='<tr><th>Id</th><th>Route</th><th>Cars</th><th>Cargo</th><th>Note</th><th>Status</th><th></th></tr>'+
@@ -399,7 +445,9 @@ const CATS={Tools:['ToolsIskar','ToolsBrohm','ToolsAAG','ToolsNovae','ToolsTraeg
  Electronics:['ElectronicsIskar','ElectronicsKrugmann','ElectronicsAAG','ElectronicsNovae','ElectronicsTraeg'],
  Clothing:['ClothingObco','ClothingNeoGamma','ClothingNovae','ClothingTraeg'],
  Chemicals:['ChemicalsIskar','ChemicalsSperex'],
- Gases:['CryoHydrogen','Ammonia','SodiumHydroxide']};
+ Gases:['CryoHydrogen','Ammonia','SodiumHydroxide'],
+ EmptyContainers:['EmptySunOmni','EmptyIskar','EmptyObco','EmptyGoorsk','EmptyKrugmann',
+  'EmptyBrohm','EmptyAAG','EmptySperex','EmptyNovae','EmptyTraeg','EmptyChemlek','EmptyNeoGamma']};
 // Display names: the one-cargo bundles read as their category on the board; the
 // API keeps the real enum names underneath.
 const DISP={ToolsIskar:'Tools',ElectronicsIskar:'Electronics',ChemicalsIskar:'Chemicals'};
@@ -480,54 +528,78 @@ function drawNet(){
  svg.innerHTML=h;
  renderNetDetail(nodes,edges,sel);
 }
+// Station panel (#126). The rule: a row earns its place by being actionable. Status
+// strip up top, what the station NEEDS, what it CAN SHIP; everything else folds away.
+let netDetailMore=false;
 function renderNetDetail(nodes,edges,sel){
  const d=$('netDetail');if(!d)return;
  if(!sel){d.className='netdetail';d.innerHTML='';return}
  const n=nodes[sel];
- let h=`<b>${esc(sel)}</b> <span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
- if(n.source)
-  h+=`<div class='nrecipe'>produces resources over time: <b>${esc((n.outputs||[]).map(disp).join(', '))}</b></div>`;
- if((n.recipes||[]).length)
-  h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+disp(i.cargo))).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+disp(o.cargo))).join(' + ')}</div>`).join('');
- else if(!n.source&&(n.outputs||[]).length===0)
-  h+=`<div class='nrecipe'>${n.consumer?'consumes its stock on the clock; keeping it fed boosts every industry':'accepts <b>'+esc((n.inputs||[]).join(', '))+'</b>; storage is the demand'}</div>`;
- if(n.importHub)
-  h+=`<div class='nrecipe'>imports scale with the exports delivered here; tools ride in rarely</div>`;
+ const cap=Math.round(n.totalCap||0),used=Math.round(n.totalStock||0);
+ const upct=n.totalCap>0?Math.min(100,Math.round(100*used/n.totalCap)):0;
+ const barCls=upct>=95?'crit':upct>=80?'warn':'';
  const miss=netMissing(n);
- if(miss.length)h+=`<div class='nrecipe nmiss'>waiting on: ${esc(miss.map(disp).join(', '))}</div>`;
- if((n.machines||[]).length){
-  h+=`<div class='sublab'>machines &middot; needs at least one of each for production</div>`;
-  for(const m of n.machines){
-   const cls=m.have<=0?'out':m.have<2?'low':'';
-   h+=`<div class='machrow'><span class='mname'>${esc(m.cargo)}</span>`+
-    `<span class='mcount ${cls}'>&times;${m.have}${m.have<=0?' &middot; CRAWLING':m.have<2?' &middot; last one':''}</span>`+
-    `<span class='mwear'>current unit: ${m.wearRemaining} carloads of work left</span></div>`;
+ let h=`<div class='sthead'><b style='font-size:15px'>${esc(sel)}</b><span class='meta'>${esc(NET_NAMES[sel]||'')}</span>`;
+ if(miss.length)h+=`<span class='stchip bad'>waiting on ${esc(miss.map(disp).join(', '))}</span>`;
+ if(n.machineWarning)h+=`<span class='stchip warn'>machines low</span>`;
+ if((n.catalysts||[]).length)h+=`<span class='stchip ${n.catalystActive?'good':'idle'}'>${n.catalystActive?'catalyst active &middot; '+n.catalystHoursLeft+'h left':n.catalystStocked?'catalyst stocked':'no catalyst'}</span>`;
+ if(upct>=95)h+=`<span class='stchip bad'>storage full</span>`;
+ else if(upct>=80)h+=`<span class='stchip warn'>storage ${upct}%</span>`;
+ h+=`<span class='spacer'></span><button class='mini' data-act='jmOpen' data-id='${esc(sel)}'>Open in Job maker</button></div>`;
+ if(cap>0)h+=`<div class='stockrow'><span class='cname' title='one shared pool: every cargo counts against the same total'><b>storage</b></span>`+
+  `<div class='bar'><i class='${barCls}' style='width:${upct}%'></i></div><span class='nums num'>${used} / ${cap}</span></div>`;
+ const needs=[];
+ for(const r of (n.recipes||[]))for(const i of (r.inputs||[])){
+  const have=stockAmt(n,i.cargo);
+  if(have<i.amount&&!needs.some(x=>x.cargo===i.cargo))needs.push({cargo:i.cargo,have,need:i.amount})}
+ if(needs.length){h+=`<div class='sublab'>needs</div>`;
+  h+=needs.map(x=>`<div class='needrow'><b>${esc(disp(x.cargo))}</b><span class='num'>${Math.round(x.have)} of ${x.need} on hand</span></div>`).join('')}
+ const outs=edges.filter(e=>e.src===sel);
+ const outFams=new Set((n.outputs||[]).map(famOf));
+ const ship=[];
+ for(const s of (n.stock||[])){
+  if(!outFams.has(famOf(s.cargo))||s.amount<1)continue;
+  const dests=[...new Set(outs.filter(e=>e.cargos.some(c=>famOf(c)===famOf(s.cargo))).map(e=>e.dst))];
+  ship.push({cargo:s.cargo,amount:s.amount,dests})}
+ if(ship.length){h+=`<div class='sublab'>can ship</div>`;
+  h+=ship.map(x=>`<div class='needrow'><b>${esc(disp(x.cargo))}${String(x.cargo).indexOf('Empty')===0?` <span class='tag'>empties</span>`:''}</b>`+
+   `<span class='num'>${Math.round(x.amount)}</span><span class='meta'>${x.dests.length?'&#8594; '+esc(x.dests.join(', ')):'no consumer has room'}</span></div>`).join('')}
+ else if(!n.source&&(n.outputs||[]).length===0)
+  h+=`<div class='nrecipe meta'>${n.consumer?'consumes its stock on the clock; keeping it fed boosts every industry':'accepts <b>'+esc((n.inputs||[]).map(disp).join(', '))+'</b>; storage is the demand'}</div>`;
+ if(n.source&&!ship.length)h+=`<div class='nrecipe meta'>produces ${esc((n.outputs||[]).map(disp).join(', '))} over time; nothing shippable yet</div>`;
+ if(n.importHub)h+=`<div class='nrecipe meta'>imports scale with the exports delivered here</div>`;
+ h+=`<div class='foldbtn' data-act='netMore'>${netDetailMore?'&#9662; hide details':'&#9656; recipes, full stock, machines'}</div>`;
+ if(netDetailMore){
+  if(n.source)h+=`<div class='nrecipe'>produces resources over time: <b>${esc((n.outputs||[]).map(disp).join(', '))}</b></div>`;
+  if((n.recipes||[]).length)
+   h+=n.recipes.map(r=>`<div class='nrecipe'>needs ${r.inputs.map(i=>esc(i.amount+' '+disp(i.cargo))).join(' + ')} &#8594; makes ${r.outputs.map(o=>esc(o.amount+' '+disp(o.cargo))).join(' + ')}</div>`).join('');
+  if((n.machines||[]).length){
+   h+=`<div class='sublab'>machines &middot; needs at least one of each for production</div>`;
+   for(const m of n.machines){
+    const cls=m.have<=0?'out':m.have<2?'low':'';
+    h+=`<div class='machrow'><span class='mname'>${esc(m.cargo)}</span>`+
+     `<span class='mcount ${cls}'>&times;${m.have}${m.have<=0?' &middot; CRAWLING':m.have<2?' &middot; last one':''}</span>`+
+     `<span class='mwear'>current unit: ${m.wearRemaining} carloads of work left</span></div>`;
+   }
   }
+  if((n.catalysts||[]).length){
+   h+=`<div class='sublab'>catalyst &middot; ${esc(n.catalysts.join(' or '))}</div>`;
+   h+=`<div class='nrecipe' style='color:${n.catalystActive?'var(--green)':'var(--dim)'}'>`+
+    (n.catalystActive?`active &middot; ${n.catalystHoursLeft}h of work left on this carload`
+     :n.catalystStocked?'in stock, starts with the next shift':'none in stock')+
+    ` <span class='meta'>(${n.source?'slows machine wear':'doubles batch speed'})</span></div>`;
+  }
+  const rows=(n.stock||[]);
+  if(rows.length){
+   const dprod=rows.filter(s=>outFams.has(famOf(s.cargo)));
+   const dcons=rows.filter(s=>!outFams.has(famOf(s.cargo)));
+   const gsum=g=>Math.round(g.reduce((t,s)=>t+(s.amount||0),0));
+   if(dprod.length)h+=`<div class='sublab'>produced &middot; ${gsum(dprod)} / ${cap} of storage</div>`+dprod.map(s=>stockRow(s,n.totalCap||0)).join('');
+   if(dcons.length)h+=`<div class='sublab'>consumed &middot; ${gsum(dcons)} / ${cap} of storage</div>`+dcons.map(s=>stockRow(s,n.totalCap||0)).join('');
+  }
+  const ins=edges.filter(e=>e.dst===sel);
+  if(ins.length)h+=`<div class='meta' style='margin-top:6px'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.map(disp).join(', '))}`).join(' &middot; ')+`</div>`;
  }
- if((n.catalysts||[]).length){
-  h+=`<div class='sublab'>catalyst &middot; ${esc(n.catalysts.join(' or '))}</div>`;
-  h+=`<div class='nrecipe' style='color:${n.catalystActive?'var(--green)':'var(--dim)'}'>`+
-   (n.catalystActive?`active &middot; ${n.catalystHoursLeft}h of work left on this carload`
-    :n.catalystStocked?'in stock, starts with the next shift':'none in stock')+
-   ` <span class='meta'>(${n.source?'slows machine wear':'doubles batch speed'})</span></div>`;
- }
- const rows=(n.stock||[]);
- if(rows.length||n.totalCap){
-  const cap=Math.round(n.totalCap||0),used=Math.round(n.totalStock||0);
-  const upct=n.totalCap>0?Math.min(100,Math.round(100*used/n.totalCap)):0;
-  h+=`<div class='sublab'>storage &middot; one shared pool: every cargo counts against the same total</div>`;
-  h+=`<div class='stockrow'><span class='cname'><b>total</b></span>`+
-   `<div class='bar'><i class='${upct>=100?'full':''}' style='width:${upct}%'></i></div>`+
-   `<span class='nums num'>${used} / ${cap}</span></div>`;
-  const dprod=rows.filter(s=>(n.outputs||[]).includes(s.cargo));
-  const dcons=rows.filter(s=>!(n.outputs||[]).includes(s.cargo));
-  const gsum=g=>Math.round(g.reduce((t,s)=>t+(s.amount||0),0));
-  if(dprod.length)h+=`<div class='sublab'>produced &middot; ${gsum(dprod)} / ${cap} of storage</div>`+dprod.map(s=>stockRow(s,n.totalCap||0)).join('');
-  if(dcons.length)h+=`<div class='sublab'>consumed &middot; ${gsum(dcons)} / ${cap} of storage</div>`+dcons.map(s=>stockRow(s,n.totalCap||0)).join('');
- }
- const outs=edges.filter(e=>e.src===sel),ins=edges.filter(e=>e.dst===sel);
- if(outs.length)h+=`<div class='meta' style='margin-top:6px'>can ship: `+outs.map(e=>`<b>${esc(e.cargos.map(disp).join(', '))}</b> &#8594; ${esc(e.dst)}`).join(' &middot; ')+`</div>`;
- if(ins.length)h+=`<div class='meta'>incoming supply: `+ins.map(e=>`${esc(e.src)}: ${esc(e.cargos.map(disp).join(', '))}`).join(' &middot; ')+`</div>`;
  d.className='netdetail show';d.innerHTML=h;
 }
 function renderFleet(r){
@@ -585,14 +657,107 @@ function renderPickPanel(id){
    <span class='meta'>${p.sel.length}/${d.wanted} picked &middot; staff &#8776; ${fmtSecs(Math.max(0,p.sel.length-1)*d.perCarSeconds)} (first car instant, ${d.perCarSeconds}s per car after)</span>
   </div>`;
 }
+// Job maker yard canvas (#118, #119): tracks with cars in consist order. Polls with
+// the refresh cycle while the section is open; re-renders only when the yard changed.
+let yardKey='',yardBusy=false;
+async function pollYard(force){
+ const y=$('hOrigin').value;
+ if(!y||(!force&&closedSecs.has('create'))||yardBusy)return;
+ yardBusy=true;
+ try{const r=await jget('/api/v1/yard?yard='+encodeURIComponent(y));
+  if($('hOrigin').value!==y)return;
+  const k=JSON.stringify(r);
+  if(force||k!==yardKey){yardKey=k;jmYardData=r;renderYard()}}
+ catch(e){}
+ finally{yardBusy=false}}
+function renderYard(){
+ const box=$('jmYard');if(!box)return;
+ const d=jmYardData;
+ if(!d){box.innerHTML=`<div class='empty'>pick a station to see its yard</div>`;$('jmMeta').textContent='';return}
+ let total=0;
+ const rows=(d.tracks||[]).map(t=>{
+  total+=t.carCount;
+  const cuts=(t.cuts||[]).map(cut=>`<span class='ycut'>`+cut.map(c=>{
+   const on=jmSelSet.has(c.carId);
+   const compat=jmCompat===null||jmCompat.has(c.carId);
+   const cls=c.loco?'loco':on?'sel':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'');
+   const why=c.loco?'locomotive':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
+   return `<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' title='${esc(c.type)} &middot; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+`</span>`)
+   .join(`<span class='meta' style='flex:none;align-self:center'>&middot;</span>`);
+  return `<div class='ytrack'><span class='ytlabel'><b>${esc(t.track)}</b>`+
+   `${t.warehouse?` <span class='ctag' style='color:var(--amber)' title='${esc((t.warehouseCargos||[]).join(', '))}'>loading</span>`:''}`+
+   `<br><span class='num'>${t.usedM}/${t.lengthM}m &middot; ${t.carCount} car(s)</span></span>`+
+   `<div class='ycars'>${cuts||`<span class='meta'>empty</span>`}</div></div>`});
+ box.innerHTML=rows.join('')||`<div class='empty'>no yard tracks reported</div>`;
+ $('jmMeta').textContent=(d.name||'')+' · '+total+' cars in yard';
+}
+// Which usable cars can carry the chosen cargo. The fleet endpoint already answers
+// this; the yard view just borrows its verdict.
+let compatSeq=0,compatKey='',compatAt=0;
+async function fetchCompat(){
+ const y=$('hOrigin').value,c=$('hCargo').value;
+ if(!y||!c){if(jmCompat!==null){jmCompat=null;renderYard()}compatKey='';return}
+ // Refresh calls through here every cycle; only actually ask when the pair changed
+ // or the verdict is stale (cars move, load, get reserved).
+ const key=y+'|'+c,now=Date.now();
+ if(key===compatKey&&now-compatAt<15000)return;
+ compatKey=key;compatAt=now;
+ const seq=++compatSeq;
+ try{const r=await jget('/api/v1/fleet?cargo='+encodeURIComponent(c)+'&yard='+encodeURIComponent(y));
+  if(seq!==compatSeq)return;
+  jmCompat=new Set((r.cars||[]).filter(x=>x.usable).map(x=>x.carId));
+  let dropped=0;
+  for(const id of [...jmSelSet])if(!jmCompat.has(id)){jmSelSet.delete(id);dropped++}
+  if(dropped)toast(dropped+' picked car(s) cannot carry '+disp(c)+'; dropped',true);
+  syncSelUi();renderYard()}
+ catch(e){}}
+function syncSelUi(){
+ const n=jmSelSet.size,inp=$('hCars');
+ if(n>0){inp.value=n;inp.disabled=true}else inp.disabled=false;
+ $('jmSel').innerHTML=n
+  ?`<b>${n}</b> car(s) picked; the booklet reserves exactly these`
+  :'no cars picked: the booklet goes out carless and crews or staff auto-pick bring empties';
+ updateEstimate()}
 function crewVal(id){const i=$('a_'+id);return i&&i.value?i.value:null}
 const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
   toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
- spawnHaul:async()=>{const b={origin:$('hOrigin').value,destination:$('hDest').value,
-   cargo:$('hCargo').value,cars:parseInt($('hCars').value)};
+ spawnHaul:async()=>{const sel=[...jmSelSet];
+  const b={origin:$('hOrigin').value,destination:$('hDest').value,
+   cargo:$('hCargo').value,cars:sel.length||parseInt($('hCars').value)};
+  if(!b.cargo||!b.destination){toast('choose cargo and destination first',true);return}
+  if(sel.length)b.reserveCars=sel;
   const r=await j('/api/v1/hauls','POST',b);
-  r.jobId?toast('Created '+r.jobId+(r.unpaid?' as an UNPAID move (produced stock is short; this relocates received goods)':'')):toast('Failed: '+(r.error||'see game log'),true);refresh()},
+  if(r.jobId){toast('Created '+r.jobId+(sel.length?' with '+sel.length+' reserved car(s)':'')+(r.unpaid?'; UNPAID move (produced stock is short; this relocates received goods)':''));
+   jmSelSet.clear();syncSelUi()}
+  else toast('Failed: '+(r.error||'see game log'),true);
+  refresh()},
+ // The dispatcher-directions flow (#129): create the booklet, take it for dispatch,
+ // and put station staff straight onto the picked cars. Crews get it by fax.
+ spawnHaulLoad:async()=>{const sel=[...jmSelSet];
+  if(!sel.length){toast('pick cars in the yard first',true);return}
+  const b={origin:$('hOrigin').value,destination:$('hDest').value,
+   cargo:$('hCargo').value,cars:sel.length,reserveCars:sel};
+  if(!b.cargo||!b.destination){toast('choose cargo and destination first',true);return}
+  const r=await j('/api/v1/hauls','POST',b);
+  if(!r.jobId){toast('Failed: '+(r.error||'see game log'),true);return}
+  const t=await j('/api/v1/jobs/'+r.jobId+'/take','POST',{});
+  if(!t.ok){toast('Created '+r.jobId+' but take failed: '+(t.message||''),true);refresh();return}
+  const l=await j('/api/v1/jobs/'+r.jobId+'/load','POST',{cars:sel});
+  toast('Created '+r.jobId+'; '+(l.message||'load failed'),!l.ok);
+  jmSelSet.clear();syncSelUi();setTimeout(refresh,1200)},
+ jmClear:()=>{jmSelSet.clear();syncSelUi();renderYard()},
+ jmOpen:(id,el)=>{const v=el.dataset.id;const os=$('hOrigin');
+  if(![...os.options].some(x=>x.value===v)){toast('station not on the board yet',true);return}
+  openSec('create');os.value=v;originChanged();
+  document.querySelector(`section[data-sec='create']`).scrollIntoView({behavior:'smooth'})},
+ ycar:(id,el)=>{const car=el.dataset.car;
+  if(el.classList.contains('incompat')){toast('that car cannot carry the chosen cargo',true);return}
+  if(jmSelSet.has(car))jmSelSet.delete(car);
+  else if(el.classList.contains('ok'))jmSelSet.add(car);
+  else return;
+  syncSelUi();renderYard()},
+ netMore:()=>{netDetailMore=!netDetailMore;drawNet()},
  netNode:(id,el)=>{const v=el.dataset.id;netSel=netSel===v?null:v;drawNet()},
  netEdge:(id,el)=>{const o=el.dataset.src,c=el.dataset.cargo,d=el.dataset.dst;
   const os=$('hOrigin');
@@ -662,10 +827,13 @@ const actions={
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;
  const fn=actions[el.dataset.act];if(fn)fn(el.dataset.id,el)});
 function originChanged(){const o=$('hOrigin').value;
- keepSelect($('hCargo'),options.filter(x=>x.origin===o).map(x=>x.cargo));cargoChanged()}
+ keepSelect($('hCargo'),options.filter(x=>x.origin===o).map(x=>x.cargo));
+ if(o!==jmStation){jmStation=o;jmSelSet.clear();jmCompat=null;jmYardData=null;yardKey='';
+  syncSelUi();renderYard();pollYard(true)}
+ cargoChanged()}
 function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
  const opt=options.find(x=>x.origin===o&&x.cargo===c);
- keepSelect($('hDest'),opt?opt.consumers:[]);updateEstimate()}
+ keepSelect($('hDest'),opt?opt.consumers:[]);fetchCompat();updateEstimate()}
 // Live haul estimate: weight, length, pay and staff loading time for the form
 // as it stands. Debounced; a stale response never overwrites a newer one.
 let estTimer=null,estSeq=0,lastEstQ='';
