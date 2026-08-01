@@ -603,7 +603,8 @@ namespace DLE.Data
                 // take them away. Counting them turned every consumer into a spawn site,
                 // which is why CP, a city that had never spawned a car, came back packed
                 // with flatbeds.
-                if (!facility.Outputs.Any(c => !Economy.CargoCategories.IsEmptyContainer(c))) continue;
+                if (!facility.Outputs.Any(c => !Economy.CargoCategories.IsEmptyContainer(c) &&
+                                               !facility.Inputs.Contains(c))) continue;
                 var sc = StationController.GetStationByYardID(facility.YardId);
                 if (sc == null) continue;
                 var empties = sc.logicStation.yard.StorageTracks
@@ -821,6 +822,12 @@ namespace DLE.Data
                 // flatbeds eight times out of nine. A 700-car pool came back 500 flatcars.
                 // Cars for empties come from the general fleet like anything else.
                 if (Economy.CargoCategories.IsEmptyContainer(cargo)) continue;
+                // A cargo the station also ACCEPTS is passing through: vanilla lists
+                // Fish as both input and output at City South, and packing reefer cars
+                // for an output the economy never produces there is dead pool weight
+                // (the reefers-at-CS cousin of the flatcar skew). Pass-through cargo
+                // arrives in its own cars.
+                if (facility.Inputs.Contains(cargo)) continue;
                 if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2)) continue;
                 if (!DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes)) continue;
 
