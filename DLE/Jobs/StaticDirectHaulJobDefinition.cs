@@ -18,6 +18,22 @@ namespace DLE.Jobs
     ///
     /// Direct Haul concept from Chump_the_Lump's SelfShunter, used with permission.
     /// </summary>
+    /// <summary>
+    /// One cargo of a mixed haul: which cargo, which cars carry it, what that line pays.
+    /// A single-cargo job has no manifest (null) and keeps the original fields; a mixed
+    /// job's transportedCargo is its first line, so legacy readers stay coherent.
+    /// </summary>
+    public class CargoLine
+    {
+        public CargoType Cargo;
+        public List<string> CarIds = new List<string>();
+        public float Pay;
+        public bool Unpaid;
+        /// <summary>Carloads of THIS line actually loaded (the per-line half of
+        /// loadedCarloads; turn-in credits and pays each line against its own tally).</summary>
+        public int Loaded;
+    }
+
     public class StaticDirectHaulJobDefinition : StaticJobDefinition
     {
         public List<Car> carsToTransport;
@@ -25,6 +41,22 @@ namespace DLE.Jobs
         public WarehouseMachine unloadMachine;
         public CargoType transportedCargo;
         public List<float> cargoAmountPerCar;
+
+        /// <summary>Mixed cargo manifest (#118): one line per cargo, all to one
+        /// destination. Null on single-cargo jobs.</summary>
+        public List<CargoLine> manifest;
+
+        /// <summary>The manifest line whose CarIds contain this car, else null.</summary>
+        public CargoLine LineOf(string carId)
+        {
+            if (manifest == null) return null;
+            foreach (var line in manifest)
+                if (line.CarIds != null && line.CarIds.Contains(carId)) return line;
+            return null;
+        }
+
+        /// <summary>The cargo a specific car of this haul is meant to carry.</summary>
+        public CargoType CargoFor(string carId) => LineOf(carId)?.Cargo ?? transportedCargo;
 
         /// <summary>Whether to include a leading load task (finite/persistence mode).</summary>
         public bool includeLoadTask = false;
@@ -95,12 +127,42 @@ namespace DLE.Jobs
                 : plannedCarCount;
 
             var tasks = new List<Task>();
-            if (includeLoadTask)
-                tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Loading,
-                    loadMachine, transportedCargo, cargoUnits));
+            if (manifest != null && manifest.Count > 0)
+            {
+                // Mixed haul: one load+unload WarehouseTask PAIR per manifest line, each
+                // over its own car subset with its own cargo. All loads first, then all
+                // unloads, flat sequential, so the terminal lever works each line the way
+                // vanilla works any warehouse task and DVMP syncs them natively. The
+                // booklet finds tasks by warehouseTaskType, never by index.
+                var byId = carsToTransport.ToDictionary(c => c.ID, c => c);
+                var lineCars = new List<List<Car>>();
+                foreach (var line in manifest)
+                {
+                    var cars = new List<Car>();
+                    foreach (var id in line.CarIds)
+                        if (byId.TryGetValue(id, out var car)) cars.Add(car);
+                    lineCars.Add(cars);
+                }
+                if (includeLoadTask)
+                    for (int i = 0; i < manifest.Count; i++)
+                        tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Loading,
+                            loadMachine, manifest[i].Cargo,
+                            lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count));
+                for (int i = 0; i < manifest.Count; i++)
+                    tasks.Add(new WarehouseTask(lineCars[i], WarehouseTaskType.Unloading,
+                        unloadMachine, manifest[i].Cargo,
+                        lineCars[i].Count > 0 ? lineCars[i].Sum(c => c.capacity) : manifest[i].CarIds.Count,
+                        (long)timeLimit, true));
+            }
+            else
+            {
+                if (includeLoadTask)
+                    tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Loading,
+                        loadMachine, transportedCargo, cargoUnits));
 
-            tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Unloading,
-                unloadMachine, transportedCargo, cargoUnits, (long)timeLimit, true));
+                tasks.Add(new WarehouseTask(carsToTransport, WarehouseTaskType.Unloading,
+                    unloadMachine, transportedCargo, cargoUnits, (long)timeLimit, true));
+            }
 
             job = new Job(tasks, JobType.ComplexTransport, timeLimit, initialWage,
                 chainData, forcedJobId, requiredLicenses);

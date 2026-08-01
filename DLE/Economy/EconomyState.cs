@@ -798,6 +798,17 @@ namespace DLE.Economy
         }
 
         /// <summary>
+        /// Mixed-manifest hauls attach their cars at creation, so they carry no
+        /// reservation lifecycle: the stock leaves the pile the moment the job is born.
+        /// Same primitives ConsumeReservation ends at, minus the reservation lookup.
+        /// </summary>
+        public void ConsumeForHaul(string yardId, CargoType cargo, float amount, bool paid)
+        {
+            if (paid) ConsumeProduced(yardId, cargo, amount);
+            else ConsumeImportedFirst(yardId, cargo, amount);
+        }
+
+        /// <summary>
         /// Called when a Direct Haul unloads its cars at the destination. Only the cargo the
         /// station still has room for is accepted (a full consumer accepts nothing and so
         /// pays nothing); returns the accepted carloads so the payment gate pays for exactly

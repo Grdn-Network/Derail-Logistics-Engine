@@ -35,6 +35,37 @@ namespace DLE.Patches
                 Main.LogAlways($"[Economy] {lastJobInChain.ID} completed with no cargo ever loaded; nothing credited or paid.");
                 return;
             }
+
+            // Mixed haul: each line credits its own cargo and pays its own wage against
+            // its own tally; the single-cargo path below is untouched.
+            if (def.manifest != null && def.manifest.Count > 0)
+            {
+                double mixedPay = 0;
+                foreach (var line in def.manifest)
+                {
+                    int lineTotal = line.CarIds?.Count ?? 0;
+                    int lineDeliverable = System.Math.Min(lineTotal, line.Loaded);
+                    if (lineDeliverable <= 0) continue;
+                    int lineAccepted = EconomyState.Instance.OnDelivered(dest, line.Cargo, lineDeliverable);
+                    if (lineAccepted < lineDeliverable)
+                        Main.LogAlways($"[Economy] {lastJobInChain.ID}: {dest} had room for {lineAccepted} of {lineDeliverable} {line.Cargo}; the rest was lost to a full-station turn-in.");
+                    if (lineAccepted > 0 && line.Pay > 0f && lineTotal > 0)
+                        mixedPay += line.Pay * (double)lineAccepted / lineTotal;
+                }
+                if (mixedPay > 0)
+                {
+                    var minv = SingletonBehaviour<Inventory>.Instance;
+                    if (minv != null)
+                    {
+                        minv.SetMoney(minv.PlayerMoney + mixedPay);
+                        Main.Log($"[Economy] mixed delivery paid {mixedPay:0} at {dest} ({lastJobInChain.ID}).");
+                    }
+                    else
+                        Main.LogAlways($"[Economy] {dest}: mixed delivery complete but Inventory.Instance null; not paid.");
+                }
+                return;
+            }
+
             int accepted = EconomyState.Instance.OnDelivered(dest, def.transportedCargo, deliverable);
 
             // The board/auto-close path waits for room so nothing is destroyed, but a crew

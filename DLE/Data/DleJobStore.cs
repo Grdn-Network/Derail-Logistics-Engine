@@ -38,6 +38,19 @@ namespace DLE.Data
             // Additive since 0.43.000: absent in older saves, defaulting to false, which
             // restores the job as open paper exactly like those saves expect.
             public bool WasTaken;
+            // Additive since 0.6.1: mixed cargo manifest (#118). Null on single-cargo
+            // jobs and in older saves, which restore exactly as before.
+            public List<LineSnapshot> Lines;
+        }
+
+        [Serializable]
+        public class LineSnapshot
+        {
+            public string Cargo;
+            public List<string> CarGuids;
+            public float Pay;
+            public bool Unpaid;
+            public int Loaded;
         }
 
         [Serializable]
@@ -70,10 +83,37 @@ namespace DLE.Data
                     LoadedCarloads = def.loadedCarloads,
                     UnpaidMove = def.unpaidMove,
                     WasTaken = def.LiveJob?.State == JobState.InProgress,
+                    Lines = SnapshotLines(def),
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
             Main.Log($"[JobStore] saved {snapshots.Count} Direct Haul job(s).");
+        }
+
+        /// <summary>Manifest lines by car GUID (the stable key across saves; plate IDs
+        /// are rebuilt from the live cars on restore). Null for single-cargo jobs.</summary>
+        private static List<LineSnapshot> SnapshotLines(StaticDirectHaulJobDefinition def)
+        {
+            if (def.manifest == null || def.manifest.Count == 0) return null;
+            var guidById = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var c in def.carsToTransport)
+                if (c?.ID != null && c.carGuid != null) guidById[c.ID] = c.carGuid;
+            var lines = new List<LineSnapshot>();
+            foreach (var line in def.manifest)
+            {
+                var guids = new List<string>();
+                foreach (var id in line.CarIds ?? new List<string>())
+                    if (guidById.TryGetValue(id, out var g)) guids.Add(g);
+                lines.Add(new LineSnapshot
+                {
+                    Cargo = line.Cargo.ToString(),
+                    CarGuids = guids,
+                    Pay = line.Pay,
+                    Unpaid = line.Unpaid,
+                    Loaded = line.Loaded,
+                });
+            }
+            return lines;
         }
 
         public static void RestoreFrom(SaveGameData data)
@@ -140,6 +180,48 @@ namespace DLE.Data
             {
                 Main.LogAlways($"[JobStore] {snap.JobId}: station or cargo no longer resolves; skipped.");
                 return false;
+            }
+
+            // Mixed manifest (#118): every line's cars must resolve or the job drops; a
+            // mixed booklet over half its consist would misload and miscredit.
+            if (snap.Lines != null && snap.Lines.Count > 0)
+            {
+                var lines = new List<Jobs.CargoLine>();
+                var mixedCars = new List<TrainCar>();
+                foreach (var ls in snap.Lines)
+                {
+                    if (!Enum.TryParse<CargoType>(ls.Cargo, out var lineCargo))
+                    { Main.LogAlways($"[JobStore] {snap.JobId}: line cargo {ls.Cargo} no longer resolves; job dropped."); JobUtils.EnsureCounterPast(snap.JobId); return false; }
+                    var line = new Jobs.CargoLine { Cargo = lineCargo, Pay = ls.Pay, Unpaid = ls.Unpaid, Loaded = ls.Loaded };
+                    foreach (var guid in ls.CarGuids ?? new List<string>())
+                    {
+                        if (!byGuid.TryGetValue(guid, out var tc) || tc.logicCar == null)
+                        { Main.LogAlways($"[JobStore] {snap.JobId}: a manifest car is missing after load; job dropped."); JobUtils.EnsureCounterPast(snap.JobId); return false; }
+                        line.CarIds.Add(tc.logicCar.ID);
+                        mixedCars.Add(tc);
+                    }
+                    lines.Add(line);
+                }
+                bool mixedOk = DirectHaulGenerator.TryRebuildMixed(origin, dest, lines, mixedCars,
+                    snap.JobId, snap.Wage, snap.BonusTime, snap.SpawnTrackDisplay);
+                if (mixedOk)
+                {
+                    JobUtils.EnsureCounterPast(snap.JobId);
+                    if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(snap.JobId, out var mixedDef))
+                    {
+                        if (snap.LoadedCarloads > 0 && mixedDef.loadedCarloads < snap.LoadedCarloads)
+                            mixedDef.loadedCarloads = snap.LoadedCarloads;
+                        mixedDef.unpaidMove = snap.UnpaidMove;
+                        if (snap.WasTaken && mixedDef.LiveJob != null &&
+                            mixedDef.LiveJob.State == JobState.Available)
+                        {
+                            DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance
+                                .TakeJob(mixedDef.LiveJob, true);
+                            retaken++;
+                        }
+                    }
+                }
+                return mixedOk;
             }
 
             var cars = new List<TrainCar>();

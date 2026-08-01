@@ -358,12 +358,43 @@ namespace DLE.Dispatch
                     return;
                 }
 
-                // Dispatcher-picked priority haul.
+                // Dispatcher-picked priority haul: single cargo, mixed manifest, or a
+                // logi move, decided by the body shape.
                 if (method == "POST" && path == "/api/v1/hauls")
                 {
                     var req = JsonConvert.DeserializeObject<HaulRequest>(ReadBody(ctx) ?? "");
-                    if (req == null || string.IsNullOrEmpty(req.origin) || string.IsNullOrEmpty(req.destination) ||
-                        string.IsNullOrEmpty(req.cargo) || req.cars <= 0)
+                    if (req == null || string.IsNullOrEmpty(req.origin) || string.IsNullOrEmpty(req.destination))
+                    { Json(ctx, 400, new { error = "origin and destination required" }); return; }
+
+                    // Logi move (#118): unpaid, cargoless, any destination. Auto-taken so
+                    // the director's arrival sweep can close it on its own.
+                    if (req.logi)
+                    {
+                        var r = CreateLogiMove(req.origin, req.destination, req.carIds, out var logiJobId, out var logiNote);
+                        if (!r) { Json(ctx, 409, new { error = logiNote }); return; }
+                        Json(ctx, 201, new { ok = true, jobId = logiJobId, logi = true, note = logiNote });
+                        return;
+                    }
+
+                    // Mixed manifest (#118): cargo lines with explicit cars; the cars
+                    // attach at creation, one booklet comes out.
+                    if (req.lines != null && req.lines.Count > 0)
+                    {
+                        var kvLines = new List<KeyValuePair<DV.ThingTypes.CargoType, List<string>>>();
+                        foreach (var l in req.lines)
+                        {
+                            if (!TryResolveCargo(l.cargo, req.origin, out var lineCargo))
+                            { Json(ctx, 400, new { error = $"unknown cargo '{l.cargo}'" }); return; }
+                            kvLines.Add(new KeyValuePair<DV.ThingTypes.CargoType, List<string>>(
+                                lineCargo, l.cars ?? new List<string>()));
+                        }
+                        var mixedJobId = EconomyDirector.CreateMixed(req.origin, req.destination, kvLines, out var mixedReason);
+                        if (mixedJobId == null) { Json(ctx, 409, new { error = mixedReason ?? "could not create haul; see game log" }); return; }
+                        Json(ctx, 201, new { ok = true, jobId = mixedJobId });
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(req.cargo) || req.cars <= 0)
                     { Json(ctx, 400, new { error = "origin, destination, cargo, cars required" }); return; }
                     if (!TryResolveCargo(req.cargo, req.origin, out var cargoType))
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
@@ -463,6 +494,30 @@ namespace DLE.Dispatch
                     path.IndexOf('/', jobCarsPrefix.Length) < 0)
                 {
                     var jobId = path.Substring(jobCarsPrefix.Length);
+                    // A logi move is a vanilla EmptyHaul, not a DLE definition: cancel it
+                    // through its logistics order so the cars free up and the order clears.
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(jobId))
+                    {
+                        var order = LogisticsBoard.Instance.All.FirstOrDefault(o => o.JobId == jobId);
+                        if (order != null)
+                        {
+                            var jm = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+                            var job = jm?.jobToJobCars.Keys.FirstOrDefault(j => j != null && j.ID == jobId);
+                            string cancelNote = "move cancelled";
+                            if (job != null && job.State != DV.ThingTypes.JobState.Completed)
+                            {
+                                try { job.ExpireJob(); }
+                                catch
+                                {
+                                    try { jm.AbandonJob(job); cancelNote = "move abandoned; cars freed"; }
+                                    catch (Exception ex2) { cancelNote = $"order removed but the job would not die ({ex2.GetType().Name})"; }
+                                }
+                            }
+                            LogisticsBoard.Instance.Delete(order.Id);
+                            Json(ctx, 200, new { ok = true, message = cancelNote });
+                            return;
+                        }
+                    }
                     var r = DispatchLifecycle.DeleteHaul(jobId);
                     Json(ctx, r.Ok ? 200 : 409, new { ok = r.Ok, message = r.Message });
                     return;
@@ -627,7 +682,83 @@ namespace DLE.Dispatch
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class TakeRequest { public string player = null; }
         private class LockRequest { public bool? enabled = null; }
-        private class HaulRequest { public string origin = null; public string destination = null; public string cargo = null; public int cars = 0; public List<string> reserveCars = null; }
+        private class HaulRequest
+        {
+            public string origin = null; public string destination = null;
+            public string cargo = null; public int cars = 0;
+            public List<string> reserveCars = null;
+            public List<HaulLineRequest> lines = null;   // mixed manifest (#118)
+            public bool logi = false;                    // unpaid cargoless move (#118)
+            public List<string> carIds = null;           // logi: the picked cut
+        }
+        private class HaulLineRequest { public string cargo = null; public List<string> cars = null; }
+
+        /// <summary>
+        /// Logi move: validate the picked cut, build the zero-pay EmptyHaul, take it for
+        /// dispatch (the arrival sweep only closes InProgress jobs), and track it as a
+        /// logistics order so the existing auto-close sweep owns its lifecycle.
+        /// </summary>
+        private static bool CreateLogiMove(string origin, string destination, List<string> carIds,
+            out string jobId, out string note)
+        {
+            jobId = null;
+            note = null;
+            if (carIds == null || carIds.Count == 0) { note = "pick cars in the yard first"; return false; }
+            var fromSc = StationController.GetStationByYardID(origin);
+            var toSc = StationController.GetStationByYardID(destination);
+            if (fromSc == null || toSc == null) { note = "unknown origin or destination"; return false; }
+            if (string.Equals(origin, destination, StringComparison.OrdinalIgnoreCase))
+            { note = "origin and destination are the same yard"; return false; }
+
+            var reservedElsewhere = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var other in StaticDirectHaulJobDefinition.jobDefinitions)
+                if (other.Value?.reservedCarIds != null)
+                    foreach (var rid in other.Value.reservedCarIds)
+                        reservedElsewhere.Add(rid);
+
+            var byId = new Dictionary<string, TrainCar>(StringComparer.Ordinal);
+            foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+                if (pair.Key?.ID != null) byId[pair.Key.ID] = pair.Value;
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            var originTracks = DispatchServicing.StationTracks(fromSc, null);
+
+            var cut = new List<TrainCar>();
+            foreach (var id in carIds)
+            {
+                if (!byId.TryGetValue(id, out var tc) || tc.logicCar == null) { note = $"{id} not found"; return false; }
+                var car = tc.logicCar;
+                if (tc.IsLoco) { note = $"{id} is a locomotive"; return false; }
+                if (car.LoadedCargoAmount > 0f) { note = $"{id} is loaded; logi moves shift empties"; return false; }
+                if (jobsManager != null && jobsManager.GetJobOfCar(car) != null) { note = $"{id} is on a job"; return false; }
+                if (car.playerSpawnedCar) { note = $"{id} is a player car"; return false; }
+                if (reservedElsewhere.Contains(id)) { note = $"{id} is reserved for a haul"; return false; }
+                if (car.CurrentTrack == null || !originTracks.Contains(car.CurrentTrack))
+                { note = $"{id} is not standing in {origin}"; return false; }
+                cut.Add(tc);
+            }
+
+            jobId = Jobs.DirectHaulGenerator.TryCreateLogiMove(fromSc, toSc, cut, out var reason);
+            if (jobId == null) { note = reason ?? "move creation failed"; return false; }
+            var createdId = jobId; // out params cannot enter a lambda
+
+            // Take it for dispatch; a refused take leaves the move as ordinary open paper.
+            try
+            {
+                var job = jobsManager?.jobToJobCars.Keys.FirstOrDefault(j => j != null && j.ID == createdId);
+                if (job != null && job.State == DV.ThingTypes.JobState.Available)
+                    jobsManager.TakeJob(job, false);
+            }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[Logistics] {jobId}: auto-take failed ({ex.GetType().Name}: {ex.Message}); take it from the board.");
+            }
+
+            var order = LogisticsBoard.Instance.Create(origin, destination, cut.Count, null, "dispatcher move");
+            order.JobId = jobId;
+            try { LogisticsBoard.Instance.SetStatus(order.Id, "InProgress"); } catch { }
+            note = $"{cut.Count} car(s) to {destination}; closes on arrival at the booklet's track";
+            return true;
+        }
         private class EmptiesRequest { public string yardId = null; public string cargo = null; public int count = 0; }
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
         private class LoadRequest { public List<string> cars = null; }
@@ -764,6 +895,21 @@ namespace DLE.Dispatch
                     }
                 var axis = axisB - axisA;
                 if (axis.sqrMagnitude < 0.01f) axis = Vector3.right;
+                // Compass-stable orientation: an arbitrary chord direction would let a
+                // track's left-right flip between refreshes. East-west tracks read west
+                // on the left; north-south tracks (OR, MF) read south on the left. The
+                // row's end letters tell the dispatcher which convention this track got.
+                string ends;
+                if (Math.Abs(axis.x) >= Math.Abs(axis.z))
+                {
+                    if (axis.x < 0f) axis = -axis;
+                    ends = "W|E";
+                }
+                else
+                {
+                    if (axis.z < 0f) axis = -axis;
+                    ends = "S|N";
+                }
                 float Proj(Vector3 p) => Vector3.Dot(p - axisA, axis);
 
                 // Cuts: cars sharing a trainset are coupled; the trainset's own car list
@@ -831,6 +977,7 @@ namespace DLE.Dispatch
                     warehouse = whList != null,
                     warehouseCargos = whList,
                     carCount = entries.Count,
+                    ends,
                     cuts = cutRows,
                 }));
             }
@@ -951,12 +1098,21 @@ namespace DLE.Dispatch
 
         private static object JobsPayload()
         {
-            return StaticDirectHaulJobDefinition.jobDefinitions.Select(kv => new
+            var rows = StaticDirectHaulJobDefinition.jobDefinitions.Select(kv => (object)new
             {
                 id = kv.Key,
                 origin = kv.Value.chainData?.chainOriginYardId,
                 destination = kv.Value.chainData?.chainDestinationYardId,
-                cargo = kv.Value.transportedCargo.ToString(),
+                // A mixed haul reads as one thing on the card; the lines carry the detail.
+                cargo = kv.Value.manifest != null && kv.Value.manifest.Count > 1
+                    ? "Mixed freight" : kv.Value.transportedCargo.ToString(),
+                lines = kv.Value.manifest?.Select(l => new
+                {
+                    cargo = l.Cargo.ToString(),
+                    cars = l.CarIds?.Count ?? 0,
+                    loaded = l.Loaded,
+                    unpaid = l.Unpaid,
+                }),
                 cars = kv.Value.carsToTransport?.Count ?? 0,
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
@@ -969,6 +1125,35 @@ namespace DLE.Dispatch
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
                 reservedCars = kv.Value.reservedCarIds,
             }).ToList();
+
+            // Logi moves ride the same list (#118): one work queue, no separate section.
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            foreach (var order in LogisticsBoard.Instance.All)
+            {
+                if (string.IsNullOrEmpty(order.JobId) || order.Status == "Done") continue;
+                DV.Logic.Job.Job job = null;
+                if (jobsManager != null)
+                    foreach (var j in jobsManager.jobToJobCars.Keys)
+                        if (j != null && j.ID == order.JobId) { job = j; break; }
+                if (job == null || job.State == DV.ThingTypes.JobState.Completed ||
+                    job.State == DV.ThingTypes.JobState.Abandoned || job.State == DV.ThingTypes.JobState.Expired)
+                    continue;
+                rows.Add(new
+                {
+                    id = order.JobId,
+                    orderId = order.Id,
+                    origin = order.FromYardId,
+                    destination = order.ToYardId,
+                    cargo = "Logistics move",
+                    cars = order.CarCount,
+                    wage = 0f,
+                    unpaid = true,
+                    logi = true,
+                    state = job.State.ToString(),
+                    assignedTo = AssignmentStore.Instance.Get(order.JobId)?.Player,
+                });
+            }
+            return rows;
         }
 
         /// <summary>
