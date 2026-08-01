@@ -326,13 +326,22 @@ namespace DLE.Dispatch
                         Main.LogAlways($"[Servicing] {job.ID}: {c.ID} left {def.chainData?.chainOriginYardId}; staff load stopped at {loaded}/{cars.Count}.");
                         yield break;
                     }
-                    c.LoadCargo(c.capacity, def.transportedCargo);
+                    // A mixed haul's manifest names each car's cargo; single-cargo jobs
+                    // load the one cargo they always did.
+                    c.LoadCargo(c.capacity, def.CargoFor(c.ID));
                     loaded++;
                     // Tally the true physical count of loaded cars in the consist, not this
                     // run's local counter: a split load (a second run finishing cars a first
                     // run left) would otherwise high-water at the smaller run's count and
                     // under-credit the payout and the unload room math.
                     def.loadedCarloads = (def.carsToTransport ?? cars).Count(x => x != null && x.LoadedCargoAmount > 0f);
+                    if (def.manifest != null)
+                    {
+                        var pool2 = def.carsToTransport ?? cars;
+                        foreach (var line in def.manifest)
+                            line.Loaded = pool2.Count(x => x != null && x.LoadedCargoAmount > 0f &&
+                                                           line.CarIds != null && line.CarIds.Contains(x.ID));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -342,10 +351,11 @@ namespace DLE.Dispatch
 
             try
             {
-                // Check the load task out of the machine so it reads Done; staff handled it.
-                var loadTask = job.tasks.OfType<WarehouseTask>()
-                    .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Loading);
-                if (loadTask != null) def.loadMachine?.RemoveWarehouseTask(loadTask);
+                // Check the load task(s) out of the machine so they read Done; staff
+                // handled them. A mixed haul carries one load task per cargo line.
+                foreach (var loadTask in job.tasks.OfType<WarehouseTask>()
+                    .Where(t => t.warehouseTaskType == WarehouseTaskType.Loading).ToList())
+                    def.loadMachine?.RemoveWarehouseTask(loadTask);
                 // A run that loaded nothing is a no-op, not a load: every car was already
                 // full (the loop skips loaded cars), so recording it filed phantom
                 // "loaded 0" events against a job that really had been loaded (#112).
@@ -420,9 +430,9 @@ namespace DLE.Dispatch
 
             try
             {
-                var unloadTask = job.tasks.OfType<WarehouseTask>()
-                    .FirstOrDefault(t => t.warehouseTaskType == WarehouseTaskType.Unloading);
-                if (unloadTask != null) def.unloadMachine?.RemoveWarehouseTask(unloadTask);
+                foreach (var unloadTask in job.tasks.OfType<WarehouseTask>()
+                    .Where(t => t.warehouseTaskType == WarehouseTaskType.Unloading).ToList())
+                    def.unloadMachine?.RemoveWarehouseTask(unloadTask);
                 EconomyHistory.Record("unloaded", def.chainData?.chainDestinationYardId, def.transportedCargo.ToString(), unloaded, job.ID);
                 Main.LogAlways($"[Servicing] {job.ID}: staff unloaded {unloaded} car(s) at {def.chainData?.chainDestinationYardId}. Turn the haul in to get paid.");
             }

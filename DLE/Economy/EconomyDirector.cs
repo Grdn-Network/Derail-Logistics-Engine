@@ -248,6 +248,112 @@ namespace DLE.Economy
             return jobId;
         }
 
+        /// <summary>
+        /// Mixed cargo haul (#118): validate every line the way CreateSpecific validates
+        /// its one cargo (routing, stock, car eligibility), then hand the generator a
+        /// clean manifest. Any bad line refuses the WHOLE job with its reason: a booklet
+        /// must never go out promising a line the yard cannot deliver.
+        /// </summary>
+        public static string CreateMixed(string originYard, string destYard,
+            List<KeyValuePair<CargoType, List<string>>> requestLines, out string reason)
+        {
+            reason = null;
+            if (!Main.IsHostOrSingleplayer()) { reason = "host or singleplayer only"; return null; }
+            if (string.Equals(originYard, destYard, StringComparison.OrdinalIgnoreCase))
+            { reason = "origin and destination are the same yard"; return null; }
+
+            var producerSc = StationController.GetStationByYardID(originYard);
+            var consumerSc = StationController.GetStationByYardID(destYard);
+            if (producerSc == null || consumerSc == null)
+            { reason = $"unknown yard ({originYard} or {destYard})"; return null; }
+
+            var econ = EconomyState.Instance;
+            econ.Facilities.TryGetValue(originYard, out var originFacility);
+
+            // Two lines naming the same cargo are one line; the same car twice is a
+            // malformed consist whichever lines it came from.
+            var merged = new Dictionary<CargoType, List<string>>();
+            var seenCars = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rl in requestLines ?? new List<KeyValuePair<CargoType, List<string>>>())
+            {
+                if (!merged.TryGetValue(rl.Key, out var ids)) merged[rl.Key] = ids = new List<string>();
+                foreach (var id in rl.Value ?? new List<string>())
+                {
+                    if (!seenCars.Add(id)) { reason = $"{id} appears twice in the manifest"; return null; }
+                    ids.Add(id);
+                }
+            }
+            if (merged.Count == 0 || seenCars.Count == 0) { reason = "no cars in the manifest"; return null; }
+
+            var reservedElsewhere = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var other in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                if (other.Value?.reservedCarIds != null)
+                    foreach (var rid in other.Value.reservedCarIds)
+                        reservedElsewhere.Add(rid);
+
+            var byId = new Dictionary<string, TrainCar>(StringComparer.Ordinal);
+            foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+                if (pair.Key?.ID != null) byId[pair.Key.ID] = pair.Value;
+
+            var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            var originTracks = Dispatch.DispatchServicing.StationTracks(producerSc, null);
+
+            var lines = new List<Jobs.CargoLine>();
+            var allCars = new List<TrainCar>();
+            foreach (var kv in merged)
+            {
+                var cargo = kv.Key;
+                var carIds = kv.Value;
+                if (carIds.Count == 0) continue;
+
+                if (originFacility != null && !originFacility.CanSend(cargo, destYard))
+                {
+                    var allowed = originFacility.DestinationsFor(cargo);
+                    reason = $"{cargo} from {originYard} goes to {string.Join(", ", allowed.OrderBy(y => y))} (vanilla routing), not {destYard}";
+                    return null;
+                }
+
+                // Paid line when produced stock covers it; unpaid when only the total
+                // does (relocation); refused when neither does.
+                bool unpaidLine = false;
+                if (econ.GetAvailable(originYard, cargo) < carIds.Count)
+                {
+                    if (econ.GetUnpaidAvailable(originYard, cargo) < carIds.Count)
+                    {
+                        reason = $"{originYard} cannot cover {carIds.Count} {cargo} (produced and imported both short)";
+                        return null;
+                    }
+                    unpaidLine = true;
+                }
+
+                if (!DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
+                    !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var loadable))
+                { reason = $"no car type carries {cargo}"; return null; }
+
+                foreach (var id in carIds)
+                {
+                    if (!byId.TryGetValue(id, out var tc) || tc.logicCar == null)
+                    { reason = $"{id} not found in the world"; return null; }
+                    var car = tc.logicCar;
+                    if (tc.IsLoco) { reason = $"{id} is a locomotive"; return null; }
+                    if (car.LoadedCargoAmount > 0f) { reason = $"{id} is already loaded"; return null; }
+                    if (jobsManager != null && jobsManager.GetJobOfCar(car) != null)
+                    { reason = $"{id} is already on a job"; return null; }
+                    if (car.playerSpawnedCar) { reason = $"{id} is a player-spawned car"; return null; }
+                    if (reservedElsewhere.Contains(id)) { reason = $"{id} is reserved for another haul"; return null; }
+                    if (car.CurrentTrack == null || !originTracks.Contains(car.CurrentTrack))
+                    { reason = $"{id} is not standing in {originYard}"; return null; }
+                    if (!loadable.Contains(car.carType.parentType))
+                    { reason = $"{id} cannot carry {cargo}"; return null; }
+                    allCars.Add(tc);
+                }
+                lines.Add(new Jobs.CargoLine { Cargo = cargo, CarIds = new List<string>(carIds), Unpaid = unpaidLine });
+            }
+            if (lines.Count == 0) { reason = "no valid cargo lines"; return null; }
+
+            return DirectHaulGenerator.TryCreateMixed(producerSc, consumerSc, lines, allCars, out reason);
+        }
+
         private static readonly Random _rng = new Random();
 
         private static FacilityDef FindConsumer(EconomyState econ, CargoType cargo, FacilityDef producer)

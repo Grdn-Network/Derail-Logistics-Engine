@@ -75,6 +75,13 @@ namespace DLE.Patches
             if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
             {
                 def.loadedCarloads = Math.Min(def.carsToTransport?.Count ?? int.MaxValue, def.loadedCarloads + 1);
+                // Mixed haul: the task knows which line it is loading; that line's tally
+                // is what turn-in pays and credits per cargo.
+                if (def.manifest != null)
+                {
+                    var line = def.manifest.FirstOrDefault(l => l.Cargo == task.cargoType);
+                    if (line != null) line.Loaded = Math.Min(line.CarIds?.Count ?? int.MaxValue, line.Loaded + 1);
+                }
                 // One event when the terminal finishes the last car; staff loads record
                 // their own event in the servicing wrap-up.
                 if (def.loadedCarloads == (def.carsToTransport?.Count ?? -1))
@@ -328,21 +335,28 @@ namespace DLE.Patches
             }
         }
 
-        private static void DumpJobCargo(Job job)
+        // Internal (not private): mixed hauls attach at creation and wire these same
+        // guards from the generator. Every warehouse task is walked, not just the first:
+        // a mixed job carries one task pair per cargo line, each with its own car subset.
+        internal static void DumpJobCargo(Job job)
         {
-            if (!(job.tasks.FirstOrDefault(t => t is WarehouseTask) is WarehouseTask wt)) return;
-            foreach (var c in wt.cars)
-            {
-                if (c.LoadedCargoAmount > 0f) c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
-                c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
-            }
+            var seen = new HashSet<Car>();
+            foreach (var wt in job.tasks.OfType<WarehouseTask>())
+                foreach (var c in wt.cars)
+                {
+                    if (!seen.Add(c)) continue;
+                    if (c.LoadedCargoAmount > 0f) c.UnloadCargo(c.LoadedCargoAmount, c.CurrentCargoTypeInCar);
+                    c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
+                }
         }
 
-        private static void DumpPlates(Job job)
+        internal static void DumpPlates(Job job)
         {
-            if (!(job.tasks.FirstOrDefault(t => t is WarehouseTask) is WarehouseTask wt)) return;
-            foreach (var c in wt.cars)
-                c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
+            var seen = new HashSet<Car>();
+            foreach (var wt in job.tasks.OfType<WarehouseTask>())
+                foreach (var c in wt.cars)
+                    if (seen.Add(c))
+                        c.TrainCar()?.UpdateJobIdOnCarPlates(string.Empty);
         }
     }
 }

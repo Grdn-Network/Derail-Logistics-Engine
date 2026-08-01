@@ -186,6 +186,101 @@ namespace DLE.Jobs
         }
 
         /// <summary>
+        /// Mixed cargo haul (#118): several cargos, one origin, one destination, ONE
+        /// booklet. The dispatcher picked exact standing cars per line, so the cars
+        /// attach at creation (the pick IS the commitment) and the stock debits now:
+        /// no reservation lifecycle, no carless phase. Tasks are one vanilla
+        /// WarehouseTask pair per line, so the terminal lever and DVMP both treat the
+        /// job as ordinary warehouse work.
+        /// </summary>
+        public static string TryCreateMixed(
+            StationController producer,
+            StationController consumer,
+            List<CargoLine> lines,
+            List<TrainCar> allCars,
+            out string reason)
+        {
+            reason = null;
+            if (producer == null || consumer == null || lines == null || lines.Count == 0 ||
+                allCars == null || allCars.Count == 0)
+            { reason = "bad mixed haul request"; return null; }
+
+            var allCargos = lines.Select(l => l.Cargo).Distinct().ToList();
+            var loadMachine = producer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(allCargos).FirstOrDefault();
+            var unloadMachine = consumer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(allCargos).FirstOrDefault();
+            if (loadMachine == null || unloadMachine == null)
+            {
+                reason = $"no single warehouse at {(loadMachine == null ? producer : consumer).stationInfo.YardID} " +
+                         $"handles {string.Join(" + ", allCargos)}; split the haul";
+                return null;
+            }
+
+            // Per-line pay from the line's REAL cars; the job pays the sum of its paid
+            // lines. An unpaid line (relocating imported goods) contributes work, not wage.
+            float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
+            float bonusTime = JobPaymentCalculator.CalculateHaulBonusTimeLimit(distance);
+            var byId = allCars.Where(tc => tc.logicCar != null).ToDictionary(tc => tc.logicCar.ID, tc => tc);
+            float wage = 0f;
+            foreach (var line in lines)
+            {
+                var liveryCounts = new Dictionary<TrainCarLivery, int>();
+                foreach (var id in line.CarIds)
+                    if (byId.TryGetValue(id, out var tc) && tc.carLivery != null)
+                    {
+                        liveryCounts.TryGetValue(tc.carLivery, out var n);
+                        liveryCounts[tc.carLivery] = n + 1;
+                    }
+                line.Pay = line.Unpaid ? 0f : JobPaymentCalculator.CalculateJobPayment(
+                    JobType.Transport, distance,
+                    new PaymentCalculationData(liveryCounts,
+                        new Dictionary<CargoType, int> { { line.Cargo, line.CarIds.Count } }));
+                wage += line.Pay;
+            }
+
+            var jobId = JobUtils.NextId(producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            var firstTrack = allCars[0].logicCar?.CurrentTrack?.ID?.FullDisplayID;
+            bool ok = BuildChain(producer, consumer, allCars, lines[0].Cargo,
+                loadMachine, unloadMachine, jobId, wage, bonusTime,
+                spawnTrackDisplay: firstTrack ?? producer.stationInfo.YardID,
+                includeLoadTask: true, displayCarsOverride: null,
+                plannedCarCount: allCars.Count, manifest: lines);
+            if (!ok) { reason = "job creation failed; see game log"; return null; }
+
+            // The stock leaves the piles NOW, per line: the cars are committed. Cleanup
+            // guards mirror CommitAttach so a dying job dumps cargo and clears plates.
+            if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def))
+            {
+                foreach (var line in lines)
+                    Economy.EconomyState.Instance.ConsumeForHaul(
+                        producer.stationInfo.YardID, line.Cargo, line.CarIds.Count, paid: !line.Unpaid);
+                def.unpaidMove = lines.All(l => l.Unpaid);
+                var job = def.LiveJob;
+                if (job != null)
+                {
+                    job.JobAbandoned += Patches.DleWarehouseLoadAttachPatch.DumpJobCargo;
+                    job.JobCompleted += Patches.DleWarehouseLoadAttachPatch.DumpPlates;
+                    // The cars are on the job from birth: register the ownership the same
+                    // way CommitAttach does, or the pool recovery reads them as jobless
+                    // strays and conscripts a live consist.
+                    var jm = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
+                    if (jm != null) jm.jobToJobCars[job] = new HashSet<Car>(def.carsToTransport);
+                    foreach (var tc in allCars) tc.UpdateJobIdOnCarPlates(jobId);
+                }
+                foreach (var line in lines)
+                    Economy.EconomyHistory.Record("haul_created", producer.stationInfo.YardID,
+                        line.Cargo.ToString(), line.CarIds.Count, jobId);
+                Dispatch.DleMpChannel.NotifyAttach(jobId,
+                    def.carsToTransport.Select(c => c.ID), wage, def.unpaidMove,
+                    lines.Count > 1 ? "Mixed freight" : lines[0].Cargo.ToString(), allCars.Count);
+            }
+            Main.LogAlways($"[DirectHaul] mixed {jobId}: {string.Join(" + ", lines.Select(l => $"{l.CarIds.Count} {l.Cargo}{(l.Unpaid ? " (unpaid)" : "")}"))} " +
+                           $"{producer.stationInfo.YardID} -> {consumer.stationInfo.YardID}, ${wage:0}.");
+            return jobId;
+        }
+
+        /// <summary>
         /// Logistics run booklet: a real zero-pay vanilla EmptyHaul job over idle pool
         /// empties at the origin, so the run is paperwork a crew can hold and validate.
         /// Vanilla type on purpose: the game's own booklet code renders it (host AND
@@ -271,6 +366,106 @@ namespace DLE.Jobs
         }
 
         /// <summary>
+        /// Logi move from the Job maker (#118): the dispatcher picked EXACT cars, so no
+        /// idle-empties search; a zero-pay vanilla EmptyHaul is built over that cut to
+        /// any station. Auto-taken by the caller; the director's logistics sweep closes
+        /// it when the transport task completes at the destination track.
+        /// </summary>
+        public static string TryCreateLogiMove(
+            StationController from,
+            StationController to,
+            List<TrainCar> cut,
+            out string reason)
+        {
+            reason = null;
+            if (from == null || to == null || cut == null || cut.Count == 0)
+            { reason = "bad logi request"; return null; }
+
+            var startTrack = cut[0].logicCar?.CurrentTrack;
+            if (startTrack == null) { reason = $"{cut[0].ID} is not standing on a track"; return null; }
+
+            var destTrack = to.logicStation?.yard?.StorageTracks?
+                .OrderByDescending(t => t.length)
+                .FirstOrDefault();
+            if (destTrack == null) { reason = $"{to.stationInfo.YardID} has no storage track"; return null; }
+
+            var logicCars = TrainCar.ExtractLogicCars(cut);
+            if (logicCars == null || logicCars.Count == 0) { reason = "car extraction failed"; return null; }
+
+            EmptyHaulJobProceduralGenerator.CalculateBonusTimeLimitAndWage(
+                from, to, cut.Select(tc => tc.carLivery).ToList(), out var bonusTime, out _);
+
+            var jcc = EmptyHaulJobProceduralGenerator.GenerateEmptyHaulChainController(
+                from, to, startTrack, logicCars, destTrack, bonusTime,
+                0f, JobLicenses.Basic);
+            if (jcc == null) { reason = "the game refused to build the empty haul"; return null; }
+            try
+            {
+                jcc.FinalizeSetupAndGenerateFirstJob(false);
+            }
+            catch (System.Exception ex)
+            {
+                Main.LogAlways($"[Logistics] move build failed ({ex.GetType().Name}): {ex.Message}");
+                try { jcc.DestroyChain(); } catch { }
+                reason = "move build failed; see game log";
+                return null;
+            }
+
+            var jobId = jcc.currentJobInChain?.ID;
+            Main.LogAlways($"[Logistics] {jobId}: dispatcher move, {cut.Count} car(s) " +
+                           $"{from.stationInfo.YardID} -> {to.stationInfo.YardID} " +
+                           $"(closes on arrival at {destTrack.ID?.FullDisplayID}).");
+            return jobId;
+        }
+
+        /// <summary>
+        /// Restore a saved MIXED haul over its surviving cars. Mirrors TryRebuild's
+        /// rules: the load step returns only when nothing was loaded yet, and the job
+        /// re-registers car ownership the way creation did.
+        /// </summary>
+        public static bool TryRebuildMixed(
+            StationController producer,
+            StationController consumer,
+            List<CargoLine> lines,
+            List<TrainCar> cars,
+            string jobId,
+            float wage,
+            float bonusTime,
+            string spawnTrackDisplay)
+        {
+            var allCargos = lines.Select(l => l.Cargo).Distinct().ToList();
+            var loadMachine = producer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(allCargos).FirstOrDefault();
+            var unloadMachine = consumer.logicStation.yard
+                .GetWarehouseMachinesThatSupportCargoTypes(allCargos).FirstOrDefault();
+            if (unloadMachine == null)
+            {
+                Main.LogAlways($"[DirectHaul] rebuild {jobId}: {consumer?.stationInfo?.YardID} no longer unloads the manifest; the saved haul is dropped.");
+                return false;
+            }
+
+            int loadedCars = cars.Count(c => c.logicCar != null && c.logicCar.LoadedCargoAmount > 0f);
+            bool stillNeedsLoad = loadedCars == 0;
+
+            bool ok = BuildChain(producer, consumer, cars, lines[0].Cargo, loadMachine, unloadMachine,
+                jobId, wage, bonusTime, spawnTrackDisplay, stillNeedsLoad, null, cars.Count, lines);
+            if (ok && StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var rebuilt))
+            {
+                rebuilt.loadedCarloads = loadedCars;
+                var job = rebuilt.LiveJob;
+                if (job != null)
+                {
+                    job.JobAbandoned += Patches.DleWarehouseLoadAttachPatch.DumpJobCargo;
+                    job.JobCompleted += Patches.DleWarehouseLoadAttachPatch.DumpPlates;
+                    var jm = DV.Utils.SingletonBehaviour<JobsManager>.Instance;
+                    if (jm != null) jm.jobToJobCars[job] = new HashSet<Car>(rebuilt.carsToTransport);
+                }
+                Main.Log($"[DirectHaul] rebuilt mixed {jobId} over {cars.Count} car(s), {lines.Count} cargo line(s).");
+            }
+            return ok;
+        }
+
+        /// <summary>
         /// Rebuild a saved job over cars that already exist in the world (save restore).
         /// The cars keep whatever cargo the vanilla save gave them.
         /// </summary>
@@ -346,7 +541,8 @@ namespace DLE.Jobs
             string spawnTrackDisplay,
             bool includeLoadTask = false,
             List<Car_data> displayCarsOverride = null,
-            int plannedCarCount = 0)
+            int plannedCarCount = 0,
+            List<CargoLine> manifest = null)
         {
             // ExtractLogicCars returns NULL for an empty list (and warns "Passed null or
             // empty list of trainCars"), so a carless job must not go through it: the NRE
@@ -363,8 +559,11 @@ namespace DLE.Jobs
             int licenseCarCount = logicCars.Count > 0 ? logicCars.Count : plannedCarCount;
             var chainData = new StationsChainData(
                 producer.stationInfo.YardID, consumer.stationInfo.YardID);
+            var licenseCargos = manifest != null && manifest.Count > 0
+                ? manifest.Select(l => l.Cargo).Distinct().ToList()
+                : new List<CargoType> { cargo };
             var requiredLicenses =
-                JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(new List<CargoType> { cargo }))
+                JobLicenseType_v2.ListToFlags(LicenseManager.Instance.GetRequiredLicensesForCargoTypes(licenseCargos))
                 | (LicenseManager.Instance.GetRequiredLicenseForNumberOfTransportedCars(licenseCarCount)?.v1 ?? JobLicenses.Basic);
 
             var go = new GameObject(
@@ -382,6 +581,7 @@ namespace DLE.Jobs
             def.displayCars       = displayCarsOverride ?? logicCars.Select(c => new Car_data(c, false)).ToList();
             def.spawnTrackDisplay = spawnTrackDisplay;
             def.deliveryPayment   = wage;
+            def.manifest          = manifest;
             def.ForceJobId(jobId);
             // The booklet is faux: the vanilla job pays 0, and deliveryPayment is awarded on
             // the delivery unload instead (gated, so load and storage-unload never pay).

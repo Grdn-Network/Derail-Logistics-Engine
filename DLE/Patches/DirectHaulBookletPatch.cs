@@ -40,8 +40,11 @@ namespace DLE.Patches
         {
             StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var def);
 
-            var taskCars = FirstTaskCars(job);
-            cars = taskCars != null && taskCars.Count > 0
+            // Aggregate across ALL warehouse tasks, not just the first: a mixed haul
+            // carries one task pair per cargo line, each holding only its own cars, and
+            // this walk works identically on a DVMP client (task data is synced state).
+            AggregateWarehouseTasks(job, out var taskCars, out var taskCargoAgg);
+            cars = taskCars.Count > 0
                 ? taskCars
                 : (def?.displayCars ?? new List<Car_data>());
 
@@ -90,10 +93,9 @@ namespace DLE.Patches
                 }
             }
 
-            var taskCargo = FirstTaskCargo(job);
-            if (taskCargo != null && taskCargo.Count == cars.Count && taskCargo.Count > 0)
+            if (taskCargoAgg.Count == cars.Count && taskCargoAgg.Count > 0)
             {
-                cargoTypePerCar = taskCargo;
+                cargoTypePerCar = taskCargoAgg;
             }
             else if (def != null)
             {
@@ -101,10 +103,39 @@ namespace DLE.Patches
             }
             else
             {
-                cargoTypePerCar = taskCargo ?? new List<CargoType>();
+                cargoTypePerCar = new List<CargoType>();
             }
 
-            cargoName = cargoTypePerCar.Count > 0 ? CargoDisplayName(cargoTypePerCar[0]) : string.Empty;
+            var distinct = cargoTypePerCar.Where(c => c != CargoType.None).Distinct().ToList();
+            cargoName = distinct.Count > 1 ? "Mixed freight"
+                : distinct.Count == 1 ? CargoDisplayName(distinct[0])
+                : string.Empty;
+        }
+
+        /// <summary>Union of the job's warehouse tasks: Loading tasks first (they name
+        /// what each car WILL carry), else Unloading tasks; cars keep task order.</summary>
+        private static void AggregateWarehouseTasks(Job_data job,
+            out List<Car_data> cars, out List<CargoType> cargoPerCar)
+        {
+            cars = new List<Car_data>();
+            cargoPerCar = new List<CargoType>();
+            if (job.tasksData == null || job.tasksData.Length == 0) return;
+            var pick = job.tasksData.Where(t =>
+                t.warehouseTaskType == DV.Logic.Job.WarehouseTaskType.Loading).ToList();
+            if (pick.Count == 0 || pick.All(t => t.cars == null || t.cars.Count == 0))
+                pick = job.tasksData.Where(t =>
+                    t.warehouseTaskType == DV.Logic.Job.WarehouseTaskType.Unloading).ToList();
+            if (pick.Count == 0) pick = job.tasksData.ToList();
+            foreach (var t in pick)
+            {
+                if (t.cars == null) continue;
+                for (int i = 0; i < t.cars.Count; i++)
+                {
+                    cars.Add(t.cars[i]);
+                    cargoPerCar.Add(t.cargoTypePerCar != null && i < t.cargoTypePerCar.Count
+                        ? t.cargoTypePerCar[i] : CargoType.None);
+                }
+            }
         }
 
         private static string CargoDisplayName(CargoType cargo)
@@ -113,11 +144,17 @@ namespace DLE.Patches
             catch (Exception) { return cargo.ToString(); }
         }
 
-        private static List<Car_data> FirstTaskCars(Job_data job) =>
-            job.tasksData != null && job.tasksData.Length > 0 ? job.tasksData[0].cars : null;
-
-        private static List<CargoType> FirstTaskCargo(Job_data job) =>
-            job.tasksData != null && job.tasksData.Length > 0 ? job.tasksData[0].cargoTypePerCar : null;
+        /// <summary>Track label for the first task of the given warehouse type, e.g.
+        /// "B3L". Type-based, never index-based: a mixed haul has several tasks per
+        /// step and the load block's length varies with the manifest.</summary>
+        public static string GetTrackDisplayByType(Job_data job, DV.Logic.Job.WarehouseTaskType type)
+        {
+            if (job.tasksData == null) return string.Empty;
+            foreach (var t in job.tasksData)
+                if (t.warehouseTaskType == type && t.destinationTrackID != null)
+                    return t.destinationTrackID.TrackPartOnly;
+            return string.Empty;
+        }
 
         /// <summary>
         /// Format the stat strings the same way the vanilla transport booklet does,
@@ -182,7 +219,7 @@ namespace DLE.Patches
                                    (defForTrack.carsToTransport?.Count ?? 0) == 0;
             if (awaitingEmpties)
             {
-                var loadTrack = GetTaskTrackDisplay(job, 0);
+                var loadTrack = GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Loading);
                 pickup = string.IsNullOrEmpty(loadTrack)
                     ? " Bring empty cars to the loading track."
                     : $" Bring empty cars to loading track {loadTrack}.";
@@ -213,18 +250,6 @@ namespace DLE.Patches
                         ? syncedPay
                         : job.basePayment).ToString("N0", LocalizationAPI.CC),
                 pageNumber, totalPages);
-        }
-
-        /// <summary>
-        /// Track label for the load (task 0) or unload (task 1) warehouse task,
-        /// e.g. "B3L", or empty when the task data is not there.
-        /// </summary>
-        public static string GetTaskTrackDisplay(Job_data job, int taskIndex)
-        {
-            if (job.tasksData == null || job.tasksData.Length <= taskIndex)
-                return string.Empty;
-            var trackId = job.tasksData[taskIndex].destinationTrackID;
-            return trackId != null ? trackId.TrackPartOnly : string.Empty;
         }
 
         /// <summary>Localize with a fallback so a missing key cannot blank a booklet.</summary>
@@ -279,11 +304,11 @@ namespace DLE.Patches
                 ?? StationController.GetStationByYardID(def?.chainData?.chainDestinationYardId)?.stationInfo;
 
             // A carless Company Haul carries a leading load task; the booklet mirrors it.
-            // Jobs whose cars ship pre-loaded (single unload task) keep the 4-page layout, and the
-            // unload page reads its track from the right task either way (task 0 is the
-            // LOAD track on a carless job, not the unload track).
+            // Jobs whose cars ship pre-loaded keep the 4-page layout. Detection is by
+            // task TYPE: a mixed haul has several tasks per step, so length says nothing.
             bool hasLoadStep = def?.includeLoadTask
-                ?? (job.tasksData != null && job.tasksData.Length > 1);
+                ?? (job.tasksData != null && job.tasksData.Any(t =>
+                    t.warehouseTaskType == DV.Logic.Job.WarehouseTaskType.Loading));
             string total = hasLoadStep ? "5" : "4";
 
             var pages = new List<TemplatePaperData>
@@ -303,7 +328,7 @@ namespace DLE.Patches
                     "Bring the empty cars to the loading track, or ask dispatch to load them remotely wherever they stand.",
                     origin?.YardID ?? string.Empty,
                     origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
-                    DirectHaulBooklet.GetTaskTrackDisplay(job, 0), C.TRACK_COLOR,
+                    DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Loading), C.TRACK_COLOR,
                     string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
                     cars, null, "3", total));
             }
@@ -314,7 +339,7 @@ namespace DLE.Patches
                 "Take the cars to the unloading track, or ask dispatch to unload them remotely wherever they stand.",
                 destination?.YardID ?? string.Empty,
                 destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
-                DirectHaulBooklet.GetTaskTrackDisplay(job, hasLoadStep ? 1 : 0), C.TRACK_COLOR,
+                DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Unloading), C.TRACK_COLOR,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
                 cars, null, hasLoadStep ? "4" : "3", total));
 
