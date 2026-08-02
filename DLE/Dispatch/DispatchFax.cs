@@ -29,8 +29,20 @@ namespace DLE.Dispatch
         public static Result Fax(string jobId, string player)
         {
             if (!Main.IsHostOrSingleplayer()) return Result.Fail("host or singleplayer only");
-            if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) || def.LiveJob == null)
-                return Result.Fail($"unknown job '{jobId}'");
+
+            // Any live job faxes, not just Company Hauls: a logi move is a vanilla
+            // EmptyHaul and the vanilla booklet code renders it natively.
+            DV.Logic.Job.Job job = null;
+            if (StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) && def.LiveJob != null)
+                job = def.LiveJob;
+            else
+            {
+                var jm = SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+                if (jm != null)
+                    foreach (var jj in jm.jobToJobCars.Keys)
+                        if (jj != null && jj.ID == jobId) { job = jj; break; }
+            }
+            if (job == null) return Result.Fail($"unknown job '{jobId}'");
 
             // No name given: the assigned crew is the natural target; only an
             // unassigned job faxes to the local player.
@@ -43,6 +55,19 @@ namespace DLE.Dispatch
                     player = assignment.Player;
                     viaAssignment = true;
                 }
+            }
+
+            // Assign-by-loco (#118 wave 4): a crew slot naming a live locomotive means
+            // "whoever is running that engine". The fax resolves the loco to the nearest
+            // player aboard at SEND time, so the paper follows the seat, not the name.
+            if (!string.IsNullOrEmpty(player) && TryFindLoco(player, out var loco))
+            {
+                var crewName = NearestPlayerTo(loco.transform.position, 30f);
+                if (crewName == null)
+                    return Result.Fail($"nobody is aboard {loco.ID} (within 30 m) to fax");
+                Main.LogAlways($"[Fax] {jobId}: {loco.ID} resolved to {(crewName.Length == 0 ? "the local player" : crewName)}.");
+                player = crewName; // empty string = the local player
+                viaAssignment = true; // keep the loco assignment; do not overwrite with the person
             }
 
             Transform target;
@@ -95,7 +120,7 @@ namespace DLE.Dispatch
             GameObject booklet;
             try
             {
-                booklet = BookletCreator_Job.Create(def.LiveJob, pos, rot,
+                booklet = BookletCreator_Job.Create(job, pos, rot,
                     WorldMover.OriginShiftParent, addToWorldStorage: false)?.gameObject;
             }
             catch (Exception ex)
@@ -145,6 +170,65 @@ namespace DLE.Dispatch
         {
             if (!viaAssignment && AssignmentStore.Instance.Get(jobId) == null)
                 AssignmentStore.Instance.Assign(jobId, player, "fax");
+        }
+
+        /// <summary>A live locomotive whose plate matches the given name, else false. This
+        /// is what lets an assignment slot hold an engine instead of a person.</summary>
+        private static bool TryFindLoco(string name, out TrainCar loco)
+        {
+            loco = null;
+            try
+            {
+                foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
+                    if (kv.Key?.ID != null && kv.Value != null && kv.Value.IsLoco &&
+                        string.Equals(kv.Key.ID, name, StringComparison.OrdinalIgnoreCase))
+                    { loco = kv.Value; return true; }
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Fax] loco lookup failed: {ex.Message}");
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The player standing closest to a position within range: the local player
+        /// (returned as the empty string, the fax code's marker for "us") or a DVMP
+        /// avatar's username. Null when nobody is close enough.
+        /// </summary>
+        private static string NearestPlayerTo(Vector3 pos, float range)
+        {
+            string best = null;
+            float bestD = range;
+            try
+            {
+                var lp = PlayerManager.PlayerTransform;
+                if (lp != null)
+                {
+                    float d = Vector3.Distance(lp.position, pos);
+                    if (d < bestD) { bestD = d; best = LocalPlayerName() ?? string.Empty; }
+                }
+                var type = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
+                    .FirstOrDefault(t => t != null);
+                if (type != null)
+                {
+                    var usernameProp = type.GetProperty("Username");
+                    foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
+                    {
+                        var comp = obj as Component;
+                        var username = usernameProp?.GetValue(obj) as string;
+                        if (comp == null || string.IsNullOrEmpty(username)) continue;
+                        float d = Vector3.Distance(comp.transform.position, pos);
+                        if (d < bestD) { bestD = d; best = username; }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Main.Log($"[Fax] nearest-player lookup failed: {ex.Message}");
+            }
+            return best;
         }
 
         /// <summary>Every connected crew name: DVMP avatars are the REMOTE players only,
