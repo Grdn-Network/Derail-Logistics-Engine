@@ -289,10 +289,14 @@ let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[],j
 // must never move it. Banked lines harden the stickiness into a hard lock.
 let jmDestPicked=false;
 function effDest(){return (jmLines.length&&jmDest)||(jmDestPicked?$('hDest').value:null)||null}
-// Accepted-hauls station filter: click a chip to see only that origin, right-click
-// to hide a station you are not dispatching. Hidden set survives reloads.
-let accOnly=null;
+// Accepted-hauls station filter: left-clicks build the DESK (a set of stations;
+// hauls touching any of them show), right-clicks hide stations. Both multi, both
+// per browser, both surviving reloads.
+const accSel=new Set(JSON.parse(localStorage.getItem('dleAccSel')||'[]'));
 const accHidden=new Set(JSON.parse(localStorage.getItem('dleAccHidden')||'[]'));
+function saveAccFilter(){
+ localStorage.setItem('dleAccSel',JSON.stringify([...accSel]));
+ localStorage.setItem('dleAccHidden',JSON.stringify([...accHidden]))}
 const LOGI='__logi';
 function isLogi(){return $('hCargo').value===LOGI}
 function lineCarSet(){const s=new Set();for(const l of jmLines)for(const c of l.cars)s.add(c);return s}
@@ -402,7 +406,7 @@ async function refresh(){
  lastEconData=econ;
  const netKey=JSON.stringify(options)+JSON.stringify(econ);
  if(last.net!==netKey){last.net=netKey;drawNet()}
- const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+accOnly+'|'+[...accHidden].join()+'|'+lastEconData.length;
+ const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+[...accSel].join()+'|'+[...accHidden].join()+'|'+lastEconData.length;
  if(last.jobs!==jKey){last.jobs=jKey;
   const snap=snapshotCrew();
   const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
@@ -414,13 +418,13 @@ async function refresh(){
   const perOrigin={};
   for(const x of ac){perOrigin[x.origin]=(perOrigin[x.origin]||0)+1;
    if(x.destination!==x.origin)perOrigin[x.destination]=(perOrigin[x.destination]||0)+1}
-  const acShown=ac.filter(x=>accOnly
-   ?(x.origin===accOnly||x.destination===accOnly)
+  const acShown=ac.filter(x=>accSel.size
+   ?(accSel.has(x.origin)||accSel.has(x.destination))
    :!(accHidden.has(x.origin)&&accHidden.has(x.destination)));
   $('accFilter').innerHTML=origins.map(o=>{
-   const cls=accOnly===o?' on':accHidden.has(o)?' off':'';
-   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only hauls touching ${esc(o)} &middot; right-click: hide/show ${esc(o)} (a haul hides when both its ends are hidden)'>${esc(o)}${perOrigin[o]?' '+perOrigin[o]:''}</span>`}).join('')
-   +(accOnly||accHidden.size?`<span class='fchip clear' data-act='accClear' title='show every station'>&times; all</span>`:'');
+   const cls=accSel.has(o)?' on':accHidden.has(o)?' off':'';
+   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: add/remove ${esc(o)} from your desk (hauls touching any desk station show) &middot; right-click: hide/show ${esc(o)} (a haul hides when both its ends are hidden)'>${esc(o)}${perOrigin[o]?' '+perOrigin[o]:''}</span>`}).join('')
+   +(accSel.size||accHidden.size?`<span class='fchip clear' data-act='accClear' title='clear the desk and every hide'>&times; all</span>`:'');
   $('cAvail').textContent=av.length||'';
   $('cAcc').textContent=acShown.length===ac.length?(ac.length||''):acShown.length+'/'+ac.length;
   $('availCards').innerHTML=av.length?av.map(x=>jobCard(x,true)).join(''):`<div class='empty'>${lockOn?'lock is on: the director is paused; create hauls above and assign them to crews':'no open hauls; spawn one above or wait for the director'}</div>`;
@@ -974,9 +978,11 @@ const actions={
    :('Delete '+id+'? Its supply returns to the pile.');
   if(!confirm(msg))return;
   const r=await j('/api/v1/jobs/'+id,'DELETE');toast(r.message||(r.ok?'Deleted '+id:'delete failed'),!r.ok);refresh()},
- accChip:(id,el)=>{const o=el.dataset.id;accOnly=accOnly===o?null:o;last.jobs=null;refresh()},
- accClear:()=>{accOnly=null;accHidden.clear();
-  localStorage.setItem('dleAccHidden','[]');last.jobs=null;refresh()},
+ accChip:(id,el)=>{const o=el.dataset.id;
+  accSel.has(o)?accSel.delete(o):accSel.add(o);
+  accHidden.delete(o); // a desk station is never simultaneously hidden
+  saveAccFilter();last.jobs=null;refresh()},
+ accClear:()=>{accSel.clear();accHidden.clear();saveAccFilter();last.jobs=null;refresh()},
  cars:id=>{expanded.has(id)?expanded.delete(id):expanded.add(id);last.jobs=null;refresh()},
  findCars:async()=>{const c=$('fCargo').value,y=$('fYard').value.trim();
   if(!c){clearFleet();return}
@@ -1079,7 +1085,8 @@ document.addEventListener('contextmenu',e=>{
  const el=e.target.closest(`[data-act='accChip']`);if(!el)return;
  e.preventDefault();const o=el.dataset.id;
  accHidden.has(o)?accHidden.delete(o):accHidden.add(o);
- localStorage.setItem('dleAccHidden',JSON.stringify([...accHidden]));
+ accSel.delete(o); // hiding a station takes it off the desk
+ saveAccFilter();
  last.jobs=null;refresh()});
 applySecs();
 refresh();setInterval(refresh,5000);
