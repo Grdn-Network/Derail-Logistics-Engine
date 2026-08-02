@@ -332,7 +332,8 @@ function jobCard(x,avail){
    <div class='meta'><b>${x.cars} car(s)</b> &middot; closes on arrival at the booklet's track</div>
    <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'dispatch move'}</div>
    <div class='acts'>
-    <input class='crew' id='a_${esc(x.id)}' placeholder='crew name' list='crewNames'>
+    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name or loco plate first, else the assigned crew, else you'>Fax</button>
+    <input class='crew' id='a_${esc(x.id)}' placeholder='crew or loco' list='crewNames'>
     <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
     <button class='mini' data-act='unassign' data-id='${esc(x.id)}'>Unassign</button>
     <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Cancel the move; the cars free up'>&times;</button>
@@ -359,7 +360,7 @@ function jobCard(x,avail){
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name first, else the assigned crew, else you'>Fax</button>
    <button class='mini' data-act='cars' data-id='${esc(x.id)}'>${expanded.has(x.id)?'Hide cars':'Cars'}</button>
    <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
-   <input class='crew' id='a_${esc(x.id)}' placeholder='crew name' list='crewNames'>
+   <input class='crew' id='a_${esc(x.id)}' placeholder='crew or loco' list='crewNames'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>Unassign</button>
    <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Delete this haul; its supply returns to the pile'>&times;</button>
@@ -406,13 +407,19 @@ async function refresh(){
   const snap=snapshotCrew();
   const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
   // Every station gets a chip, hauls or not: a dispatcher sets their desk up
-  // BEFORE the work exists. The filter is per browser (nothing goes server-side).
+  // BEFORE the work exists. A haul belongs to a desk when EITHER end touches it:
+  // the only-chip matches origin or destination, and a haul hides only when BOTH
+  // of its ends are hidden. The filter is per browser (nothing goes server-side).
   const origins=[...new Set(lastEconData.map(e=>e.yardId))].sort();
-  const perOrigin={};for(const x of ac)perOrigin[x.origin]=(perOrigin[x.origin]||0)+1;
-  const acShown=ac.filter(x=>accOnly?x.origin===accOnly:!accHidden.has(x.origin));
+  const perOrigin={};
+  for(const x of ac){perOrigin[x.origin]=(perOrigin[x.origin]||0)+1;
+   if(x.destination!==x.origin)perOrigin[x.destination]=(perOrigin[x.destination]||0)+1}
+  const acShown=ac.filter(x=>accOnly
+   ?(x.origin===accOnly||x.destination===accOnly)
+   :!(accHidden.has(x.origin)&&accHidden.has(x.destination)));
   $('accFilter').innerHTML=origins.map(o=>{
    const cls=accOnly===o?' on':accHidden.has(o)?' off':'';
-   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only ${esc(o)} &middot; right-click: hide/show ${esc(o)}'>${esc(o)}${perOrigin[o]?' '+perOrigin[o]:''}</span>`}).join('')
+   return `<span class='fchip${cls}' data-act='accChip' data-id='${esc(o)}' title='click: only hauls touching ${esc(o)} &middot; right-click: hide/show ${esc(o)} (a haul hides when both its ends are hidden)'>${esc(o)}${perOrigin[o]?' '+perOrigin[o]:''}</span>`}).join('')
    +(accOnly||accHidden.size?`<span class='fchip clear' data-act='accClear' title='show every station'>&times; all</span>`:'');
   $('cAvail').textContent=av.length||'';
   $('cAcc').textContent=acShown.length===ac.length?(ac.length||''):acShown.length+'/'+ac.length;
@@ -607,6 +614,7 @@ function renderNetDetail(nodes,edges,sel){
   const have=stockAmt(n,i.cargo);
   if(have<i.amount&&!needs.some(x=>x.cargo===i.cargo))needs.push({cargo:i.cargo,have,need:i.amount})}
  if(needs.length){h+=`<div class='sublab'>needs</div>`;
+  needs.sort((a,b)=>disp(a.cargo).localeCompare(disp(b.cargo)));
   h+=needs.map(x=>`<div class='needrow'><b>${esc(disp(x.cargo))}</b><span class='num'>${Math.round(x.have)} of ${x.need} on hand</span></div>`).join('')}
  // Shippable stock renders INSIDE the Produced fold as each pile's destinations;
  // the panel's top level stays status, storage and needs only (owner ruling).
@@ -623,9 +631,10 @@ function renderNetDetail(nodes,edges,sel){
  if(n.importHub)h+=`<div class='nrecipe meta'>imports scale with the exports delivered here</div>`;
  // Full inventory: everything that is true but not urgent, one fold with four
  // folds inside, so the panel reads top-down: state, needs, shippable, archive.
+ const byName=(a,b)=>disp(a.cargo).localeCompare(disp(b.cargo));
  const rows=(n.stock||[]);
- const dprod=rows.filter(s=>outFams.has(famOf(s.cargo)));
- const dcons=rows.filter(s=>!outFams.has(famOf(s.cargo)));
+ const dprod=rows.filter(s=>outFams.has(famOf(s.cargo))).sort(byName);
+ const dcons=rows.filter(s=>!outFams.has(famOf(s.cargo))).sort(byName);
  const gsum=g=>Math.round(g.reduce((t,s)=>t+(s.amount||0),0));
  let recipesH='';
  if(n.source)recipesH+=`<div class='nrecipe'>produces resources over time: <b>${esc((n.outputs||[]).map(disp).join(', '))}</b></div>`;
@@ -748,6 +757,12 @@ function renderYard(){
  const box=$('jmYard');if(!box)return;
  const d=jmYardData;
  if(!d){box.innerHTML=`<div class='empty'>pick a station to see its yard</div>`;$('jmMeta').textContent='';return}
+ // Re-rendering wipes each track row's horizontal scroll, which made the view
+ // jump home every poll while staff were loading. Capture and restore per track.
+ const scrolls={};
+ box.querySelectorAll('.ytrack').forEach(el=>{
+  const sc=el.querySelector('.ycars');
+  if(el.dataset.track&&sc&&sc.scrollLeft)scrolls[el.dataset.track]=sc.scrollLeft});
  let total=0;
  const inLine=lineCarSet();
  const rows=(d.tracks||[]).map(t=>{
@@ -761,13 +776,16 @@ function renderYard(){
    return `<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' title='${esc(c.type)} &middot; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+`</span>`)
    .join(`<span class='meta' style='flex:none;align-self:center'>&middot;</span>`);
   const e=(t.ends||'').split('|');
-  return `<div class='ytrack'><span class='ytlabel'><b>${esc(t.track)}</b>`+
+  return `<div class='ytrack' data-track='${esc(t.track)}'><span class='ytlabel'><b>${esc(t.track)}</b>`+
    `${t.warehouse?` <span class='ctag' style='color:var(--amber)' title='${esc((t.warehouseCargos||[]).join(', '))}'>loading</span>`:''}`+
    `<br><span class='num'>${t.usedM}/${t.lengthM}m &middot; ${t.carCount} car(s)</span></span>`+
    `<span class='yend'>${esc(e[0]||'')}</span>`+
    `<div class='ycars'>${cuts||`<span class='meta'>empty</span>`}</div>`+
    `<span class='yend'>${esc(e[1]||'')}</span></div>`});
  box.innerHTML=rows.join('')||`<div class='empty'>no yard tracks reported</div>`;
+ box.querySelectorAll('.ytrack').forEach(el=>{
+  const sc=el.querySelector('.ycars');
+  if(el.dataset.track&&sc&&scrolls[el.dataset.track])sc.scrollLeft=scrolls[el.dataset.track]});
  $('jmMeta').textContent=(d.name||'')+' · '+total+' cars in yard';
 }
 // Which usable cars can carry the chosen cargo. The fleet endpoint already answers
@@ -951,8 +969,8 @@ const actions={
  unassign:async id=>{await j('/api/v1/assignments/'+id,'DELETE');toast('Unassigned '+id);refresh()},
  delhaul:async id=>{const x=lastJobs.find(v=>v.id===id)||{};
   const msg=x.logi?('Cancel move '+id+'? The cars free up where they stand.')
-   :x.loadedCars>0?('Abandon supply? '+x.loadedCars+' loaded carload(s) on '+id+' will be LOST. If the cars are back at '+x.origin+', use Unload there to return the supply instead.')
-   :x.cars>0?('Close '+id+'? Its cars free up; nothing was loaded, so no supply is lost.')
+   :x.loadedCars>0?('Abandon supply? '+x.loadedCars+' loaded carload(s) on '+id+' will be LOST (the unloaded remainder returns to '+x.origin+'). If the cars are back at '+x.origin+', use Unload there to return everything instead.')
+   :x.cars>0?('Close '+id+'? Its cars free up and its supply returns to '+x.origin+'.')
    :('Delete '+id+'? Its supply returns to the pile.');
   if(!confirm(msg))return;
   const r=await j('/api/v1/jobs/'+id,'DELETE');toast(r.message||(r.ok?'Deleted '+id:'delete failed'),!r.ok);refresh()},

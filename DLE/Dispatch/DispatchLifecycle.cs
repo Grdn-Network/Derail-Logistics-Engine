@@ -82,7 +82,41 @@ namespace DLE.Dispatch
             bool hasCars = def.carsToTransport != null && def.carsToTransport.Count > 0;
             if (hasCars)
             {
+                // The attach debited EVERY car's worth of supply the moment the cars
+                // committed. Cargo physically aboard is dumped and lost; the NEVER
+                // LOADED remainder was only ever a ledger debit, so it returns to the
+                // origin pile (counted BEFORE the dump wipes the cargo state).
+                var originYard = def.chainData?.chainOriginYardId;
                 int loaded = def.carsToTransport.Count(c => c.LoadedCargoAmount > 0f);
+                int returned = 0;
+                if (!string.IsNullOrEmpty(originYard))
+                {
+                    if (def.manifest != null)
+                    {
+                        foreach (var line in def.manifest)
+                        {
+                            if (line.Cargo == DV.ThingTypes.CargoType.None) continue;
+                            int lineTotal = line.CarIds?.Count ?? 0;
+                            int lineLoaded = def.carsToTransport.Count(c =>
+                                line.CarIds != null && line.CarIds.Contains(c.ID) && c.LoadedCargoAmount > 0f);
+                            int back = lineTotal - lineLoaded;
+                            if (back > 0)
+                            {
+                                Economy.EconomyState.Instance.ReturnSupply(originYard, line.Cargo, back, paid: !line.Unpaid);
+                                returned += back;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        int back = def.carsToTransport.Count - loaded;
+                        if (back > 0)
+                        {
+                            Economy.EconomyState.Instance.ReturnSupply(originYard, def.transportedCargo, back, paid: !def.unpaidMove);
+                            returned = back;
+                        }
+                    }
+                }
                 try
                 {
                     if (job.State == JobState.InProgress) SingletonBehaviour<JobsManager>.Instance.AbandonJob(job);
@@ -91,14 +125,16 @@ namespace DLE.Dispatch
                 catch (Exception ex)
                 {
                     Main.LogAlways($"[Dispatch] {jobId} abandon failed: {ex.GetType().Name}: {ex.Message}");
-                    return Result.Fail($"the game refused to close {jobId}; see the log");
+                    return Result.Fail($"the game refused to close {jobId}; see the log" +
+                        (returned > 0 ? $" (WARNING: {returned} carload(s) were already credited back)" : ""));
                 }
                 // Abandon fires the cargo dump through the job event; expire does not,
                 // so dump here too (idempotent: already-empty cars just lose plates).
                 try { Patches.DleWarehouseLoadAttachPatch.DumpJobCargo(job); } catch { }
                 AssignmentStore.Instance.Unassign(jobId);
-                Main.LogAlways($"[Dispatch] {jobId} abandoned via board; {loaded} loaded carload(s) lost, cars freed.");
-                return Result.Done($"{jobId} abandoned; {loaded} loaded carload(s) lost, cars freed");
+                Main.LogAlways($"[Dispatch] {jobId} abandoned via board; {loaded} loaded carload(s) lost, {returned} returned to {originYard}, cars freed.");
+                return Result.Done($"{jobId} abandoned; {loaded} loaded carload(s) lost" +
+                    (returned > 0 ? $", {returned} returned to {originYard}" : "") + ", cars freed");
             }
 
             if (job.State == JobState.Available)
