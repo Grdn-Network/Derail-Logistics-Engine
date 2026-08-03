@@ -762,6 +762,17 @@ namespace DLE.Dispatch
             var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
             var originTracks = DispatchServicing.StationTracks(fromSc, null);
 
+            // Dormant cars picked into a logi move wake on assignment too (#146).
+            bool wokeAny = false;
+            foreach (var id in carIds)
+                if (!byId.ContainsKey(id) && Data.CarDormancy.WakeCutContaining(id)) wokeAny = true;
+            if (wokeAny)
+            {
+                byId.Clear();
+                foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+                    if (pair.Key?.ID != null) byId[pair.Key.ID] = pair.Value;
+            }
+
             var cut = new List<TrainCar>();
             foreach (var id in carIds)
             {

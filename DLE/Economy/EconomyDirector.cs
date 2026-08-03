@@ -295,6 +295,19 @@ namespace DLE.Economy
             foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
                 if (pair.Key?.ID != null) byId[pair.Key.ID] = pair.Value;
 
+            // A dormant car picked into a booklet wakes on assignment (#146): the
+            // booklet is the claim, and cars on jobs never sleep. Wake the cuts the
+            // manifest touches, then re-read the registry so validation sees them live.
+            bool woke = false;
+            foreach (var id in seenCars)
+                if (!byId.ContainsKey(id) && Data.CarDormancy.WakeCutContaining(id)) woke = true;
+            if (woke)
+            {
+                byId.Clear();
+                foreach (var pair in TrainCarRegistry.Instance.logicCarToTrainCar)
+                    if (pair.Key?.ID != null) byId[pair.Key.ID] = pair.Value;
+            }
+
             var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
             var originTracks = Dispatch.DispatchServicing.StationTracks(producerSc, null);
 
@@ -341,7 +354,12 @@ namespace DLE.Economy
                 foreach (var id in carIds)
                 {
                     if (!byId.TryGetValue(id, out var tc) || tc.logicCar == null)
-                    { reason = $"{id} not found in the world"; return null; }
+                    {
+                        reason = Data.DleCarPool.Instance.TryGetDormantByPlate(id, out _)
+                            ? $"{id} is dormant and could not wake (its parking spot is blocked); clear the track or use the yard Wake"
+                            : $"{id} not found in the world";
+                        return null;
+                    }
                     var car = tc.logicCar;
                     if (tc.IsLoco) { reason = $"{id} is a locomotive"; return null; }
                     if (car.LoadedCargoAmount > 0f) { reason = $"{id} is already loaded"; return null; }

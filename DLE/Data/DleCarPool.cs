@@ -971,6 +971,15 @@ namespace DLE.Data
         internal IEnumerable<DormantRecord> DormantRecords => _dormant.Values;
         internal bool IsDormant(string carGuid) => carGuid != null && _dormant.ContainsKey(carGuid);
 
+        internal bool TryGetDormantByPlate(string plateId, out DormantRecord rec)
+        {
+            rec = null;
+            if (plateId == null) return false;
+            foreach (var r in _dormant.Values)
+                if (string.Equals(r.Id, plateId, StringComparison.OrdinalIgnoreCase)) { rec = r; return true; }
+            return false;
+        }
+
         internal void MarkDormant(DormantRecord r)
         {
             if (r?.Guid == null) return;
