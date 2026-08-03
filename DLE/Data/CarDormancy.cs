@@ -254,9 +254,33 @@ namespace DLE.Data
         /// records stay dormant and the next sweep retries. A respawned car is never
         /// quarantine-deleted; failure modes keep it either dormant or live, never gone.
         /// </summary>
+        /// <summary>
+        /// Wake the whole cut containing a plate-identified dormant car: the assignment
+        /// wake (#146). A booklet that picks a stored car is the claim on it; cars on
+        /// jobs never sleep, so it stays awake as long as it is booked. Returns true
+        /// when the car is live afterwards.
+        /// </summary>
+        internal static bool WakeCutContaining(string plateId)
+        {
+            var pool = DleCarPool.Instance;
+            if (!pool.TryGetDormantByPlate(plateId, out var rec)) return false;
+            var cut = pool.DormantRecords.Where(r => r.Cut == rec.Cut).ToList();
+            try { TryRespawnCut(cut); }
+            catch (Exception ex)
+            {
+                Main.LogAlways($"[Dormancy] assignment wake of {plateId} failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            return !pool.IsDormant(rec.Guid);
+        }
+
         private static void TryRespawnCut(List<DleCarPool.DormantRecord> cut)
         {
             if (!TrackHashOk()) return;
+            // A record can leave the ledger between a sweep's snapshot and this call
+            // (an assignment wake, another pass): respawning from a stale record would
+            // DUPLICATE the car. Only records still dormant right now count.
+            cut = cut.Where(r => DleCarPool.Instance.IsDormant(r.Guid)).ToList();
+            if (cut.Count == 0) return;
             RailTrack[] tracks;
             try { tracks = SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks; }
             catch { return; }

@@ -171,7 +171,10 @@ border:1px solid var(--line);border-radius:6px;margin:3px 0;font-size:12.5px;fle
 .mline.total{border-style:dashed;background:transparent}
 .mline button{margin-left:auto}
 .ycar.inline{background:#241d3a;border-color:#54418c;color:var(--dim)}
-.ycar.dorm,.carchip.dorm{opacity:.45;border-style:dashed;border-color:#54418c;color:var(--dim)}
+.ycar.dorm,.carchip.dorm{opacity:.55;border-style:dashed;border-color:#54418c;color:var(--dim)}
+.ycar.dorm.ok{cursor:pointer}
+.ycar.dorm.ok:hover{opacity:.9;border-color:var(--violet)}
+.ycar.dorm.incompat{opacity:.25;cursor:default}
 .yend{flex:none;font-size:10px;font-weight:700;color:var(--dim);align-self:center;
 letter-spacing:.05em;user-select:none}
 .accf{margin-left:12px;display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
@@ -197,8 +200,6 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
  <span class='chip' id='chipVer'></span>
  <span class='chip' id='chipStations'></span>
  <span class='chip' id='chipJobs'></span>
- <span class='chip' id='chipDormant' style='display:none' title='Pool cars stored as data because no player is near their yard; they respawn as the same cars on approach'></span>
- <span class='chip' id='chipPerf' style='display:none'></span>
  <span class='chip' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='chip warn' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='spacer'></div>
@@ -278,7 +279,8 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
   <div id='dlog' style='max-height:260px;overflow-y:auto;font-size:12.5px'></div>
  </section>
 </main>
-<footer>Derail Logistics Engine &middot; refreshes every 5s</footer>
+<footer style='display:flex;gap:10px;align-items:center'>Derail Logistics Engine &middot; refreshes every 5s
+ <span class='spacer'></span><span id='ftStats' class='num'></span></footer>
 <div id='toasts'></div>
 <datalist id='crewNames'></datalist>
 <script>
@@ -400,15 +402,16 @@ async function refresh(){
  $('chipVer').textContent='v'+(state.modVersion||'?');
  $('chipStations').textContent=state.stationCount+' stations';
  $('chipJobs').textContent=state.jobCount+' hauls';
- $('chipDormant').style.display=state.dormantCars?'':'none';
- $('chipDormant').textContent=state.dormantCars+' dormant';
- if(state.perf&&state.perf.frameP95Ms){
-  const pf=state.perf;
-  $('chipPerf').style.display='';
-  $('chipPerf').textContent='p95 '+pf.frameP95Ms+'ms · '+pf.gc60s+' GC/min';
-  $('chipPerf').title='host frame p50 '+pf.frameP50Ms+'ms, p95 '+pf.frameP95Ms+'ms, worst '+pf.frameMaxMs+'ms · '
-   +pf.hitches60s+' hitches and '+pf.gc60s+' GC runs in 60s · heap '+pf.heapMb+'MB · '
-   +pf.liveCars+' live cars · company.lag in the console for the full report'}
+ // Perf and dormancy live in the footer: reference material, not headline.
+ const pf=state.perf||{};
+ const ftBits=[];
+ if(pf.liveCars)ftBits.push(pf.liveCars+' live');
+ if(state.dormantCars)ftBits.push(state.dormantCars+' dormant');
+ if(pf.frameP95Ms)ftBits.push('p95 '+pf.frameP95Ms+'ms');
+ if(pf.gc60s!=null&&pf.frameP95Ms)ftBits.push(pf.gc60s+' GC/min');
+ $('ftStats').textContent=ftBits.join(' · ');
+ $('ftStats').title='host frame p50 '+(pf.frameP50Ms||'?')+'ms, p95 '+(pf.frameP95Ms||'?')+'ms, worst '+(pf.frameMaxMs||'?')+'ms · '
+  +(pf.hitches60s||0)+' hitches/60s · heap '+(pf.heapMb||'?')+'MB · dormant cars respawn on approach, on Wake, or when a booklet claims them · company.lag in the console for the full report';
  $('chipBoost').textContent='boost ×'+(state.globalBoost||1);
  const mw=state.machineWarnings||[];
  $('chipMachines').style.display=mw.length?'':'none';
@@ -788,8 +791,8 @@ function renderYard(){
    const banked=inLine.has(c.carId);
    const on=jmSelSet.has(c.carId);
    const compat=jmCompat===null||jmCompat.has(c.carId);
-   const cls=c.dormant?'dorm':c.loco?'loco':banked?'inline':on?'sel':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'');
-   const why=c.dormant?'dormant: stored as data; wakes when a player nears, or use Wake':c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
+   const cls=on?'sel':c.dormant?(compat?'dorm ok':'dorm incompat'):c.loco?'loco':banked?'inline':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'');
+   const why=c.dormant?'dormant: pick it like any car and it wakes when the booklet is created; or use Wake':c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
    return `<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' title='${esc(c.type)} &middot; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+`</span>`)
    .join(`<span class='meta' style='flex:none;align-self:center'>&middot;</span>`);
   const e=(t.ends||'').split('|');
@@ -820,7 +823,7 @@ async function fetchCompat(){
  const seq=++compatSeq;
  try{const r=await jget('/api/v1/fleet?cargo='+encodeURIComponent(c)+'&yard='+encodeURIComponent(y));
   if(seq!==compatSeq)return;
-  jmCompat=new Set((r.cars||[]).filter(x=>x.usable).map(x=>x.carId));
+  jmCompat=new Set((r.cars||[]).filter(x=>x.usable||x.dormant).map(x=>x.carId));
   let dropped=0;
   for(const id of [...jmSelSet])if(!jmCompat.has(id)){jmSelSet.delete(id);dropped++}
   if(dropped)toast(dropped+' picked car(s) cannot carry '+disp(c)+'; dropped',true);
@@ -932,7 +935,6 @@ const actions={
   openSec('create');os.value=v;originChanged();
   document.querySelector(`section[data-sec='create']`).scrollIntoView({behavior:'smooth'})},
  ycar:(id,el)=>{const car=el.dataset.car;
-  if(el.classList.contains('dorm')){toast('that car is dormant; hit Wake (or approach the yard) and it becomes selectable',true);return}
   if(el.classList.contains('inline')){toast('that car is banked in a manifest line; remove the line to free it',true);return}
   if(el.classList.contains('incompat')){toast('that car cannot carry the chosen cargo',true);return}
   if(jmSelSet.has(car))jmSelSet.delete(car);
