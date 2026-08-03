@@ -353,6 +353,25 @@ namespace DLE.Dispatch
                     Json(ctx, 200, payload);
                     return;
                 }
+                // Wake a yard's dormant cars on demand (#141 wave 3): the dispatcher
+                // reaches for stored stock without driving there.
+                if (method == "POST" && path == "/api/v1/wake")
+                {
+                    var wreq = JsonConvert.DeserializeObject<WakeRequest>(ReadBody(ctx) ?? "");
+                    if (string.IsNullOrEmpty(wreq?.yard)) { Json(ctx, 400, new { error = "yard required" }); return; }
+                    int n = Data.DleCarPool.Instance.DormantRecords
+                        .Count(r => string.Equals(r.YardId, wreq.yard, StringComparison.OrdinalIgnoreCase));
+                    if (n == 0) { Json(ctx, 200, new { ok = true, message = $"nothing dormant at {wreq.yard}" }); return; }
+                    bool started = Economy.DleDirectorBehaviour.TryRun(Data.CarDormancy.WakeYardRoutine(wreq.yard));
+                    Json(ctx, started ? 202 : 409, new
+                    {
+                        ok = started,
+                        message = started
+                            ? $"waking {n} car(s) at {wreq.yard}; blocked spots retry on the next sweep"
+                            : "world not ready",
+                    });
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/history")
                 {
                     int limit = 200;
@@ -784,6 +803,7 @@ namespace DLE.Dispatch
         private class LogisticsRequest { public string from = null; public string to = null; public int cars = 0; public string cargo = null; public string note = null; }
         private class LoadRequest { public List<string> cars = null; }
         private class StatusRequest { public string status = null; }
+        private class WakeRequest { public string yard = null; }
 
         /// <summary>
         /// Every freight car in the world with its track and availability, optionally
@@ -840,11 +860,49 @@ namespace DLE.Dispatch
                     usable = free,
                 }));
             }
+            // Dormant cars are still the fleet (#141): the finder lists them dimmed so
+            // the dispatcher plans with everything DLE owns, live or stored.
+            int dormant = 0;
+            var pool = Data.DleCarPool.Instance;
+            if (pool.DormantCount > 0)
+            {
+                pool.EnsureDormantDisplay();
+                HashSet<string> loadableNames = null;
+                if (loadable != null)
+                {
+                    loadableNames = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var t in loadable)
+                        if (t?.liveries != null)
+                            foreach (var l in t.liveries)
+                                if (l?.name != null) loadableNames.Add(l.name);
+                }
+                foreach (var r in pool.DormantRecords)
+                {
+                    if (!string.IsNullOrEmpty(yardFilter) &&
+                        !string.Equals(r.YardId, yardFilter, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (loadableNames != null && (r.Livery == null || !loadableNames.Contains(r.Livery))) continue;
+                    dormant++;
+                    rows.Add(($"{r.YardId}|{r.Track}|~{r.Id}", new
+                    {
+                        carId = r.Id,
+                        type = r.Livery ?? "?",
+                        yard = r.YardId,
+                        track = r.Track,
+                        loadedCargo = (string)null,
+                        jobId = (string)null,
+                        reservedBy = (string)null,
+                        playerSpawned = false,
+                        usable = false,
+                        dormant = true,
+                    }));
+                }
+            }
             rows.Sort((a, b) => string.CompareOrdinal(a.sortKey, b.sortKey));
             return new
             {
                 cargo = string.IsNullOrEmpty(cargoFilter) ? null : cargoFilter,
-                total = rows.Count,
+                total = rows.Count - dormant,
+                dormant,
                 usable,
                 cars = rows.Select(r => r.row).ToList(),
             };
@@ -890,6 +948,25 @@ namespace DLE.Dispatch
                 if (kv.Value?.reservedCarIds != null)
                     foreach (var rid in kv.Value.reservedCarIds)
                         reservedBy[rid] = kv.Key;
+
+            // Dormant cars render on their stored tracks (#141): the yard the dispatcher
+            // sees is the whole yard, live plus stored.
+            var pool = Data.DleCarPool.Instance;
+            Dictionary<string, List<Data.DleCarPool.DormantRecord>> dormantByTrack = null;
+            int dormantTotal = 0;
+            if (pool.DormantCount > 0)
+            {
+                pool.EnsureDormantDisplay();
+                dormantByTrack = new Dictionary<string, List<Data.DleCarPool.DormantRecord>>(StringComparer.Ordinal);
+                foreach (var r in pool.DormantRecords)
+                {
+                    if (!string.Equals(r.YardId, yardId, StringComparison.OrdinalIgnoreCase)) continue;
+                    dormantTotal++;
+                    var key = r.Track ?? "?";
+                    if (!dormantByTrack.TryGetValue(key, out var dl)) dormantByTrack[key] = dl = new List<Data.DleCarPool.DormantRecord>();
+                    dl.Add(r);
+                }
+            }
 
             var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
             var trackRows = new List<(string sortKey, object row)>();
@@ -989,6 +1066,31 @@ namespace DLE.Dispatch
                 }
 
                 var id = track?.ID?.FullDisplayID ?? "?";
+                int dormantHere = 0;
+                if (dormantByTrack != null && dormantByTrack.TryGetValue(id, out var dcs))
+                {
+                    foreach (var cutGroup in dcs.GroupBy(r => r.Cut))
+                    {
+                        var dRows = new List<object>();
+                        foreach (var r in cutGroup)
+                            dRows.Add(new
+                            {
+                                carId = r.Id,
+                                type = r.Livery ?? "?",
+                                loco = false,
+                                lengthM = 0,
+                                cargo = (string)null,
+                                jobId = (string)null,
+                                reservedBy = (string)null,
+                                playerSpawned = false,
+                                usable = false,
+                                dormant = true,
+                            });
+                        cutRows.Add(dRows);
+                        dormantHere += dRows.Count;
+                    }
+                    dormantByTrack.Remove(id);
+                }
                 whCargos.TryGetValue(track, out var whList);
                 trackRows.Add((id, new
                 {
@@ -998,6 +1100,7 @@ namespace DLE.Dispatch
                     warehouse = whList != null,
                     warehouseCargos = whList,
                     carCount = entries.Count,
+                    dormantCount = dormantHere,
                     ends,
                     cuts = cutRows,
                 }));
@@ -1007,6 +1110,7 @@ namespace DLE.Dispatch
             {
                 yard = sc.stationInfo?.YardID ?? yardId,
                 name = sc.stationInfo?.Name,
+                dormantCars = dormantTotal,
                 tracks = trackRows.Select(t => t.row).ToList(),
             };
         }

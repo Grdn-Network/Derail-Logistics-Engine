@@ -171,6 +171,7 @@ border:1px solid var(--line);border-radius:6px;margin:3px 0;font-size:12.5px;fle
 .mline.total{border-style:dashed;background:transparent}
 .mline button{margin-left:auto}
 .ycar.inline{background:#241d3a;border-color:#54418c;color:var(--dim)}
+.ycar.dorm,.carchip.dorm{opacity:.45;border-style:dashed;border-color:#54418c;color:var(--dim)}
 .yend{flex:none;font-size:10px;font-weight:700;color:var(--dim);align-self:center;
 letter-spacing:.05em;user-select:none}
 .accf{margin-left:12px;display:inline-flex;gap:5px;flex-wrap:wrap;vertical-align:middle}
@@ -216,7 +217,8 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <span><i style='background:var(--vdeep);border-color:var(--violet)'></i>selected</span>
    <span><i style='border-color:#6b5619'></i>loaded</span>
    <span><i></i>on a job / reserved / player car</span>
-   <span><i style='background:#101c2c;border-color:#2c4a6e'></i>loco</span></div>
+   <span><i style='background:#101c2c;border-color:#2c4a6e'></i>loco</span>
+   <span><i style='border-style:dashed;border-color:#54418c;opacity:.5'></i>dormant (stored as data)</span></div>
   <div class='formrow' style='margin-top:10px'>
    <label>Cargo<select id='hCargo'></select></label>
    <label>Destination<select id='hDest'></select></label>
@@ -701,7 +703,7 @@ function renderNetDetail(nodes,edges,sel){
  d.className='netdetail show';d.innerHTML=h;
 }
 function renderFleet(r){
- $('fSummary').textContent=r.total+' car(s), '+r.usable+' usable now';
+ $('fSummary').textContent=r.total+' live, '+(r.dormant||0)+' dormant, '+r.usable+' usable now';
  const groups={};
  for(const c of r.cars){const k=(c.yard||'~')+'|'+c.track;(groups[k]=groups[k]||[]).push(c)}
  const keys=Object.keys(groups).sort();
@@ -709,8 +711,8 @@ function renderFleet(r){
   keys.map(k=>{const g=groups[k];g.sort((a,b)=>(b.usable?1:0)-(a.usable?1:0));
    const u=g.filter(c=>c.usable).length;
    return `<tr><td>${esc(g[0].yard||'')}</td><td>${esc(g[0].track)}</td><td class='num'>${u}/${g.length}</td><td>`+
-    g.map(c=>{const why=c.loadedCargo?('loaded: '+c.loadedCargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':'usable';
-     return `<span class='carchip ${c.usable?'ok':'busy'}' title='${esc(c.type)}; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+
+    g.map(c=>{const why=c.dormant?'dormant: stored as data; wakes on approach or via the yard Wake button':c.loadedCargo?('loaded: '+c.loadedCargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':'usable';
+     return `<span class='carchip ${c.dormant?'dorm':c.usable?'ok':'busy'}' title='${esc(c.type)}; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+
     `</td></tr>`}).join('')
   :`<tr><td class='empty' colspan='4'>no matching cars found</td></tr>`;
 }
@@ -786,8 +788,8 @@ function renderYard(){
    const banked=inLine.has(c.carId);
    const on=jmSelSet.has(c.carId);
    const compat=jmCompat===null||jmCompat.has(c.carId);
-   const cls=c.loco?'loco':banked?'inline':on?'sel':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'');
-   const why=c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
+   const cls=c.dormant?'dorm':c.loco?'loco':banked?'inline':on?'sel':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'');
+   const why=c.dormant?'dormant: stored as data; wakes when a player nears, or use Wake':c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
    return `<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' title='${esc(c.type)} &middot; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+`</span>`)
    .join(`<span class='meta' style='flex:none;align-self:center'>&middot;</span>`);
   const e=(t.ends||'').split('|');
@@ -801,7 +803,8 @@ function renderYard(){
  box.querySelectorAll('.ytrack').forEach(el=>{
   const sc=el.querySelector('.ycars');
   if(el.dataset.track&&sc&&scrolls[el.dataset.track])sc.scrollLeft=scrolls[el.dataset.track]});
- $('jmMeta').textContent=(d.name||'')+' · '+total+' cars in yard';
+ $('jmMeta').innerHTML=esc(d.name||'')+' &middot; '+total+' cars live'
+  +(d.dormantCars?` &middot; ${d.dormantCars} dormant <button class='mini' data-act='jmWake' title='Respawn every dormant car at this yard now'>Wake</button>`:'');
 }
 // Which usable cars can carry the chosen cargo. The fleet endpoint already answers
 // this; the yard view just borrows its verdict.
@@ -921,11 +924,15 @@ const actions={
   renderManifest();renderYard();syncSelUi();originChanged()},
  jmClear:()=>{jmSelSet.clear();jmLines=[];jmDest=null;
   renderManifest();syncSelUi();renderYard();originChanged()},
+ jmWake:async()=>{const y=$('hOrigin').value;if(!y)return;
+  const r=await j('/api/v1/wake','POST',{yard:y});
+  toast(r.message||'failed',!r.ok);setTimeout(()=>pollYard(true),1500)},
  jmOpen:(id,el)=>{const v=el.dataset.id;const os=$('hOrigin');
   if(![...os.options].some(x=>x.value===v)){toast('station not on the board yet',true);return}
   openSec('create');os.value=v;originChanged();
   document.querySelector(`section[data-sec='create']`).scrollIntoView({behavior:'smooth'})},
  ycar:(id,el)=>{const car=el.dataset.car;
+  if(el.classList.contains('dorm')){toast('that car is dormant; hit Wake (or approach the yard) and it becomes selectable',true);return}
   if(el.classList.contains('inline')){toast('that car is banked in a manifest line; remove the line to free it',true);return}
   if(el.classList.contains('incompat')){toast('that car cannot carry the chosen cargo',true);return}
   if(jmSelSet.has(car))jmSelSet.delete(car);
