@@ -215,6 +215,7 @@ namespace DLE.Data
                         YardId = yardId,
                         Cut = cutId,
                         State = jo.ToString(Formatting.None),
+                        Track = tc.logicCar.CurrentTrack?.ID?.FullDisplayID,
                     });
                 }
             }
@@ -316,6 +317,24 @@ namespace DLE.Data
         {
             try { CarsSaveManager.SetBrakesOnSpawn(tc); } catch { }
             try { tc.ForceSleep(true); } catch { }
+        }
+
+        /// <summary>Wake one yard's dormant cars regardless of distance: the board's
+        /// wake button, the dispatcher reaching for stored stock on purpose.</summary>
+        public static IEnumerator WakeYardRoutine(string yardId)
+        {
+            if (_inFlight) yield break;
+            _inFlight = true;
+            var pool = DleCarPool.Instance;
+            foreach (var cut in pool.DormantRecords
+                .Where(r => string.Equals(r.YardId, yardId, StringComparison.OrdinalIgnoreCase))
+                .GroupBy(r => r.Cut).ToList())
+            {
+                try { TryRespawnCut(cut.ToList()); }
+                catch (Exception ex) { Main.LogAlways($"[Dormancy] yard wake failed: {ex.GetType().Name}: {ex.Message}"); }
+                yield return null;
+            }
+            _inFlight = false;
         }
 
         /// <summary>Wake everything regardless of distance (toggle off, or company.wake).

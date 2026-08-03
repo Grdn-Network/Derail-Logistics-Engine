@@ -933,6 +933,34 @@ namespace DLE.Data
             public string YardId;
             public int Cut;
             public string State;
+            // Display track (#141 wave 3): dormant cars stay visible on the board. Set
+            // at capture; older records backfill lazily from the stored vanilla state.
+            public string Track;
+        }
+
+        /// <summary>Backfill display tracks for records captured before Track existed,
+        /// by reading the bogie track index out of the stored vanilla record. One parse
+        /// per record per session, only when the board actually asks.</summary>
+        internal void EnsureDormantDisplay()
+        {
+            foreach (var r in _dormant.Values)
+            {
+                if (r.Track != null || r.State == null) continue;
+                try
+                {
+                    var jo = Newtonsoft.Json.Linq.JObject.Parse(r.State);
+                    int idx = jo.Value<int?>("bog1TrackChildInd") ?? -1;
+                    var tracks = DV.Utils.SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks;
+                    if (idx >= 0 && idx < tracks.Length)
+                    {
+                        var rail = tracks[idx];
+                        foreach (var kv in RailTrackRegistry.LogicToRailTrack)
+                            if (ReferenceEquals(kv.Value, rail)) { r.Track = kv.Key?.ID?.FullDisplayID; break; }
+                    }
+                }
+                catch { }
+                if (r.Track == null) r.Track = r.YardId ?? "?";
+            }
         }
 
         private Dictionary<string, DormantRecord> _dormant =
