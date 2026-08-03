@@ -893,6 +893,7 @@ namespace DLE.Dispatch
                         !string.Equals(r.YardId, yardFilter, StringComparison.OrdinalIgnoreCase)) continue;
                     if (loadableNames != null && (r.Livery == null || !loadableNames.Contains(r.Livery))) continue;
                     dormant++;
+                    usable++; // a stored idle empty is claimable like any other: dormancy is invisible
                     rows.Add(($"{r.YardId}|{r.Track}|~{r.Id}", new
                     {
                         carId = r.Id,
@@ -903,7 +904,7 @@ namespace DLE.Dispatch
                         jobId = (string)null,
                         reservedBy = (string)null,
                         playerSpawned = false,
-                        usable = false,
+                        usable = true,
                         dormant = true,
                     }));
                 }
@@ -1094,7 +1095,7 @@ namespace DLE.Dispatch
                                 jobId = (string)null,
                                 reservedBy = (string)null,
                                 playerSpawned = false,
-                                usable = false,
+                                usable = true, // dormancy is invisible: pick it like any car
                                 dormant = true,
                             });
                         cutRows.Add(dRows);
