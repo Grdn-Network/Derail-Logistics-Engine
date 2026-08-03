@@ -415,18 +415,33 @@ namespace DLE.Data
             catch { }
             try
             {
-                var type = _networkedPlayerType ?? (_networkedPlayerType = AppDomain.CurrentDomain.GetAssemblies()
-                    .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
-                    .FirstOrDefault(t => t != null));
-                if (type != null)
-                    foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
-                        if (obj is Component comp) list.Add(comp.transform.position);
+                // The scene scan is the expensive part (the lag meter caught it on the
+                // roster endpoint); avatars change only on join and leave, so cache the
+                // component refs briefly and rescan early if any died.
+                var now = Time.realtimeSinceStartup;
+                bool refresh = _avatarCache == null || now - _avatarCacheAt > 15f;
+                if (!refresh)
+                    foreach (var c in _avatarCache) if (c == null) { refresh = true; break; }
+                if (refresh)
+                {
+                    var type = _networkedPlayerType ?? (_networkedPlayerType = AppDomain.CurrentDomain.GetAssemblies()
+                        .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
+                        .FirstOrDefault(t => t != null));
+                    _avatarCache = type == null
+                        ? Array.Empty<Component>()
+                        : UnityEngine.Object.FindObjectsOfType(type).OfType<Component>().ToArray();
+                    _avatarCacheAt = now;
+                }
+                foreach (var comp in _avatarCache)
+                    if (comp != null) list.Add(comp.transform.position);
             }
             catch { }
             return list;
         }
 
         private static Type _networkedPlayerType;
+        private static Component[] _avatarCache;
+        private static float _avatarCacheAt = -999f;
         private static bool _mpSendFailed;
 
         /// <summary>
