@@ -23,6 +23,10 @@ namespace DLE.Economy
         private bool IsStale() =>
             !ReferenceEquals(_bornData, SaveGameManager.Instance?.data);
 
+        // The lag meter samples every frame; pure math, no allocations, no host check
+        // (the local frame time is worth measuring wherever this component lives).
+        private void Update() => Data.PerfMeter.Sample(Time.unscaledDeltaTime);
+
         public static void StartOnHost()
         {
             // A fresh world load gets a fresh director: the old TickLoop belongs to the

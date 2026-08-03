@@ -101,6 +101,7 @@ namespace DLE.Dispatch
                 // Handle parsed requests on the main thread, where game state lives.
                 while (_pending.TryDequeue(out var req))
                 {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
                     try { Handle(req); }
                     catch (Exception ex)
                     {
@@ -110,6 +111,9 @@ namespace DLE.Dispatch
                     if (req.RespBytes == null)
                         Json(req, 404, new { error = "not found" });
                     req.Done.Set();
+                    // The lag meter attributes main-thread board cost per route (#141):
+                    // this is exactly the time the game frame paid for this request.
+                    try { Data.PerfMeter.RecordRequest(req.Path, sw.ElapsedMilliseconds); } catch { }
                 }
                 yield return null;
             }
@@ -1071,6 +1075,7 @@ namespace DLE.Dispatch
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
             dormantCars = Data.DleCarPool.Instance.DormantCount,
+            perf = Data.PerfMeter.StatePayload(),
             globalBoost = Math.Round(EconomyState.Instance.GlobalBoost, 2),
             machineWarnings = EconomyState.Instance.Facilities.Keys
                 .Where(y => EconomyState.Instance.OnLastMachine(y)).ToList(),
