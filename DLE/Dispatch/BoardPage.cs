@@ -196,6 +196,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
  <span class='chip' id='chipVer'></span>
  <span class='chip' id='chipStations'></span>
  <span class='chip' id='chipJobs'></span>
+ <span class='chip' id='chipDormant' style='display:none' title='Pool cars stored as data because no player is near their yard; they respawn as the same cars on approach'></span>
  <span class='chip' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='chip warn' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='spacer'></div>
@@ -396,6 +397,8 @@ async function refresh(){
  $('chipVer').textContent='v'+(state.modVersion||'?');
  $('chipStations').textContent=state.stationCount+' stations';
  $('chipJobs').textContent=state.jobCount+' hauls';
+ $('chipDormant').style.display=state.dormantCars?'':'none';
+ $('chipDormant').textContent=state.dormantCars+' dormant';
  $('chipBoost').textContent='boost ×'+(state.globalBoost||1);
  const mw=state.machineWarnings||[];
  $('chipMachines').style.display=mw.length?'':'none';

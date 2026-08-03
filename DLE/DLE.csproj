@@ -40,6 +40,10 @@
     <Publicize Include="Assembly-CSharp:WarehouseMachineController.allControllers" />
     <Publicize Include="Assembly-CSharp:EmptyHaulJobProceduralGenerator.CalculateBonusTimeLimitAndWage" />
     <Publicize Include="Assembly-CSharp:EmptyHaulJobProceduralGenerator.GenerateEmptyHaulChainController" />
+    <!-- Dormancy (#141): the respawn IS vanilla's save restore, identity included -->
+    <Publicize Include="Assembly-CSharp:CarsSaveManager.InstantiateCarFromSavegame" />
+    <Publicize Include="Assembly-CSharp:CarsSaveManager.RestoreCarConnections" />
+    <Publicize Include="Assembly-CSharp:CarsSaveManager.SetBrakesOnSpawn" />
   </ItemGroup>
 
   <ItemGroup>
