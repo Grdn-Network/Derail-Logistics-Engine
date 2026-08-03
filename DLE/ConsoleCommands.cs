@@ -39,6 +39,22 @@ namespace DLE
                 : "company.wake: world not ready yet, try again once loaded.");
         }
 
+        [RegisterCommand("company.lag",
+            Help = "DLE: lag meter dump (frame percentiles, hitches, GC, heap, live vs dormant cars, board handler cost). 'company.lag watch' toggles a 10 second periodic log line.",
+            MinArgCount = 0, MaxArgCount = 1)]
+        public static void Lag(CommandArg[] args)
+        {
+            if (args.Length > 0 && string.Equals(args[0].String, "watch", System.StringComparison.OrdinalIgnoreCase))
+            {
+                PerfMeter.Watch = !PerfMeter.Watch;
+                Debug.Log($"company.lag: watch {(PerfMeter.Watch ? "ON, one line every 10s in the log" : "off")}.");
+                return;
+            }
+            var report = PerfMeter.FullReport();
+            Debug.Log(report);
+            Main.LogAlways(report);
+        }
+
         [RegisterCommand("company.resupply",
             Help = "DLE: wipe all facility stockpiles back to the starting stock values.",
             MinArgCount = 0, MaxArgCount = 0)]

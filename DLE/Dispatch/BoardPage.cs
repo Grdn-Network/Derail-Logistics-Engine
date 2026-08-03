@@ -197,6 +197,7 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
  <span class='chip' id='chipStations'></span>
  <span class='chip' id='chipJobs'></span>
  <span class='chip' id='chipDormant' style='display:none' title='Pool cars stored as data because no player is near their yard; they respawn as the same cars on approach'></span>
+ <span class='chip' id='chipPerf' style='display:none'></span>
  <span class='chip' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='chip warn' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='spacer'></div>
@@ -399,6 +400,13 @@ async function refresh(){
  $('chipJobs').textContent=state.jobCount+' hauls';
  $('chipDormant').style.display=state.dormantCars?'':'none';
  $('chipDormant').textContent=state.dormantCars+' dormant';
+ if(state.perf&&state.perf.frameP95Ms){
+  const pf=state.perf;
+  $('chipPerf').style.display='';
+  $('chipPerf').textContent='p95 '+pf.frameP95Ms+'ms · '+pf.gc60s+' GC/min';
+  $('chipPerf').title='host frame p50 '+pf.frameP50Ms+'ms, p95 '+pf.frameP95Ms+'ms, worst '+pf.frameMaxMs+'ms · '
+   +pf.hitches60s+' hitches and '+pf.gc60s+' GC runs in 60s · heap '+pf.heapMb+'MB · '
+   +pf.liveCars+' live cars · company.lag in the console for the full report'}
  $('chipBoost').textContent='boost ×'+(state.globalBoost||1);
  const mw=state.machineWarnings||[];
  $('chipMachines').style.display=mw.length?'':'none';
