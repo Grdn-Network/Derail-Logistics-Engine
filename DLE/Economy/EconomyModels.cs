@@ -308,6 +308,12 @@ namespace DLE.Economy
         // scrapPerConsumed consumed carloads at a scrap-emitting city yields one scrap.
         public float cityConsumptionPerHour = 1f;
         public float carloadsPerScrap = 4f;
+        // Car dormancy (#141): far pool cars persist as data instead of live objects.
+        // Default OFF; the whole feature is inert until a host opts in.
+        public bool dormancyEnabled = false;
+        public float dormancyDespawnMeters = 2200f;
+        public float dormancyRespawnMeters = 1600f;
+        public float dormancySweepSeconds = 5f;
 
         // Global boost: consumption across all consumers over the last 24 game hours,
         // divided by globalBoostFullAt, adds up to (globalBoostMax - 1) to every rate.

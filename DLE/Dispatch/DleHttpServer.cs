@@ -1070,6 +1070,7 @@ namespace DLE.Dispatch
             lockEnabled = AssignmentStore.Instance.LockEnabled,
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
+            dormantCars = Data.DleCarPool.Instance.DormantCount,
             globalBoost = Math.Round(EconomyState.Instance.GlobalBoost, 2),
             machineWarnings = EconomyState.Instance.Facilities.Keys
                 .Where(y => EconomyState.Instance.OnLastMachine(y)).ToList(),

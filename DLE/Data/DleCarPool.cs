@@ -792,6 +792,15 @@ namespace DLE.Data
                 if (!_guids.Contains(car.carGuid)) continue;
                 if (liveries.Contains(tc.carLivery)) n++;
             }
+            // Dormant cars are still the fleet (#141): counting only live ones would
+            // let the floor pass double-spawn a family whose cars are asleep as data.
+            if (_dormant.Count > 0)
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var l in liveries) if (l?.name != null) names.Add(l.name);
+                foreach (var r in _dormant.Values)
+                    if (r.Livery != null && names.Contains(r.Livery)) n++;
+            }
             return n;
         }
 
@@ -903,6 +912,57 @@ namespace DLE.Data
             public int SchemaVersion;
             public bool PoolsSeeded;
             public List<string> Guids;
+            // Additive since 0.6.8 (#141): dormant cars persist as data. Absent in
+            // older saves and deserializes null, which restores exactly as before.
+            public List<DormantRecord> Dormant;
+            public string DormantTrackHash;
+        }
+
+        /// <summary>
+        /// One dormant car (#141): the vanilla per-car save JObject as a string, plus
+        /// the keys every other system needs while the car has no live object. A guid
+        /// is live XOR dormant, never both; the record and _guids save in the same pass
+        /// so they can never disagree.
+        /// </summary>
+        [Serializable]
+        public class DormantRecord
+        {
+            public string Guid;
+            public string Id;
+            public string Livery;
+            public string YardId;
+            public int Cut;
+            public string State;
+        }
+
+        private Dictionary<string, DormantRecord> _dormant =
+            new Dictionary<string, DormantRecord>(StringComparer.Ordinal);
+
+        public int DormantCount => _dormant.Count;
+        public string DormantTrackHash { get; private set; }
+        internal IEnumerable<DormantRecord> DormantRecords => _dormant.Values;
+        internal bool IsDormant(string carGuid) => carGuid != null && _dormant.ContainsKey(carGuid);
+
+        internal void MarkDormant(DormantRecord r)
+        {
+            if (r?.Guid == null) return;
+            _dormant[r.Guid] = r;
+            _guids.Add(r.Guid); // membership is the superset: live or dormant, still the fleet
+            try { DormantTrackHash = DV.Utils.SingletonBehaviour<RailTrackRegistryBase>.Instance?.TracksHash; }
+            catch { }
+        }
+
+        internal void WakeDormant(string carGuid)
+        {
+            if (carGuid != null) _dormant.Remove(carGuid);
+        }
+
+        /// <summary>Track layout changed: the records cannot be restored. The guids
+        /// leave the fleet too, or the cap counts ghosts forever.</summary>
+        internal void DropAllDormant()
+        {
+            foreach (var g in _dormant.Keys) _guids.Remove(g);
+            _dormant.Clear();
         }
 
         public void SaveTo(SaveGameData data) =>
@@ -911,6 +971,8 @@ namespace DLE.Data
                 SchemaVersion = SchemaVersion,
                 PoolsSeeded = PoolsSeeded,
                 Guids = _guids.ToList(),
+                Dormant = _dormant.Count > 0 ? _dormant.Values.ToList() : null,
+                DormantTrackHash = DormantTrackHash,
             });
 
         /// <summary>
@@ -927,7 +989,9 @@ namespace DLE.Data
                 if (kv.Key?.carGuid != null)
                     alive.Add(kv.Key.carGuid);
             int before = _guids.Count;
-            _guids.RemoveWhere(g => !alive.Contains(g));
+            // A guid absent from the registry but present in the dormant ledger is a
+            // HEALTHY car stored as data (#141), not a dead one.
+            _guids.RemoveWhere(g => !alive.Contains(g) && !_dormant.ContainsKey(g));
             if (_guids.Count != before)
                 Main.LogAlways($"[CarPool] pruned {before - _guids.Count} dead pool guid(s); pool now {_guids.Count}.");
         }
@@ -935,6 +999,8 @@ namespace DLE.Data
         public void LoadFrom(SaveGameData data)
         {
             _guids = new HashSet<string>(StringComparer.Ordinal);
+            _dormant = new Dictionary<string, DormantRecord>(StringComparer.Ordinal);
+            DormantTrackHash = null;
             PoolsSeeded = false;
             SaveData payload = null;
             try { payload = data.GetObject<SaveData>(SaveKey); }
@@ -944,6 +1010,14 @@ namespace DLE.Data
                 _guids = new HashSet<string>(payload.Guids, StringComparer.Ordinal);
                 // Older saves have no flag and deserialize as false: they seed once, by design.
                 PoolsSeeded = payload.PoolsSeeded;
+                if (payload.Dormant != null)
+                {
+                    foreach (var r in payload.Dormant)
+                        if (r?.Guid != null) _dormant[r.Guid] = r;
+                    DormantTrackHash = payload.DormantTrackHash;
+                    if (_dormant.Count > 0)
+                        Main.LogAlways($"[CarPool] {_dormant.Count} dormant car(s) loaded as data; they respawn when a player nears their yard.");
+                }
             }
             else if (payload?.Guids != null)
             {

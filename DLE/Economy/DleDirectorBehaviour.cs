@@ -53,8 +53,10 @@ namespace DLE.Economy
             // also re-primes so the previous world's time never bleeds in.
             Data.DleCarPool.SweepInFlight = false;
             GameClock.Reset();
+            Data.CarDormancy.Reset();
             StartCoroutine(TickLoop());
             StartCoroutine(OverviewSweepLoop());
+            StartCoroutine(Data.CarDormancy.SweepLoop(() => IsStale()));
         }
 
         /// <summary>

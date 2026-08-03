@@ -25,6 +25,20 @@ namespace DLE
                 : "company.respawn: world not ready yet, try again once loaded.");
         }
 
+        [RegisterCommand("company.wake",
+            Help = "DLE: respawn every dormant pool car regardless of distance (#141). Escape hatch and A/B test lever.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void Wake(CommandArg[] args)
+        {
+            if (!Main.IsHostOrSingleplayer()) { Debug.Log("company.wake: host or singleplayer only."); return; }
+            int dormant = DleCarPool.Instance.DormantCount;
+            if (dormant == 0) { Debug.Log("company.wake: nothing is dormant."); return; }
+            bool started = DleDirectorBehaviour.TryRun(CarDormancy.WakeAllRoutine());
+            Debug.Log(started
+                ? $"company.wake: respawning {dormant} dormant car(s)..."
+                : "company.wake: world not ready yet, try again once loaded.");
+        }
+
         [RegisterCommand("company.resupply",
             Help = "DLE: wipe all facility stockpiles back to the starting stock values.",
             MinArgCount = 0, MaxArgCount = 0)]
