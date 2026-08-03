@@ -235,14 +235,32 @@ namespace DLE.Dispatch
         /// so the local player's own username (from the server player list, which the
         /// avatars never include) joins the roster too; the host can assign and fax
         /// themselves. Empty in singleplayer; the board uses it as suggestions.</summary>
+        // The roster used to rescan every loaded assembly and the whole scene on EVERY
+        // call, and the board polls it every 5 seconds: the lag meter measured about
+        // 100 ms of main thread per request, a hitch machine. Ten seconds of cache is
+        // fresher than anyone joins or leaves.
+        private static System.Collections.Generic.List<string> _rosterCache;
+        private static float _rosterCacheAt = -999f;
+        private static Type _npType;
+        private static bool _npTypeSearched;
+
         public static System.Collections.Generic.List<string> GetPlayerNames()
         {
+            if (_rosterCache != null && Time.realtimeSinceStartup - _rosterCacheAt < 10f)
+                return _rosterCache;
             var names = new System.Collections.Generic.List<string>();
+            _rosterCache = names;
+            _rosterCacheAt = Time.realtimeSinceStartup;
             try
             {
-                var type = AppDomain.CurrentDomain.GetAssemblies()
-                    .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
-                    .FirstOrDefault(t => t != null);
+                if (!_npTypeSearched)
+                {
+                    _npTypeSearched = true;
+                    _npType = AppDomain.CurrentDomain.GetAssemblies()
+                        .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
+                        .FirstOrDefault(t => t != null);
+                }
+                var type = _npType;
                 if (type == null) return names;
                 var usernameProp = type.GetProperty("Username");
                 foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))

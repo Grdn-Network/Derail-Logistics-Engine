@@ -311,8 +311,8 @@ namespace DLE.Economy
         // Car dormancy (#141): far pool cars persist as data instead of live objects.
         // Default OFF; the whole feature is inert until a host opts in.
         public bool dormancyEnabled = false;
-        public float dormancyDespawnMeters = 2200f;
-        public float dormancyRespawnMeters = 1600f;
+        public float dormancyDespawnMeters = 1200f;
+        public float dormancyRespawnMeters = 900f;
         public float dormancySweepSeconds = 5f;
 
         // Global boost: consumption across all consumers over the last 24 game hours,
