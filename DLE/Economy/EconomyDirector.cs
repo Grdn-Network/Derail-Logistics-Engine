@@ -361,7 +361,8 @@ namespace DLE.Economy
                         return null;
                     }
                     var car = tc.logicCar;
-                    if (tc.IsLoco) { reason = $"{id} is a locomotive"; return null; }
+                    if (tc.IsLoco || (tc.carLivery != null && DV.ThingTypes.CarTypes.IsAnyLocoSlugTender(tc.carLivery)))
+                    { reason = $"{id} is a locomotive or tender"; return null; }
                     if (car.LoadedCargoAmount > 0f) { reason = $"{id} is already loaded"; return null; }
                     if (jobsManager != null && jobsManager.GetJobOfCar(car) != null)
                     { reason = $"{id} is already on a job"; return null; }

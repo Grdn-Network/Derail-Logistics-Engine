@@ -162,6 +162,7 @@ namespace DLE.Data
 
                 bool ok = pool.Contains(car.carGuid)
                           && !tc.IsLoco
+                          && !(tc.carLivery != null && DV.ThingTypes.CarTypes.IsAnyLocoSlugTender(tc.carLivery))
                           && !tc.derailed
                           && car.LoadedCargoAmount == 0f   // v1: empties only
                           && !car.playerSpawnedCar

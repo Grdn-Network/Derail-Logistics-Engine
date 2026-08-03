@@ -243,6 +243,10 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <span id='accFilter' class='accf'></span></h2>
   <div class='cards' id='accCards'></div>
  </section>
+ <section class='col12' data-sec='avail'>
+  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
+  <div class='cards' id='availCards'></div>
+ </section>
  <section class='card col12' id='finder' data-sec='finder'>
   <h2>Car finder <span class='sub'>compatible freight cars anywhere in the world; results are a snapshot, click Find to refresh; blank the cargo field to clear</span></h2>
   <div class='formrow' style='margin-bottom:10px'>
@@ -252,10 +256,6 @@ footer{max-width:1280px;margin:0 auto;padding:4px 16px 22px;color:var(--dim);fon
    <span class='meta' id='fSummary'></span>
   </div>
   <div class='tablewrap'><table id='tFleet'></table></div>
- </section>
- <section class='col12' data-sec='avail'>
-  <h2>Available hauls <span class='count' id='cAvail'></span></h2>
-  <div class='cards' id='availCards'></div>
  </section>
  <section class='card col12' data-sec='dlog'>
   <h2>Dispatch log <span class='sub'>production, conversion, loading, deliveries; newest first</span></h2>
@@ -454,7 +454,7 @@ async function fillCars(id){
    (r.cars.length?`<table><tr><th>Car</th><th>Type</th><th>Cargo</th><th>Track</th><th>Dist</th></tr>`+
     r.cars.map(c=>`<tr><td>${esc(c.carId)}</td><td>${esc(c.type)}</td>`+
      `<td><span class='loadpill ${c.loaded?'yes':'no'}'>${c.loaded?'LOADED':'empty'}</span></td>`+
-     `<td>${esc(c.track)}</td><td class='num'>${c.metersFromLoading==null?'':c.metersFromLoading+' m'}</td></tr>`).join('')+
+     `<td>${esc(trackDisp(c.track))}</td><td class='num'>${c.metersFromLoading==null?'':c.metersFromLoading+' m'}</td></tr>`).join('')+
     `</table>`:'no cars attached yet: bring empties to the loading track');
   if(box.innerHTML!==html)box.innerHTML=html}
  catch(e){box.textContent='car view failed'}
@@ -700,15 +700,20 @@ function renderNetDetail(nodes,edges,sel){
   fold('inv-i','Consumption supply points',inH));
  d.className='netdetail show';d.innerHTML=h;
 }
+// Unnamed world tracks come through as raw ids like #Y-#S1437#T; read them as
+// what they are: a numbered siding outside any yard.
+function trackDisp(t){if(!t||t[0]!=='#')return t;const m=String(t).match(/S(\d+)/);
+ return m?'siding '+m[1]:'siding'}
 function renderFleet(r){
- $('fSummary').textContent=(r.total+(r.dormant||0))+' car(s), '+r.usable+' usable now';
+ $('fSummary').textContent=(r.total+(r.dormant||0))+' freight car(s), '+r.usable+' usable now';
+ $('fSummary').title='locomotives and tenders are not listed; the footer live count includes them';
  const groups={};
  for(const c of r.cars){const k=(c.yard||'~')+'|'+c.track;(groups[k]=groups[k]||[]).push(c)}
  const keys=Object.keys(groups).sort();
  $('tFleet').innerHTML=keys.length?'<tr><th>Yard</th><th>Track</th><th>Usable</th><th>Cars</th></tr>'+
   keys.map(k=>{const g=groups[k];g.sort((a,b)=>(b.usable?1:0)-(a.usable?1:0));
    const u=g.filter(c=>c.usable).length;
-   return `<tr><td>${esc(g[0].yard||'')}</td><td>${esc(g[0].track)}</td><td class='num'>${u}/${g.length}</td><td>`+
+   return `<tr><td>${esc(g[0].yard&&g[0].yard[0]!=='#'?g[0].yard:'')}</td><td>${esc(trackDisp(g[0].track))}</td><td class='num'>${u}/${g.length}</td><td>`+
     g.map(c=>{const why=c.loadedCargo?('loaded: '+c.loadedCargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':'usable';
      return `<span class='carchip ${c.usable?'ok':'busy'}' title='${esc(c.type)}; ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+
     `</td></tr>`}).join('')

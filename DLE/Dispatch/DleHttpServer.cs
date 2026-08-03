@@ -322,6 +322,18 @@ namespace DLE.Dispatch
                 if (!ctx.Request.IsLocal && path.StartsWith("/api/", StringComparison.Ordinal) && !Authorized(ctx))
                 { Json(ctx, 401, new { error = "password required" }); return; }
 
+                // Poll payloads cache for 2 seconds AFTER auth: N open board tabs cost
+                // the main thread the same as one (the lag meter priced this per tab).
+                if (method == "GET" && CacheablePaths.Contains(path) &&
+                    _payloadCache.TryGetValue(path, out var cached) &&
+                    UnityEngine.Time.realtimeSinceStartup - cached.at < 2f)
+                {
+                    ctx.RespStatus = 200;
+                    ctx.RespType = "application/json";
+                    ctx.RespBytes = cached.bytes;
+                    return;
+                }
+
                 if (method == "GET" && (path == "" || path == "/")) { Html(ctx, BoardPage.Html); return; }
                 if (method == "GET" && path == "/api/v1/state") { Json(ctx, 200, StatePayload()); return; }
                 if (method == "GET" && path == "/api/v1/economy") { Json(ctx, 200, EconomyPayload()); return; }
@@ -778,7 +790,8 @@ namespace DLE.Dispatch
             {
                 if (!byId.TryGetValue(id, out var tc) || tc.logicCar == null) { note = $"{id} not found"; return false; }
                 var car = tc.logicCar;
-                if (tc.IsLoco) { note = $"{id} is a locomotive"; return false; }
+                if (tc.IsLoco || (tc.carLivery != null && DV.ThingTypes.CarTypes.IsAnyLocoSlugTender(tc.carLivery)))
+                { note = $"{id} is a locomotive or tender"; return false; }
                 if (car.LoadedCargoAmount > 0f) { note = $"{id} is loaded; logi moves shift empties"; return false; }
                 if (jobsManager != null && jobsManager.GetJobOfCar(car) != null) { note = $"{id} is on a job"; return false; }
                 if (car.playerSpawnedCar) { note = $"{id} is a player car"; return false; }
@@ -847,7 +860,9 @@ namespace DLE.Dispatch
             {
                 var car = pair.Key;
                 var tc = pair.Value;
-                if (car == null || tc == null || tc.IsLoco) continue;
+                // Tenders and slugs are power, not freight, even though IsLoco says no.
+                if (car == null || tc == null || tc.IsLoco ||
+                    (tc.carLivery != null && DV.ThingTypes.CarTypes.IsAnyLocoSlugTender(tc.carLivery))) continue;
                 if (loadable != null && (car.carType?.parentType == null || !loadable.Contains(car.carType.parentType))) continue;
 
                 var trackId = car.CurrentTrack?.ID;
@@ -1058,13 +1073,15 @@ namespace DLE.Dispatch
                         usedM += (float)car.length;
                         var jobOfCar = jobsManager != null ? jobsManager.GetJobOfCar(car) : null;
                         reservedBy.TryGetValue(car.ID, out var holder);
-                        bool free = !tc.IsLoco && car.LoadedCargoAmount == 0f && jobOfCar == null &&
+                        bool power = tc.IsLoco ||
+                            (tc.carLivery != null && DV.ThingTypes.CarTypes.IsAnyLocoSlugTender(tc.carLivery));
+                        bool free = !power && car.LoadedCargoAmount == 0f && jobOfCar == null &&
                                     holder == null && !car.playerSpawnedCar;
                         carRows.Add(new
                         {
                             carId = car.ID,
                             type = tc.carLivery?.name ?? car.carType?.parentType?.name ?? "?",
-                            loco = tc.IsLoco,
+                            loco = power,
                             lengthM = (int)Math.Round(car.length),
                             cargo = car.LoadedCargoAmount > 0f
                                 ? Economy.CargoCategories.DisplayName(car.CurrentCargoTypeInCar) : null,
@@ -1474,11 +1491,18 @@ namespace DLE.Dispatch
             return string.Equals(key, s.BoardPassword, StringComparison.Ordinal);
         }
 
+        private static readonly HashSet<string> CacheablePaths = new HashSet<string>(StringComparer.Ordinal)
+        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players" };
+        private static readonly Dictionary<string, (float at, byte[] bytes)> _payloadCache =
+            new Dictionary<string, (float, byte[])>(StringComparer.Ordinal);
+
         private static void Json(DleRequest ctx, int status, object payload)
         {
             ctx.RespStatus = status;
             ctx.RespType = "application/json";
             ctx.RespBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
+            if (status == 200 && ctx.Method == "GET" && CacheablePaths.Contains(ctx.Path))
+                _payloadCache[ctx.Path] = (UnityEngine.Time.realtimeSinceStartup, ctx.RespBytes);
         }
     }
 }
