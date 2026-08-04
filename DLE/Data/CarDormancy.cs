@@ -495,6 +495,7 @@ namespace DLE.Data
         private static Component[] _avatarCache;
         private static float _avatarCacheAt = -999f;
         private static bool _mpSendFailed;
+        private static bool _mpSendArmed;
 
         /// <summary>
         /// Announce a respawned cut to DVMP clients. SpawnLoadedCar is not one of the
@@ -544,6 +545,13 @@ namespace DLE.Data
                     }
                     if (!usable) continue;
                     m.Invoke(server, args);
+                    if (!_mpSendArmed)
+                    {
+                        // One loud line per session so a log alone proves which build ran
+                        // and that clients are being told about respawns.
+                        _mpSendArmed = true;
+                        Main.LogAlways("[Dormancy] client spawn announce active (SendSpawnTrainset matched).");
+                    }
                     return;
                 }
                 _mpSendFailed = true;
