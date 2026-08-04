@@ -106,7 +106,9 @@ namespace DLE.Data
             float sleepR = Mathf.Max(wakeR + 200f, Economy.RecipeProvider.Tuning.dormancyDespawnMeters);
 
             // RESPAWN pass first: waking is always higher priority than sleeping more.
-            foreach (var cut in pool.DormantRecords.GroupBy(r => r.Cut).ToList())
+            // Grouping carries the yard as well as the cut id: two cuts can never fuse
+            // across yards even if a legacy save still holds a collided id pair.
+            foreach (var cut in pool.DormantRecords.GroupBy(r => r.Cut + "|" + r.YardId).ToList())
             {
                 if (stale()) yield break;
                 var anchor = YardAnchor(cut.First().YardId);
@@ -200,6 +202,11 @@ namespace DLE.Data
             catch { return; }
 
             var pool = DleCarPool.Instance;
+            // The counter restarts every session while records persist in the save:
+            // minting below the ledger's high-water mark fuses unrelated cuts into one
+            // group (a wake at one yard spawning consists at another, proximity anchors
+            // pointing at the wrong station). Always mint above everything stored.
+            foreach (var r in pool.DormantRecords) if (r.Cut >= _nextCut) _nextCut = r.Cut + 1;
             int cutId = _nextCut++;
             var captured = new List<DleCarPool.DormantRecord>();
             try
@@ -265,7 +272,8 @@ namespace DLE.Data
         {
             var pool = DleCarPool.Instance;
             if (!pool.TryGetDormantByPlate(plateId, out var rec)) return false;
-            var cut = pool.DormantRecords.Where(r => r.Cut == rec.Cut).ToList();
+            var cut = pool.DormantRecords.Where(r => r.Cut == rec.Cut
+                && string.Equals(r.YardId, rec.YardId, StringComparison.OrdinalIgnoreCase)).ToList();
             try { TryRespawnCut(cut); }
             catch (Exception ex)
             {
@@ -374,7 +382,7 @@ namespace DLE.Data
             }
             _inFlight = true;
             var pool = DleCarPool.Instance;
-            foreach (var cut in pool.DormantRecords.GroupBy(r => r.Cut).ToList())
+            foreach (var cut in pool.DormantRecords.GroupBy(r => r.Cut + "|" + r.YardId).ToList())
             {
                 try { TryRespawnCut(cut.ToList()); }
                 catch (Exception ex) { Main.LogAlways($"[Dormancy] wake failed: {ex.GetType().Name}: {ex.Message}"); }
@@ -527,6 +535,11 @@ namespace DLE.Data
                             // Couplings were restored exactly from the save record; the
                             // join path sends restored cars with autoCouple false too.
                             args[i] = !string.Equals(ps[i].Name, "autoCouple", StringComparison.OrdinalIgnoreCase);
+                        else if (ps[i].HasDefaultValue)
+                            // The real signature ends in an optional per-peer target
+                            // (ITransportPeer sendTo = null); any trailing optional we
+                            // do not recognize takes its declared default.
+                            args[i] = ps[i].DefaultValue;
                         else { usable = false; break; }
                     }
                     if (!usable) continue;
