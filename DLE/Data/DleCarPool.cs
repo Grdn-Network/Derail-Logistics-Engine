@@ -1049,8 +1049,17 @@ namespace DLE.Data
                 PoolsSeeded = payload.PoolsSeeded;
                 if (payload.Dormant != null)
                 {
-                    foreach (var r in payload.Dormant)
-                        if (r?.Guid != null) _dormant[r.Guid] = r;
+                    // Heal collided cut ids from sessions when the mint counter restarted
+                    // at 1: renumber every (cut, yard) group to a fresh unique id so no
+                    // wake can ever fuse cuts across yards. Two same-session cuts keep
+                    // their grouping because their (cut, yard) pair was already unique.
+                    int nextCut = 1;
+                    foreach (var grp in payload.Dormant.Where(r => r?.Guid != null)
+                        .GroupBy(r => r.Cut + "|" + r.YardId).ToList())
+                    {
+                        foreach (var r in grp) { r.Cut = nextCut; _dormant[r.Guid] = r; }
+                        nextCut++;
+                    }
                     DormantTrackHash = payload.DormantTrackHash;
                     if (_dormant.Count > 0)
                         Main.LogAlways($"[CarPool] {_dormant.Count} dormant car(s) loaded as data; they respawn when a player nears their yard.");
