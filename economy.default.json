@@ -20,6 +20,10 @@
     "toolImportRarity": 8,
     "poolTrackFillPercent": 90,
     "maxPoolCars": 700,
+    "dormancyEnabled": true,
+    "dormancyDespawnMeters": 1200,
+    "dormancyRespawnMeters": 900,
+    "dormancySweepSeconds": 5,
     "minCarsPerCargo": {
       "NewCars": 10,
       "ImportedNewCars": 10,
