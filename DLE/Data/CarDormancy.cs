@@ -34,6 +34,10 @@ namespace DLE.Data
         {
             _inFlight = false;
             _hashWarned = false;
+            _mpSendFailed = false;
+            _mpSendArmed = false;
+            _platesReserved = false;
+            _deferLogged.Clear();
         }
 
         /// <summary>Hosted by DleDirectorBehaviour; stale means a different world loaded.</summary>
@@ -84,9 +88,26 @@ namespace DLE.Data
             }
         }
 
+        /// <summary>
+        /// Plate reservations are per-session (vanilla IdGenerator rebuilds from live
+        /// cars only), so every wake path re-arms them once per session: without this a
+        /// post-reload spawn can mint a dormant car's plate and the wake duplicates it.
+        /// </summary>
+        private static void EnsurePlatesReserved()
+        {
+            if (_platesReserved) return;
+            _platesReserved = true;
+            int n = 0;
+            foreach (var r in DleCarPool.Instance.DormantRecords)
+                try { SingletonBehaviour<DV.Logic.Job.IdGenerator>.Instance.ReserveCarId(r.Id); n++; } catch { }
+            if (n > 0) Main.Log($"[Dormancy] {n} dormant plate(s) re-reserved for this session.");
+        }
+        private static bool _platesReserved;
+
         private static IEnumerator SweepOnce(Func<bool> stale)
         {
             var pool = DleCarPool.Instance;
+            EnsurePlatesReserved();
 
             // A record whose car is LIVE is stale (a crash between capture and delete):
             // the live car wins, the record drops, nothing is ever duplicated.
@@ -197,6 +218,28 @@ namespace DLE.Data
         private static void DespawnCut(List<TrainCar> cut, string yardId)
         {
             if (!TrackHashOk()) return;
+            // The eligibility snapshot is frames old by now (the sweep yields between
+            // cuts, and the board handles requests on the main thread in the gap): a
+            // dispatcher can have booked these exact cars in the meantime. Re-check the
+            // cheap invariants right before capture; any hit keeps the cut live.
+            try
+            {
+                var jm = SingletonBehaviour<JobsManager>.Instance;
+                var reservedNow = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                    if (kv.Value?.reservedCarIds != null)
+                        foreach (var rid in kv.Value.reservedCarIds) reservedNow.Add(rid);
+                foreach (var tc in cut)
+                {
+                    var car = tc?.logicCar;
+                    if (tc == null || car == null || tc.derailed
+                        || car.LoadedCargoAmount > 0f
+                        || reservedNow.Contains(car.ID)
+                        || (jm != null && jm.GetJobOfCar(car) != null))
+                        return;
+                }
+            }
+            catch { return; }
             RailTrack[] tracks;
             try { tracks = SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks; }
             catch { return; }
@@ -271,6 +314,7 @@ namespace DLE.Data
         internal static bool WakeCutContaining(string plateId)
         {
             var pool = DleCarPool.Instance;
+            EnsurePlatesReserved();
             if (!pool.TryGetDormantByPlate(plateId, out var rec)) return false;
             var cut = pool.DormantRecords.Where(r => r.Cut == rec.Cut
                 && string.Equals(r.YardId, rec.YardId, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -306,12 +350,20 @@ namespace DLE.Data
                     pool.WakeDormant(r.Guid);
                     return;
                 }
-                if (SpanBlocked(jo, tracks))
-                    return; // something is parked there; whole cut waits for the next sweep
+                if (SpanBlocked(r, jo))
+                {
+                    // Something is parked there; the whole cut waits for the next sweep.
+                    // Say so once per cut per session: a silently deferred cut reads as
+                    // "dormancy is broken" from the outside.
+                    if (_deferLogged.Add(r.Cut))
+                        Main.LogAlways($"[Dormancy] cut at {r.YardId} stays dormant: {r.Id}'s spot on {r.Track ?? "?"} is occupied; retries every sweep.");
+                    return;
+                }
                 parsed.Add((r, jo));
             }
 
             var spawned = new List<TrainCar>();
+            var spawnedJos = new List<JObject>();
             foreach (var (rec, jo) in parsed)
             {
                 TrainCar tc = null;
@@ -326,13 +378,23 @@ namespace DLE.Data
                 }
                 if (tc == null)
                 {
-                    // Cars already spawned this pass stay live (their records clear);
-                    // the rest of the cut stays dormant and retries later.
+                    // The record stays dormant, so the plate protection must come back:
+                    // leaving it unreserved lets a later spawn mint the same ID and the
+                    // retried wake would then duplicate the plate.
+                    try { SingletonBehaviour<DV.Logic.Job.IdGenerator>.Instance.ReserveCarId(rec.Id); } catch { }
+                    // Cars already spawned this pass stay live (their records clear),
+                    // couple among themselves, and get ANNOUNCED: a partial cut the
+                    // clients cannot see is worse than a partial cut. The rest of the
+                    // cut stays dormant and retries later.
+                    foreach (var jo2 in spawnedJos)
+                        try { CarsSaveManager.RestoreCarConnections(jo2); } catch { }
                     foreach (var live in spawned) FinishRespawn(live);
+                    TrySendSpawnTrainset(spawned);
                     return;
                 }
                 pool.WakeDormant(rec.Guid);
                 spawned.Add(tc);
+                spawnedJos.Add(jo);
             }
 
             // Couplings restore from each car's own record, all partners now present.
@@ -358,6 +420,7 @@ namespace DLE.Data
         {
             if (_inFlight) yield break;
             _inFlight = true;
+            EnsurePlatesReserved();
             var pool = DleCarPool.Instance;
             foreach (var cut in pool.DormantRecords
                 .Where(r => string.Equals(r.YardId, yardId, StringComparison.OrdinalIgnoreCase))
@@ -381,6 +444,7 @@ namespace DLE.Data
                 yield break;
             }
             _inFlight = true;
+            EnsurePlatesReserved();
             var pool = DleCarPool.Instance;
             foreach (var cut in pool.DormantRecords.GroupBy(r => r.Cut + "|" + r.YardId).ToList())
             {
@@ -401,18 +465,35 @@ namespace DLE.Data
         /// record), live transforms are shifted; adding WorldMover.currentMove converts
         /// exactly the way InstantiateCarFromSavegame does. Conservative on any doubt.
         /// </summary>
-        private static bool SpanBlocked(JObject jo, RailTrack[] tracks)
+        private static bool SpanBlocked(DleCarPool.DormantRecord rec, JObject jo)
         {
             try
             {
                 var stored = jo.GetVector3("position");
                 if (!stored.HasValue) return true;
                 var target = stored.Value + WorldMover.currentMove;
+                // Yard tracks sit 4-4.5m apart, so a plain radius reads healthy cars on
+                // the NEIGHBOR track as blockers and a packed yard never wakes. A spot is
+                // taken only by a live car on the SAME track within coupling distance;
+                // without track identity fall back to a radius tighter than the spacing
+                // ever allows for a same-spot car.
+                // A Track equal to the yard id is display fallback pollution, not a
+                // real track: fall back to the tight radius instead of a compare that
+                // can never match (which would report every spot free).
+                var trk = rec.Track;
+                if (trk == "?" || string.Equals(trk, rec.YardId, StringComparison.OrdinalIgnoreCase)) trk = null;
                 foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
                 {
                     var tc = kv.Value;
                     if (tc == null) continue;
-                    if ((tc.transform.position - target).sqrMagnitude < 18.0f * 18.0f) return true;
+                    var d2 = (tc.transform.position - target).sqrMagnitude;
+                    if (trk != null)
+                    {
+                        if (d2 < 18.0f * 18.0f
+                            && string.Equals(kv.Key?.CurrentTrack?.ID?.FullDisplayID, trk, StringComparison.Ordinal))
+                            return true;
+                    }
+                    else if (d2 < 6.0f * 6.0f) return true;
                 }
                 return false;
             }
@@ -496,6 +577,14 @@ namespace DLE.Data
         private static float _avatarCacheAt = -999f;
         private static bool _mpSendFailed;
         private static bool _mpSendArmed;
+        private static readonly HashSet<int> _deferLogged = new HashSet<int>();
+
+        /// <summary>One loud line, then latch off: a dead announce must never be quiet.</summary>
+        private static void AnnounceOff(string why)
+        {
+            _mpSendFailed = true;
+            Main.LogAlways($"[Dormancy] client spawn announce DISABLED: {why}. Clients see respawned cars on rejoin only. Report this line.");
+        }
 
         /// <summary>
         /// Announce a respawned cut to DVMP clients. SpawnLoadedCar is not one of the
@@ -513,13 +602,18 @@ namespace DLE.Data
                     .Select(a => a.GetType("Multiplayer.Components.Networking.NetworkLifecycle"))
                     .FirstOrDefault(t => t != null);
                 if (lifecycleType == null) return; // no DVMP: nothing to announce
-                var instance = lifecycleType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
-                if (instance == null) return;
+                // Instance is a static on the generic SingletonBehaviour BASE class:
+                // without FlattenHierarchy the lookup returns null and this whole method
+                // used to bail silently, which is why no client ever saw a respawn.
+                var instance = lifecycleType.GetProperty("Instance",
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)?.GetValue(null);
+                if (instance == null) { AnnounceOff("NetworkLifecycle.Instance not found"); return; }
                 var isHost = lifecycleType.GetMethod("IsHost", Type.EmptyTypes)?.Invoke(instance, null) as bool?;
-                if (isHost != true) return;
+                if (isHost == null) { AnnounceOff("IsHost() not found"); return; }
+                if (isHost != true) return; // clients never announce; not an error
                 var server = lifecycleType.GetProperty("Server")?.GetValue(instance)
                              ?? lifecycleType.GetField("Server")?.GetValue(instance);
-                if (server == null) return;
+                if (server == null) { AnnounceOff("Server not found on the lifecycle"); return; }
 
                 foreach (var m in server.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance))
                 {
