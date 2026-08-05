@@ -310,7 +310,11 @@ namespace DLE.Economy
         public float carloadsPerScrap = 4f;
         // Car dormancy (#141): far pool cars persist as data instead of live objects.
         // Default OFF; the whole feature is inert until a host opts in.
-        public bool dormancyEnabled = false;
+        // Default ON (owner ruling 2026-08-05): dormancy is invisible to players by
+        // design, and a host that lost its economy.json still gets the perf win.
+        // Host-guarded everywhere: the sweep, every console command and the board
+        // server all refuse to run on a multiplayer client.
+        public bool dormancyEnabled = true;
         public float dormancyDespawnMeters = 1200f;
         public float dormancyRespawnMeters = 900f;
         public float dormancySweepSeconds = 5f;
