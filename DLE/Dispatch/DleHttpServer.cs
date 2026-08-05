@@ -324,6 +324,9 @@ namespace DLE.Dispatch
 
                 // Poll payloads cache for 2 seconds AFTER auth: N open board tabs cost
                 // the main thread the same as one (the lag meter priced this per tab).
+                // Any mutation drops the cache first, so the board's immediate refresh
+                // after an action reads post-action state instead of a stale snapshot.
+                if (method != "GET") _payloadCache.Clear();
                 if (method == "GET" && CacheablePaths.Contains(path) &&
                     _payloadCache.TryGetValue(path, out var cached) &&
                     UnityEngine.Time.realtimeSinceStartup - cached.at < 2f)

@@ -414,6 +414,9 @@ let jmYardData=null,jmSelSet=new Set(),jmCompat=null,jmStation=null,jmLines=[],j
 // must never move it. Banked lines harden the stickiness into a hard lock.
 let jmDestPicked=false;
 let jmSheet='ALL';
+// Reentrancy guards: banking a line and creating a booklet both await the
+// network mid-action, and a double-click in that window duplicated the work.
+let jmAddBusy=false,spawnBusy=false;
 function effDest(){return (jmLines.length&&jmDest)||(jmDestPicked?$('hDest').value:null)||null}
 // Board station filter: left-clicks build the DESK (a set of stations; hauls
 // touching any of them show), right-clicks hide stations. Both multi, both
@@ -465,12 +468,15 @@ function statusPill(x){
  if(x.logi)return `<span class='pill plg'>logi</span>`;
  const s=(x.state||'').toLowerCase();
  if(s==='available')return `<span class='pill pav'>open</span>`;
- if(x.unpaid)return `<span class='pill pun'>unpaid</span>`;
  if(x.cars>0&&x.loadedCars>=x.cars)return `<span class='pill pld'>loaded</span>`;
  if(x.cars>0&&x.loadedCars>0)return `<span class='pill pld'>loading ${x.loadedCars}/${x.cars}</span>`;
+ if(x.unpaid)return `<span class='pill pun'>unpaid</span>`;
  if(s==='inprogress')return `<span class='pill ppr'>in progress</span>`;
  if(s==='completed')return `<span class='pill pok'>delivered</span>`;
  return `<span class='pill pav'>${esc(x.state||'?')}</span>`}
+function unpaidPill(x){
+ return x.unpaid&&!x.logi&&x.state!=='Available'&&x.loadedCars>0
+  ?` <span class='pill pun' title='Relocating received goods; delivery pays nothing'>unpaid</span>`:''}
 // ── lens / surface switching: Lens > Surface > Inspector, one back ───────
 function setLens(l){lens=l;
  $('tabLogi').classList.toggle('on',l==='logi');
@@ -532,7 +538,10 @@ async function refresh(){
  $('chipMachines').textContent='MACHINES LOW: '+mw.join(', ');
  keepSelect($('hOrigin'),[...new Set(econ.map(e=>e.yardId))].sort());
  originChanged();
- keepSelect($('fCargo'),['','any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),jobs.map(x=>x.cargo)))].sort()));
+ // Job pseudo-cargos ('Mixed freight', 'Logistics move') are display names the
+ // fleet endpoint cannot resolve; enum names never contain a space.
+ keepSelect($('fCargo'),['','any cargo'].concat([...new Set([].concat(options.map(o=>o.cargo),
+  jobs.filter(x=>!x.logi&&x.cargo&&x.cargo.indexOf(' ')<0).map(x=>x.cargo)))].sort()));
  lastEconData=econ;
  const stripKey=[...new Set(econ.map(e=>e.yardId))].sort().join();
  if(last.strip!==stripKey){last.strip=stripKey;renderStrip()}
@@ -559,13 +568,15 @@ function laneCard(x){
  return `<div class='jc${haulSel===x.id?' cur':''}' data-act='laneOpen' data-id='${esc(x.id)}'>
   <div class='r1'>${spine(x.origin,x.destination)}
    <span class='rt num'>${esc(x.origin)}→${esc(x.destination)} ${cars}</span>
-   <span class='spacer'></span>${statusPill(x)}</div>
+   <span class='spacer'></span>${statusPill(x)}${unpaidPill(x)}</div>
   <div class='r2'>${d2}</div></div>`}
 function renderLane(jobs){
  const av=jobs.filter(x=>x.state==='Available'),ac=jobs.filter(x=>x.state!=='Available');
  const vis=x=>accSel.size?(accSel.has(x.origin)||accSel.has(x.destination))
   :!(accHidden.has(x.origin)&&accHidden.has(x.destination));
- const acS=ac.filter(vis),avS=av.filter(vis);
+ // The desk filter narrows ACCEPTED work only (the owner's original rule):
+ // open hauls are new demand and must never be silently invisible.
+ const acS=ac.filter(vis),avS=av;
  const counts={open:av.length,prog:0,loaded:0,unpaid:0,logi:0};
  for(const x of ac){if(x.logi)counts.logi++;else if(x.unpaid)counts.unpaid++;
   else if(x.cars>0&&x.loadedCars>=x.cars)counts.loaded++;else counts.prog++}
@@ -574,7 +585,8 @@ function renderLane(jobs){
   `<span class='pill ppr'>in progress ${counts.prog}</span>`+
   (counts.loaded?`<span class='pill pld'>loaded ${counts.loaded}</span>`:'')+
   (counts.unpaid?`<span class='pill pun'>unpaid ${counts.unpaid}</span>`:'')+
-  (counts.logi?`<span class='pill plg'>logi ${counts.logi}</span>`:'');
+  (counts.logi?`<span class='pill plg'>logi ${counts.logi}</span>`:'')
+  +(acS.length!==ac.length?`<span class='chip num'>showing ${acS.length}/${ac.length} accepted</span>`:'');
  const origins=[...new Set(lastEconData.map(e=>e.yardId))].sort();
  const perOrigin={};
  for(const x of ac){perOrigin[x.origin]=(perOrigin[x.origin]||0)+1;
@@ -611,7 +623,7 @@ function jobDetail(x){
     <button data-act='unload' data-id='${esc(x.id)}'>Unload</button>
     <button class='primary' data-act='complete' data-id='${esc(x.id)}'>Turn in</button>`;
  return `<div class='job'>
-  <div class='jobtop'><span class='jid'>${esc(x.id)}</span>${statusPill(x)}
+  <div class='jobtop'><span class='jid'>${esc(x.id)}</span>${statusPill(x)}${unpaidPill(x)}
    ${x.awaitingEmpties?`<span class='tag'>awaiting empties</span>`:''}
    <span class='wage num'${x.unpaid?` style='color:var(--dim)'`:''}>${money(x.wage)}</span></div>
   <div class='route'><b>${esc(x.origin)}</b><span class='arr'>→</span><b>${esc(x.destination)}</b></div>
@@ -817,7 +829,7 @@ function renderDockStation(){
  if(upct>=95)h+=`<span class='stchip bad'>storage full</span>`;
  else if(upct>=80)h+=`<span class='stchip warn'>storage ${upct}%</span>`;
  h+=`</div></div>`;
- if(cap>0)h+=`<div class='dsec'><div style='display:flex;justify-content:space-between;margin-bottom:5px'><span class='k'>Storage</span><span class='num' style='font:600 11.5px Inter,sans-serif;color:#b2b6ca'>${used} / ${cap}</span></div>
+ if(cap>0)h+=`<div class='dsec' title='one shared pool: every cargo counts against the same station total'><div style='display:flex;justify-content:space-between;margin-bottom:5px'><span class='k'>Storage</span><span class='num' style='font:600 11.5px Inter,sans-serif;color:#b2b6ca'>${used} / ${cap}</span></div>
   <div class='bar'><i class='${barCls}' style='width:${upct}%'></i></div></div>`;
  const needs=[];
  for(const r of (n.recipes||[]))for(const i of (r.inputs||[])){
@@ -971,7 +983,9 @@ let yardKey='',yardBusy=false;
 function yardOpen(){return lens==='logi'&&surface==='yard'}
 async function pollYard(force){
  const y=$('hOrigin').value;
- if(!y||(!force&&!yardOpen())||yardBusy)return;
+ // A forced poll (station change, yard open) must never be dropped because a
+ // routine poll is in flight; the origin re-check below keeps stale responses out.
+ if(!y||(!force&&!yardOpen())||(!force&&yardBusy))return;
  yardBusy=true;
  try{const r=await jget('/api/v1/yard?yard='+encodeURIComponent(y));
   if($('hOrigin').value!==y)return;
@@ -1002,7 +1016,7 @@ function renderYard(){
  box.querySelectorAll('.ytrack').forEach(el=>{
   const sc=el.querySelector('.ycars');
   if(el.dataset.track&&sc&&sc.scrollLeft)scrolls[el.dataset.track]=sc.scrollLeft});
- let total=0;
+ let total=0,selDropped=0;
  const inLine=lineCarSet();
  const shown=(d.tracks||[]).filter(t=>jmSheet==='ALL'||sheetOf(t.track)===jmSheet);
  const rows=shown.map(t=>{
@@ -1011,6 +1025,9 @@ function renderYard(){
   const cuts=(t.cuts||[]).map(cut=>`<span class='ycut'>`+cut.map(c=>{
    if(c.cargo)loaded++;else if(c.usable)free++;
    const banked=inLine.has(c.carId);
+   // A picked car that got loaded, booked or reserved since the pick is no
+   // longer the car the dispatcher chose: drop it rather than booklet it.
+   if(jmSelSet.has(c.carId)&&(c.loco||c.cargo||!c.usable)){jmSelSet.delete(c.carId);selDropped++}
    const on=jmSelSet.has(c.carId);
    const compat=jmCompat===null||jmCompat.has(c.carId);
    const cls=on?'sel':c.loco?'loco':banked?'inline':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'busy');
@@ -1033,7 +1050,10 @@ function renderYard(){
  box.querySelectorAll('.ytrack').forEach(el=>{
   const sc=el.querySelector('.ycars');
   if(el.dataset.track&&sc&&scrolls[el.dataset.track])sc.scrollLeft=scrolls[el.dataset.track]});
- $('jmMeta').textContent=(total+(d.dormantCars||0))+' cars in yard';
+ $('jmMeta').textContent=jmSheet==='ALL'
+  ?(total+(d.dormantCars||0))+' cars in yard'
+  :total+' cars on sheet '+(jmSheet==='~'?'sidings':jmSheet);
+ if(selDropped){toast(selDropped+' picked car(s) are no longer free; dropped',true);syncSelUi()}
 }
 function renderStrip(){
  const box=$('strip');if(!box)return;
@@ -1048,10 +1068,12 @@ async function fetchCompat(){
  if(!y||!c){if(jmCompat!==null){jmCompat=null;renderYard()}compatKey='';return}
  const key=y+'|'+c,now=Date.now();
  if(key===compatKey&&now-compatAt<15000)return;
- compatKey=key;compatAt=now;
  const seq=++compatSeq;
  try{const r=await jget('/api/v1/fleet?cargo='+encodeURIComponent(c)+'&yard='+encodeURIComponent(y));
   if(seq!==compatSeq)return;
+  // Commit the cache key only on success: a failed fetch used to poison the
+  // 15s window with the PREVIOUS cargo's verdict and block every retry.
+  compatKey=key;compatAt=now;
   jmCompat=new Set((r.cars||[]).filter(x=>x.usable).map(x=>x.carId));
   let dropped=0;
   for(const id of [...jmSelSet])if(!jmCompat.has(id)){jmSelSet.delete(id);dropped++}
@@ -1109,6 +1131,7 @@ const actions={
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
   toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
  spawnHaul:async()=>{
+  if(spawnBusy)return;spawnBusy=true;try{
   const o=$('hOrigin').value,d=$('hDest').value,c=$('hCargo').value;
   if(!d){toast('choose a destination first',true);return}
   const sel=[...jmSelSet];
@@ -1139,8 +1162,9 @@ const actions={
   if(r.jobId){toast('Created '+r.jobId+(r.unpaid?' as an UNPAID move (produced stock is short; this relocates received goods)':''));
    await afterCreate(r.jobId,false)}
   else toast('Failed: '+(r.error||'see game log'),true);
-  refresh()},
+  refresh()}finally{spawnBusy=false}},
  spawnHaulLoad:async()=>{
+  if(spawnBusy)return;spawnBusy=true;try{
   const o=$('hOrigin').value,d=$('hDest').value,c=$('hCargo').value;
   const sel=[...jmSelSet];
   const lines=jmLines.map(l=>({cargo:l.cargo,cars:l.cars}));
@@ -1156,23 +1180,27 @@ const actions={
   await afterCreate(r.jobId,true);
   const l=await j('/api/v1/jobs/'+r.jobId+'/load','POST');
   toast('Created '+r.jobId+'; '+(l.message||'load failed'),!l.ok);
-  jmLines=[];jmSelSet.clear();renderManifest();syncSelUi();setTimeout(refresh,1200)},
+  jmLines=[];jmSelSet.clear();renderManifest();syncSelUi();setTimeout(refresh,1200)}finally{spawnBusy=false}},
  jmAddLine:async()=>{
+  if(jmAddBusy)return;
   const c=$('hCargo').value,d=$('hDest').value,sel=[...jmSelSet];
   if(!c){toast('choose a cargo first',true);return}
   if(!d){toast('choose the destination first: every line of the booklet goes there',true);return}
   if(!sel.length){toast('pick the cars for this line first',true);return}
-  const line={cargo:c,cars:sel,pay:0,per:0};
-  try{if(c!==LOGI){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0;line.per=r.perCarSeconds||0}}catch(e){}
-  jmLines.push(line);
-  if(jmLines.length===1)jmDest=d;
-  jmSelSet.clear();renderManifest();syncSelUi();renderYard();originChanged();
-  toast('Line banked: '+sel.length+' x '+lineDisp(c)+' to '+jmDest+'; pick cars for the next cargo')},
+  jmAddBusy=true;
+  try{
+   const line={cargo:c,cars:sel,pay:0,per:0};
+   try{if(c!==LOGI){const r=await jget(`/api/v1/estimate?origin=${encodeURIComponent($('hOrigin').value)}&destination=${encodeURIComponent(d)}&cargo=${encodeURIComponent(c)}&cars=${sel.length}`);line.pay=r.pay||0;line.per=r.perCarSeconds||0}}catch(e){}
+   jmLines.push(line);
+   if(jmLines.length===1)jmDest=d;
+   jmSelSet.clear();lastEstQ='';renderManifest();syncSelUi();renderYard();originChanged();
+   toast('Line banked: '+sel.length+' x '+lineDisp(c)+' to '+jmDest+'; pick cars for the next cargo')}
+  finally{jmAddBusy=false}},
  jmDelLine:(id,el)=>{const i=parseInt(el.dataset.id);if(!(i>=0)||i>=jmLines.length)return;
   jmLines.splice(i,1);if(!jmLines.length)jmDest=null;
-  renderManifest();renderYard();syncSelUi();originChanged()},
+  lastEstQ='';renderManifest();renderYard();syncSelUi();originChanged()},
  jmClear:()=>{jmSelSet.clear();jmLines=[];jmDest=null;
-  renderManifest();syncSelUi();renderYard();originChanged()},
+  lastEstQ='';renderManifest();syncSelUi();renderYard();originChanged()},
  jmOpen:(id,el)=>{openYard(el.dataset.id)},
  ycar:(id,el)=>{const car=el.dataset.car;
   if(el.classList.contains('inline')){toast('that car is banked in a manifest line; remove the line to free it',true);return}
@@ -1255,9 +1283,14 @@ const actions={
   if(r.error){toast(r.error,true);return}
   renderFleet(r)},
  findEmpties:id=>{const x=lastJobs.find(v=>v.id===id);if(!x)return;
+  // Mixed manifests report a pseudo-cargo the fleet endpoint rejects; search
+  // by the first real line cargo instead.
+  let cargo=x.cargo&&x.cargo.indexOf(' ')<0?x.cargo:null;
+  if(!cargo&&x.lines&&x.lines.length){const l=x.lines.find(l2=>l2.cargo&&l2.cargo!=='None');cargo=l?l.cargo:null}
+  if(!cargo){toast('this haul has no searchable cargo',true);return}
   const sel=$('fCargo');
-  if(![...sel.options].some(o=>o.value===x.cargo)){const o=document.createElement('option');o.textContent=x.cargo;sel.appendChild(o)}
-  sel.value=x.cargo;$('fYard').value='';
+  if(![...sel.options].some(o=>o.value===cargo)){const o=document.createElement('option');o.textContent=cargo;sel.appendChild(o)}
+  sel.value=cargo;$('fYard').value='';
   setLens('fleet');
   actions.findCars()},
 };
@@ -1301,6 +1334,10 @@ function updateEstimate(){
   const o=$('hOrigin').value,c=$('hCargo').value,d=$('hDest').value,n=parseInt($('hCars').value);
   const box=$('hEstimate');
   if(c===LOGI){box.textContent=jmLines.length?'riders: these cars travel empty with the booklet':'unpaid move; closes on arrival';lastEstQ='';renderTotals(null);return}
+  // Banked lines carry their own pay; the live estimate only joins the total
+  // while cars are actually picked for the next line. Otherwise the leftover
+  // cars count double-priced a line that does not exist.
+  if(jmLines.length&&jmSelSet.size===0){box.textContent='';lastEstQ='';renderTotals(null);return}
   if(!o||!c||!d||!(n>0)){box.textContent='';lastEstQ='';renderTotals(null);return}
   const q=`${o}|${c}|${d}|${n}`;
   if(q===lastEstQ)return;

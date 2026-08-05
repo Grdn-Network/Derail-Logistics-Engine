@@ -172,6 +172,7 @@ namespace DLE.Data
             System.Collections.Generic.List<Track> FittingTracks(float len) =>
                 station.logicStation.yard.StorageTracks
                     .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                    .Where(t => !DormantOnTrack(t))
                     .Where(t => ClaimedOn(claimed, t) <= 0f)
                     .Where(t => t.length - 10.0 > len)
                     .ToList();
@@ -609,6 +610,7 @@ namespace DLE.Data
                 if (sc == null) continue;
                 var empties = sc.logicStation.yard.StorageTracks
                     .Where(t => (t.GetCarsFullyOnTrack()?.Count ?? 0) == 0)
+                    .Where(t => !DormantOnTrack(t))
                     .OrderByDescending(t => t.length)
                     .ToList();
                 if (empties.Count > 0)
@@ -817,7 +819,8 @@ namespace DLE.Data
             int cap = Math.Max(0, Economy.RecipeProvider.Tuning.maxPoolCars);
             int room = cap - _guids.Count;
             if (room < 2) return 0;
-            if ((track.GetCarsFullyOnTrack()?.Count ?? 0) != 0 || ClaimedOn(claimed, track) > 0f)
+            if ((track.GetCarsFullyOnTrack()?.Count ?? 0) != 0 || ClaimedOn(claimed, track) > 0f
+                || DormantOnTrack(track))
                 return 0;
 
             // Livery pools per output cargo; outputs nothing can carry are skipped.
@@ -963,6 +966,20 @@ namespace DLE.Data
             }
         }
 
+        /// <summary>
+        /// True when any dormant record is stored on this track: its parking spots are
+        /// spoken for, so spawner passes must not pack the track (a packed track blocks
+        /// the cut's respawn forever, review finding on #141).
+        /// </summary>
+        private bool DormantOnTrack(Track t)
+        {
+            var id = t?.ID?.FullDisplayID;
+            if (id == null || _dormant.Count == 0) return false;
+            foreach (var r in _dormant.Values)
+                if (string.Equals(r.Track, id, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
         private Dictionary<string, DormantRecord> _dormant =
             new Dictionary<string, DormantRecord>(StringComparer.Ordinal);
 
@@ -1050,12 +1067,23 @@ namespace DLE.Data
                 if (payload.Dormant != null)
                 {
                     // Heal collided cut ids from sessions when the mint counter restarted
-                    // at 1: renumber every (cut, yard) group to a fresh unique id so no
-                    // wake can ever fuse cuts across yards. Two same-session cuts keep
-                    // their grouping because their (cut, yard) pair was already unique.
+                    // at 1: renumber every (cut, yard, track) group to a fresh unique id.
+                    // Yard alone is not enough: several sessions' cuts at ONE yard shared
+                    // an id and fused into a mega-cut (one blocked spot deferred them all,
+                    // one wake spawned them all). Track splits those; a true cut that
+                    // straddles two tracks splits too, which only costs the coupling
+                    // between the halves, restored when both stand live.
+                    // A Track holding the yard id is display fallback pollution from
+                    // EnsureDormantDisplay, not a real track: clear it so the span guard
+                    // and this grouping never trust it. Null-Track records group alone
+                    // (couplings between them restore when both stand live anyway).
+                    foreach (var r0 in payload.Dormant)
+                        if (r0 != null && r0.Track != null
+                            && (r0.Track == "?" || string.Equals(r0.Track, r0.YardId, StringComparison.OrdinalIgnoreCase)))
+                            r0.Track = null;
                     int nextCut = 1;
                     foreach (var grp in payload.Dormant.Where(r => r?.Guid != null)
-                        .GroupBy(r => r.Cut + "|" + r.YardId).ToList())
+                        .GroupBy(r => r.Cut + "|" + r.YardId + "|" + (r.Track ?? "g:" + r.Guid)).ToList())
                     {
                         foreach (var r in grp) { r.Cut = nextCut; _dormant[r.Guid] = r; }
                         nextCut++;
