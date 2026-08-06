@@ -472,28 +472,37 @@ namespace DLE.Data
                 var stored = jo.GetVector3("position");
                 if (!stored.HasValue) return true;
                 var target = stored.Value + WorldMover.currentMove;
-                // Yard tracks sit 4-4.5m apart, so a plain radius reads healthy cars on
-                // the NEIGHBOR track as blockers and a packed yard never wakes. A spot is
-                // taken only by a live car on the SAME track within coupling distance;
-                // without track identity fall back to a radius tighter than the spacing
-                // ever allows for a same-spot car.
-                // A Track equal to the yard id is display fallback pollution, not a
-                // real track: fall back to the tight radius instead of a compare that
-                // can never match (which would report every spot free).
-                var trk = rec.Track;
-                if (trk == "?" || string.Equals(trk, rec.YardId, StringComparison.OrdinalIgnoreCase)) trk = null;
+                // The spot is a physical envelope, not a radius: about a car length
+                // ALONG the stored heading and a track width ACROSS it. Center-radius
+                // tests cannot model 25m cars: an end overlap passed every radius small
+                // enough to ignore the healthy neighbors 4.3m away on the next track,
+                // and a car just past the switch frog on the other leg passed the
+                // same-track test; both let a waking car materialize into someone's
+                // corner and get shoved off the rails.
+                Vector2 fwd = Vector2.zero;
+                var rot = jo.GetVector3("rotation");
+                if (rot.HasValue)
+                {
+                    var yaw = rot.Value.y * Mathf.Deg2Rad;
+                    fwd = new Vector2(Mathf.Sin(yaw), Mathf.Cos(yaw));
+                }
                 foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
                 {
                     var tc = kv.Value;
                     if (tc == null) continue;
-                    var d2 = (tc.transform.position - target).sqrMagnitude;
-                    if (trk != null)
+                    var d = tc.transform.position - target;
+                    var d2 = new Vector2(d.x, d.z);
+                    if (d2.sqrMagnitude > 40f * 40f) continue;
+                    if (fwd == Vector2.zero)
                     {
-                        if (d2 < 18.0f * 18.0f
-                            && string.Equals(kv.Key?.CurrentTrack?.ID?.FullDisplayID, trk, StringComparison.Ordinal))
-                            return true;
+                        // No stored heading (should not happen with vanilla records):
+                        // block conservatively rather than guess an envelope.
+                        if (d2.sqrMagnitude < 20f * 20f) return true;
+                        continue;
                     }
-                    else if (d2 < 6.0f * 6.0f) return true;
+                    float along = Vector2.Dot(d2, fwd);
+                    float perp = Mathf.Abs(d2.x * fwd.y - d2.y * fwd.x);
+                    if (Mathf.Abs(along) < 27f && perp < 3.0f) return true;
                 }
                 return false;
             }

@@ -829,7 +829,10 @@ function renderRailsStatic(){
  for(const t of railsGeo.tracks){
   const p=[];
   for(let i=0;i<t.pts.length;i+=2){const q=rxy(t.pts[i],t.pts[i+1]);p.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
-  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='${t.id?'#b8bdd1':'#565b73'}' stroke-width='${t.id?2:1.4}' stroke-linecap='round'>${t.id?`<title>${esc(trackDisp(t.id))}</title>`:''}</polyline>`}
+  // Unnamed world rail carries a hash-prefixed id; only real yard tracks are
+  // the bright ones, or the whole map reads solid white.
+  const yardTrack=t.id&&t.id[0]!=='#';
+  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='${yardTrack?'#b8bdd1':'#565b73'}' stroke-width='${yardTrack?2:1.4}' stroke-linecap='round'>${t.id?`<title>${esc(trackDisp(t.id))}</title>`:''}</polyline>`}
  for(const j of (railsGeo.junctions||[])){
   const q=rxy(j.x,j.z);
   h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3' fill='#8b5f5f'/>`}

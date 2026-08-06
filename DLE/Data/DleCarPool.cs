@@ -962,7 +962,10 @@ namespace DLE.Data
                     }
                 }
                 catch { }
-                if (r.Track == null) r.Track = r.YardId ?? "?";
+                // No fallback value: a Track holding anything but a real track id used
+                // to defeat every consumer that trusts it (the span guard read the spot
+                // as free, the spawn passes packed the track). Null stays null; such a
+                // record just does not render on a yard row until it resolves or wakes.
             }
         }
 
