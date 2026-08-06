@@ -548,38 +548,16 @@ namespace DLE.Data
             catch { }
             try
             {
-                // The scene scan is the expensive part (~80ms with a full car world);
-                // avatars change only on join and leave, so rescan when the MPAPI
-                // roster changes or a cached component died, with a slow safety rescan.
-                var now = Time.realtimeSinceStartup;
-                string rosterKey = null;
-                try { var mp = Dispatch.DispatchFax.MpApiPlayerNames(); if (mp != null) rosterKey = string.Join("|", mp); } catch { }
-                bool refresh = _avatarCache == null || now - _avatarCacheAt > 120f
-                    || (rosterKey != null && rosterKey != _avatarRosterKey);
-                if (!refresh)
-                    foreach (var c in _avatarCache) if (c == null) { refresh = true; break; }
-                if (refresh)
-                {
-                    var type = _networkedPlayerType ?? (_networkedPlayerType = AppDomain.CurrentDomain.GetAssemblies()
-                        .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
-                        .FirstOrDefault(t => t != null));
-                    _avatarCache = type == null
-                        ? Array.Empty<Component>()
-                        : UnityEngine.Object.FindObjectsOfType(type).OfType<Component>().ToArray();
-                    _avatarCacheAt = now;
-                    _avatarRosterKey = rosterKey;
-                }
-                foreach (var comp in _avatarCache)
-                    if (comp != null) list.Add(comp.transform.position);
+                // Remote positions come straight off the MPAPI player list (same
+                // shifted frame as car transforms; dv-mp compares them directly). No
+                // scene scan anywhere in this path (owner ruling): singleplayer gets
+                // the local player only and pays nothing.
+                var remotes = Dispatch.DispatchFax.MpApiPlayerPositions();
+                if (remotes != null) list.AddRange(remotes);
             }
             catch { }
             return list;
         }
-
-        private static Type _networkedPlayerType;
-        private static Component[] _avatarCache;
-        private static float _avatarCacheAt = -999f;
-        private static string _avatarRosterKey;
         private static bool _mpSendFailed;
         private static bool _mpSendArmed;
         private static readonly HashSet<int> _deferLogged = new HashSet<int>();

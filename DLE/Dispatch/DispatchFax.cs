@@ -241,54 +241,19 @@ namespace DLE.Dispatch
         // fresher than anyone joins or leaves.
         private static System.Collections.Generic.List<string> _rosterCache;
         private static float _rosterCacheAt = -999f;
-        private static Type _npType;
-        private static bool _npTypeSearched;
 
         public static System.Collections.Generic.List<string> GetPlayerNames()
         {
             if (_rosterCache != null && Time.realtimeSinceStartup - _rosterCacheAt < 10f)
                 return _rosterCache;
-            // The MPAPI server list is a plain list read; the avatar path below is a
-            // whole-scene FindObjectsOfType scan (~80ms with a full car world, the
-            // single most expensive thing the board polled). Scan only when MPAPI
-            // cannot answer.
-            var mp = MpApiPlayerNames();
-            if (mp != null && mp.Count > 0)
-            {
-                mp.Sort(StringComparer.OrdinalIgnoreCase);
-                _rosterCache = mp;
-                _rosterCacheAt = Time.realtimeSinceStartup;
-                return mp;
-            }
-            var names = new System.Collections.Generic.List<string>();
-            _rosterCache = names;
+            // MPAPI or nothing (owner ruling): the server player list is a plain list
+            // read. No scene-scan fallback; it fired in singleplayer, where there is
+            // nobody to list, and cost ~80ms a pass for nothing.
+            var mp = MpApiPlayerNames() ?? new System.Collections.Generic.List<string>();
+            mp.Sort(StringComparer.OrdinalIgnoreCase);
+            _rosterCache = mp;
             _rosterCacheAt = Time.realtimeSinceStartup;
-            try
-            {
-                if (!_npTypeSearched)
-                {
-                    _npTypeSearched = true;
-                    _npType = AppDomain.CurrentDomain.GetAssemblies()
-                        .Select(a => a.GetType("Multiplayer.Components.Networking.Player.NetworkedPlayer"))
-                        .FirstOrDefault(t => t != null);
-                }
-                var type = _npType;
-                if (type == null) return names;
-                var usernameProp = type.GetProperty("Username");
-                foreach (var obj in UnityEngine.Object.FindObjectsOfType(type))
-                    if (usernameProp?.GetValue(obj) is string username && !string.IsNullOrEmpty(username))
-                        names.Add(username);
-                var self = LocalPlayerName();
-                if (!string.IsNullOrEmpty(self) &&
-                    !names.Contains(self, StringComparer.OrdinalIgnoreCase))
-                    names.Add(self);
-                names.Sort(StringComparer.OrdinalIgnoreCase);
-            }
-            catch (Exception ex)
-            {
-                Main.Log($"[Fax] player roster lookup failed: {ex.Message}");
-            }
-            return names;
+            return mp;
         }
 
         private static bool IsLocalPlayerName(string player)
@@ -324,6 +289,37 @@ namespace DLE.Dispatch
                         && !string.IsNullOrEmpty(u) && !names.Contains(u))
                         names.Add(u);
                 return names;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Remote player positions via MPAPI, in the same shifted frame as car and
+        /// station transforms (dv-mp compares WorldPosition against car transforms
+        /// directly). Host and still-loading entries are skipped: the local player is
+        /// read from PlayerManager by the caller, and a loading player's position is
+        /// not yet meaningful. Null when MPAPI is absent.
+        /// </summary>
+        internal static System.Collections.Generic.List<Vector3> MpApiPlayerPositions()
+        {
+            try
+            {
+                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                    ?.GetType("MPAPI.MultiplayerAPI");
+                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
+                if (server == null) return null;
+                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
+                        is System.Collections.IEnumerable players)) return null;
+                var list = new System.Collections.Generic.List<Vector3>();
+                foreach (var p in players)
+                {
+                    var pt = p.GetType();
+                    if (pt.GetProperty("IsHost")?.GetValue(p) is bool h && h) continue;
+                    if (pt.GetProperty("IsLoaded")?.GetValue(p) is bool l && !l) continue;
+                    if (pt.GetProperty("Position")?.GetValue(p) is Vector3 v) list.Add(v);
+                }
+                return list;
             }
             catch { return null; }
         }
