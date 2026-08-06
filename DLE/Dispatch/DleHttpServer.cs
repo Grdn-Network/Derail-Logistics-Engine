@@ -368,8 +368,11 @@ namespace DLE.Dispatch
                 if (method == "POST" && path.StartsWith("/api/v1/signals/", StringComparison.Ordinal))
                 {
                     if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    // Signal ids come from the Signals mod and are strings, so the id
+                    // segment is taken verbatim (url-decoded) rather than parsed.
                     var seg = path.Split('/');
-                    if (seg.Length < 6 || !int.TryParse(seg[4], out var sid)) { Json(ctx, 400, new { error = "bad signal id" }); return; }
+                    if (seg.Length < 6) { Json(ctx, 400, new { error = "bad signal id" }); return; }
+                    var sid = Uri.UnescapeDataString(seg[4]);
                     var (sok, smsg) = seg[5] == "clear" ? Interlocking.Clear(sid)
                         : seg[5] == "cancel" ? Interlocking.Cancel(sid)
                         : (false, "unknown signal action");
