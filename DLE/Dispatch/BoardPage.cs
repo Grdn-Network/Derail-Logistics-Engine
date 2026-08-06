@@ -545,7 +545,7 @@ async function refresh(){
  lastEconData=econ;
  const stripKey=[...new Set(econ.map(e=>e.yardId))].sort().join();
  if(last.strip!==stripKey){last.strip=stripKey;renderStrip()}
- const netKey=JSON.stringify(options)+JSON.stringify(econ);
+ const netKey=JSON.stringify(options)+JSON.stringify(econ)+'|'+haulSel+'|'+JSON.stringify(lastJobs.map(x=>x.id));
  if(last.net!==netKey){last.net=netKey;drawNet()}
  const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+[...accSel].join()+'|'+[...accHidden].join()+'|'+haulSel+'|'+lastEconData.length;
  if(last.jobs!==jKey){last.jobs=jKey;
@@ -724,20 +724,35 @@ function drawNet(){
  const {nodes,edges}=buildNet(lastEconData,options);
  const bidi=new Set(edges.map(e=>e.src+'|'+e.dst));
  const sel=netSel&&nodes[netSel]?netSel:null;
+ // A selected haul idents itself on the map: endpoints ring up, its route
+ // draws as a bold amber arc, and the economy edges subdue to context.
+ const hj=haulSel?lastJobs.find(v=>v.id===haulSel):null;
+ const hOn=!!(hj&&nodes[hj.origin]&&nodes[hj.destination]&&hj.origin!==hj.destination);
  let h=`<defs>
   <marker id='arw' markerWidth='7' markerHeight='6' refX='6' refY='3' orient='auto' markerUnits='userSpaceOnUse'><path d='M0,0 L0,6 L7,3 z' fill='#5d5294'/></marker>
   <marker id='arwB' markerWidth='7' markerHeight='6' refX='6' refY='3' orient='auto' markerUnits='userSpaceOnUse'><path d='M0,0 L0,6 L7,3 z' fill='#b5abfc'/></marker>
+  <marker id='arwH' markerWidth='8' markerHeight='7' refX='7' refY='3.5' orient='auto' markerUnits='userSpaceOnUse'><path d='M0,0 L0,7 L8,3.5 z' fill='#d9b47a'/></marker>
  </defs>`;
  for(const w of DESK_WASH)
   h+=`<ellipse cx='${w.cx}' cy='${w.cy}' rx='${w.rx}' ry='${w.ry}' fill='${w.c}' opacity='0.05'/>`;
  for(const e of edges){
   const on=!sel||e.src===sel||e.dst===sel;
+  const op=hOn?0.06:(sel?(on?0.95:0.06):0.45);
   const w=1+Math.min(3,e.stock/10);
   h+=`<path class='nedge' data-act='netEdge' data-src='${esc(e.src)}' data-dst='${esc(e.dst)}' data-cargo='${esc(e.cargos[0])}'
-   d='${netPath(e,bidi)}' fill='none' stroke='${on&&sel?'#b5abfc':'#9184d9'}'
-   stroke-opacity='${sel?(on?0.95:0.06):0.45}' stroke-width='${sel&&on?w+1.5:w}'
-   marker-end='url(#${sel&&on?'arwB':'arw'})'>
+   d='${netPath(e,bidi)}' fill='none' stroke='${on&&sel&&!hOn?'#b5abfc':'#9184d9'}'
+   stroke-opacity='${op}' stroke-width='${sel&&on&&!hOn?w+1.5:w}'
+   marker-end='url(#${sel&&on&&!hOn?'arwB':'arw'})'>
    <title>${esc(e.src)} to ${esc(e.dst)}: ${esc(e.cargos.map(disp).join(', '))} (${Math.round(e.stock)} shippable)</title></path>`;
+ }
+ if(hOn){
+  const A=NET_POS[hj.origin],B=NET_POS[hj.destination];
+  h+=`<path d='${netPath({src:hj.origin,dst:hj.destination},bidi)}' fill='none'
+   stroke='#d9b47a' stroke-width='3' stroke-dasharray='8 6' stroke-opacity='0.95'
+   marker-end='url(#arwH)'/>`;
+  const mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2-14;
+  h+=`<g><rect x='${mx-58}' y='${my-11}' width='116' height='18' rx='4' fill='#241f16' stroke='#6b5a34'/>
+   <text x='${mx}' y='${my+2}' text-anchor='middle' fill='#d9b47a' font-size='9.5' font-weight='700'>${esc(hj.id)} · ${esc(hj.assignedTo||(hj.state==='Available'?'open':'crewless'))}</text></g>`;
  }
  for(const id in nodes){
   const n=nodes[id];const p=NET_POS[id];
@@ -745,9 +760,11 @@ function drawNet(){
   const st=NET_STYLE[cls];
   const miss=netMissing(n);
   const r=cls==='hub'?24:cls==='factory'?20:17;
-  const dim=sel&&id!==sel&&!edges.some(e=>(e.src===sel&&e.dst===id)||(e.dst===sel&&e.src===id));
+  const hEnd=hOn&&(id===hj.origin||id===hj.destination);
+  const dim=hOn?!hEnd
+   :sel&&id!==sel&&!edges.some(e=>(e.src===sel&&e.dst===id)||(e.dst===sel&&e.src===id));
   h+=`<g class='nnode' data-act='netNode' data-id='${esc(id)}' transform='translate(${p[0]},${p[1]})' opacity='${dim?0.25:1}'>
-   <circle r='${r}' fill='${st.fill}' stroke='${miss.length?'#a8615c':(n.machineWarning?'#d9b47a':st.stroke)}' stroke-width='${sel===id?2.6:1.6}'/>
+   <circle r='${r}' fill='${st.fill}' stroke='${hEnd?'#d9b47a':miss.length?'#a8615c':(n.machineWarning?'#d9b47a':st.stroke)}' stroke-width='${sel===id||hEnd?2.6:1.6}'/>
    <text y='4' text-anchor='middle' fill='${st.tx}' font-size='${r>=20?12:10.5}' font-weight='700'>${esc(id)}</text>
    ${sel===id?`<text y='${r+13}' text-anchor='middle' fill='#75798c' font-size='9'>${esc(NET_NAMES[id]||'')}</text>`:''}
    ${miss.length?`<text y='${-r-6}' text-anchor='middle' fill='#e09b95' font-size='8.5' font-weight='600'>WAITING</text>`:''}
@@ -1124,9 +1141,9 @@ const actions={
   if(jmLines.length&&jmDest)return;
   if(![...sel.options].some(o=>o.value===v))return;
   sel.value=v;jmDestPicked=true;originChanged()},
- laneOpen:(id)=>{haulSel=haulSel===id?null:id;dockMode=haulSel?'haul':dockMode;
+ laneOpen:(id)=>{haulSel=haulSel===id?null:id;dockMode=haulSel?'haul':'hint';
   if(surface==='yard'&&haulSel){setSurface('map')}
-  syncDock();renderDockHaul();last.jobs=null;refresh()},
+  syncDock();renderDockHaul();drawNet();last.jobs=null;refresh()},
  dockClose:()=>{dockMode='hint';haulSel=null;netSel=null;drawNet();syncDock()},
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
   toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
