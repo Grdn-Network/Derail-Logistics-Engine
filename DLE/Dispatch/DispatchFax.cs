@@ -248,6 +248,18 @@ namespace DLE.Dispatch
         {
             if (_rosterCache != null && Time.realtimeSinceStartup - _rosterCacheAt < 10f)
                 return _rosterCache;
+            // The MPAPI server list is a plain list read; the avatar path below is a
+            // whole-scene FindObjectsOfType scan (~80ms with a full car world, the
+            // single most expensive thing the board polled). Scan only when MPAPI
+            // cannot answer.
+            var mp = MpApiPlayerNames();
+            if (mp != null && mp.Count > 0)
+            {
+                mp.Sort(StringComparer.OrdinalIgnoreCase);
+                _rosterCache = mp;
+                _rosterCacheAt = Time.realtimeSinceStartup;
+                return mp;
+            }
             var names = new System.Collections.Generic.List<string>();
             _rosterCache = names;
             _rosterCacheAt = Time.realtimeSinceStartup;
@@ -291,6 +303,31 @@ namespace DLE.Dispatch
         /// flagged IsHost is us when we host). Reflection keeps the zero compile-time
         /// dependency on DVMP; null in singleplayer or when no server runs.
         /// </summary>
+        /// <summary>
+        /// Every connected username via the MPAPI server player list: no scene scan.
+        /// Null when DVMP/MPAPI is absent (singleplayer) or the list is unreadable.
+        /// </summary>
+        internal static System.Collections.Generic.List<string> MpApiPlayerNames()
+        {
+            try
+            {
+                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                    ?.GetType("MPAPI.MultiplayerAPI");
+                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
+                if (server == null) return null;
+                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
+                        is System.Collections.IEnumerable players)) return null;
+                var names = new System.Collections.Generic.List<string>();
+                foreach (var p in players)
+                    if (p.GetType().GetProperty("Username")?.GetValue(p) is string u
+                        && !string.IsNullOrEmpty(u) && !names.Contains(u))
+                        names.Add(u);
+                return names;
+            }
+            catch { return null; }
+        }
+
         private static string LocalPlayerName()
         {
             try
