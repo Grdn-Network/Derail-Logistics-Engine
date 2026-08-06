@@ -873,11 +873,25 @@ function renderRailsDyn(){
  // Cleared roads first, under the traffic: a green that runs the way the switches
  // are actually set, from the signal to the next one.
  const il=lastInter||{};
+ // A cleared road RECOLOURS the rail rather than sitting beside it, so each piece is
+ // drawn at that rail's own width and fan offset: one line, turned green.
  for(const r of (il.routes||[])){
-  const pts=[];
-  for(let i=0;i<r.poly.length;i+=2){const q=rxy(r.poly[i],r.poly[i+1]);pts.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
-  if(pts.length>1)h+=`<polyline points='${pts.join(' ')}' fill='none' stroke='#2f9e63' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.95'/>`}
+  for(const seg of (r.poly||[])){
+   const q=[];
+   for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
+   const d=railFan(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${seg.side?3.6:4.2}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // Switches: a mark you can click to throw, ringed amber while a road holds it.
+ // Every leg out of a switch is drawn: the one it is set to stays solid, the others
+ // grey so a dispatcher can see there IS a connection and exactly where it goes.
+ for(const j of (il.junctions||[])){
+  for(const leg of (j.legs||[])){
+   const q=[];
+   for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
+   if(q.length<2)continue;
+   const d=railFan(q,leg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   const set=leg.branch===j.branch;
+   h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${set?4.2:3}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),9);
  for(const j of jItems){
   const q=j.p;
@@ -885,7 +899,7 @@ function renderRailsDyn(){
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='transparent'/>
    ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='6.5' fill='none' stroke='#d9b47a' stroke-width='2'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3.6' fill='${j.branches>1?'#c98f6b':'#6f7691'}' stroke='#0d0f1a' stroke-width='1.4'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.4' fill='#07080e' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='1.6'/>
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
@@ -898,8 +912,8 @@ function renderRailsDyn(){
   const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not matched to a track'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='9' fill='transparent'/>
-   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='7.5' fill='none' stroke='#2f9e63' stroke-width='2'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.6' fill='${col}' stroke='#0d0f1a' stroke-width='1.6'/>
+   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='none' stroke='#2f9e63' stroke-width='1.8'/>`:''}
+   <polygon points='${tri(q,sg.x,sg.z,sg.dx,sg.dz)}' fill='${col}' stroke='#0d0f1a' stroke-width='1.4' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -918,6 +932,12 @@ function renderRailsDyn(){
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
    h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
  g.innerHTML=h}
+// A world heading is not a screen heading here, because the map is stretched sideways;
+// project two points and measure the result instead of rotating the raw vector.
+function screenDir(x,z,dx,dz){
+ const a=rxy(x,z),b=rxy(x+(dx||1)*10,z+(dz||0)*10);
+ let ux=b[0]-a[0],uy=b[1]-a[1];const L=Math.hypot(ux,uy)||1;
+ return [ux/L,uy/L]}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -939,6 +959,15 @@ function railPoint(x,z,side,dirX,dirZ){
 // scale they land on top of each other. Slide a clashing mark ALONG its own rail until
 // it has room: it stays on the rail it belongs to, which keeps the picture honest while
 // keeping every mark visible and clickable.
+// A signal is drawn as a triangle whose apex points the way it governs, so its facing
+// reads without hovering (owner ruling, and how the reference panel does it).
+function tri(q,x,z,dx,dz){
+ const [ux,uy]=screenDir(x,z,dx,dz);
+ const px=-uy,py=ux,L=6.2,W=4.4;
+ return [[q[0]+ux*L,q[1]+uy*L],
+         [q[0]-ux*2+px*W,q[1]-uy*2+py*W],
+         [q[0]-ux*2-px*W,q[1]-uy*2-py*W]]
+   .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}
 function declutter(items,minSep){
  const cell=minSep,occupied=new Map();
  const key=(x,y)=>Math.round(x/cell)+':'+Math.round(y/cell);
@@ -956,7 +985,7 @@ function declutter(items,minSep){
    // step out along the rail, alternating each way so a group spreads evenly
    const a=rxy(it.x,it.z),b=rxy(it.x+(it.dx||1)*10,it.z+(it.dz||0)*10);
    let ux=b[0]-a[0],uy=b[1]-a[1];const L=Math.hypot(ux,uy)||1;ux/=L;uy/=L;
-   for(let step=1;step<=6&&!free(x,y);step++){
+   for(let step=1;step<=3&&!free(x,y);step++){
     const d=minSep*Math.ceil(step/2)*(step%2?1:-1);
     x=it.p[0]+ux*d;y=it.p[1]+uy*d}}
   it.p=[x,y];put(x,y)}

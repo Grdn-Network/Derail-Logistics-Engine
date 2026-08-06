@@ -38,7 +38,7 @@ namespace DLE.Dispatch
             public string SignalId;
             public List<RailTrack> Path = new List<RailTrack>();
             public List<int> Locked = new List<int>();
-            public float[] Poly = Array.Empty<float>();
+            public List<object> Poly = new List<object>();
             public bool WasOccupied;
         }
 
@@ -48,6 +48,8 @@ namespace DLE.Dispatch
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static readonly HashSet<int> _inYard = new HashSet<int>();
+        private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
+        private const float StubMeters = 90f;
         private static string _builtHash;
 
         // A signal stands beside its rail, not on the centreline, so the match allows a
@@ -58,7 +60,7 @@ namespace DLE.Dispatch
         public static void Reset()
         {
             _signals.Clear(); _byEnd.Clear(); _routes.Clear();
-            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _builtHash = null;
+            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _stubs.Clear(); _builtHash = null;
         }
 
         private static string EndKey(RailTrack t, bool first) => t.GetInstanceID() + (first ? ":0" : ":1");
@@ -164,6 +166,15 @@ namespace DLE.Dispatch
                     if (!_byEnd.ContainsKey(key)) _byEnd[key] = sig;
                 }
             }
+            // Leg geometry never moves, so it is worked out once here and only the
+            // selected index changes from poll to poll.
+            for (int i = 0; i < _junctions.Count; i++)
+            {
+                if (_inYard.Contains(i)) continue;
+                var list = new List<object>();
+                try { BuildStubs(_junctions[i], list); } catch { }
+                if (list.Count > 0) _stubs[i] = list;
+            }
             Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) from the Signals mod ({resolved} matched to a rail by position), "
                 + $"{_junctions.Count} junction(s) numbered.");
         }
@@ -229,6 +240,7 @@ namespace DLE.Dispatch
                     side,
                     dx = (float)Math.Round(dx, 3),
                     dz = (float)Math.Round(dz, 3),
+                    legs = _stubs.TryGetValue(i, out var st) ? st : null,
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
@@ -400,14 +412,20 @@ namespace DLE.Dispatch
             return set;
         }
 
-        private static float[] PathPolyline(List<RailTrack> path)
+        /// <summary>
+        /// The road piece by piece, one entry per rail it runs along, each carrying that
+        /// rail's fan side. The board recolours the rail itself green (owner ruling), so
+        /// the green has to sit exactly where the rail is drawn, offset and all.
+        /// </summary>
+        private static List<object> PathPolyline(List<RailTrack> path)
         {
             var move = WorldMover.currentMove;
-            var pts = new List<float>();
-            float lx = 0, lz = 0; bool have = false;
+            var outp = new List<object>();
             foreach (var t in path)
             {
                 if (t?.curve == null) continue;
+                var pts = new List<float>();
+                float lx = 0, lz = 0; bool have = false;
                 for (int i = 0; i < t.curve.pointCount; i++)
                 {
                     var bp = t.curve[i];
@@ -418,8 +436,51 @@ namespace DLE.Dispatch
                     pts.Add((float)Math.Round(p.z, 1));
                     lx = p.x; lz = p.z; have = true;
                 }
+                if (pts.Count >= 4)
+                    outp.Add(new { side = TrackMap.SideOfTrack(TrackIdOf(t)), pts = pts.ToArray() });
             }
-            return pts.ToArray();
+            return outp;
+        }
+
+        /// <summary>
+        /// A short piece of each leg out of a junction, cached at build because the
+        /// geometry never moves. The board paints the leg the switch is set to solid and
+        /// the others grey, so a dispatcher can see where a switch IS pointing and where
+        /// it COULD point without clicking anything (owner ruling).
+        /// </summary>
+        private static void BuildStubs(Junction j, List<object> into)
+        {
+            var move = WorldMover.currentMove;
+            var outs = j.outBranches;
+            if (outs == null) return;
+            for (int b = 0; b < outs.Count; b++)
+            {
+                var br = outs[b];
+                if (br?.track?.curve == null) continue;
+                var c = br.track.curve;
+                int n = c.pointCount;
+                var pts = new List<float>();
+                float run = 0f;
+                Vector3 prev = default; bool have = false;
+                for (int k = 0; k < n && run < StubMeters; k++)
+                {
+                    // Walk outward from the end that touches the junction.
+                    var bp = br.first ? c[k] : c[n - 1 - k];
+                    if (bp == null) continue;
+                    var q = bp.position - move;
+                    if (have) run += Vector3.Distance(prev, q);
+                    prev = q; have = true;
+                    pts.Add((float)Math.Round(q.x, 1));
+                    pts.Add((float)Math.Round(q.z, 1));
+                }
+                if (pts.Count >= 4)
+                    into.Add(new
+                    {
+                        branch = b,
+                        side = TrackMap.SideOfTrack(TrackIdOf(br.track)),
+                        pts = pts.ToArray(),
+                    });
+            }
         }
     }
 }
