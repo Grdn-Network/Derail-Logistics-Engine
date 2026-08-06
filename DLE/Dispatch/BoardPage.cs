@@ -319,7 +319,8 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span><i style='background:#d5dcec'></i>rail</span>
      <span><i style='background:#2f9e63;height:5px'></i>road set</span>
      <span><i style='background:#c98f6b;width:8px;height:8px;border-radius:50%'></i>switch, click to throw</span>
-     <span><i style='background:#c25f5a;width:8px;height:8px;border-radius:50%'></i>signal, click to clear</span>
+     <span><i style='background:#c25f5a;width:8px;height:8px;border-radius:50%'></i>signal at stop</span>
+     <span><i style='background:#57c78e;width:8px;height:8px;border-radius:50%'></i>signal clear, click to set or drop a road</span>
      <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
      <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
      <span class='k' style='letter-spacing:.06em'>drag the map to move · yards are bubbles, click one to open its view</span>
@@ -881,13 +882,19 @@ function renderRailsDyn(){
    ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='6.5' fill='none' stroke='#d9b47a' stroke-width='2'/>`:''}
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3.6' fill='${j.branches>1?'#c98f6b':'#6f7691'}' stroke='#0d0f1a' stroke-width='1.4'/>
    <title>${esc(t)}</title></g>`}
- // Signals: click to pull off, click again to put back on.
+ // Signals belong to the DV Signals mod: the colour is the aspect the world is
+ // actually showing, and clicking sets or drops the road through it.
  for(const sg of (il.signals||[])){
   const q=rxy(sg.x,sg.z);
-  h+=`<g data-act='signal' data-id='${sg.id}' style='cursor:pointer'>
+  const a=sg.aspect||'';
+  const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
+  const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
+  const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not matched to a track'}`;
+  h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='9' fill='transparent'/>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.6' fill='${sg.green?'#57c78e':'#c25f5a'}' stroke='#0d0f1a' stroke-width='1.6'/>
-   <title>signal ${sg.id}: ${sg.green?'off (road set) - click to put back on':'on - click to clear the road'}</title></g>`}
+   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='7.5' fill='none' stroke='#2f9e63' stroke-width='2'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.6' fill='${col}' stroke='#0d0f1a' stroke-width='1.6'/>
+   <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
  for(const c of (tr.consists||[])){
@@ -1275,9 +1282,9 @@ const actions={
   if(r.ok){try{lastInter=await jget('/api/v1/interlocking')}catch(e){}renderRailsDyn()}},
  signal:async(id,el)=>{
   const sid=el.dataset.id;
-  const on=(lastInter&&(lastInter.signals||[]).find(s=>String(s.id)===String(sid))||{}).green;
-  const r=await j('/api/v1/signals/'+sid+'/'+(on?'cancel':'clear'),'POST');
-  toast(r.message||(r.ok?(on?'signal back on':'road set'):'refused'),!r.ok);
+  const set=(lastInter&&(lastInter.signals||[]).find(s=>String(s.id)===String(sid))||{}).road;
+  const r=await j('/api/v1/signals/'+encodeURIComponent(sid)+'/'+(set?'cancel':'clear'),'POST');
+  toast(r.message||(r.ok?(set?'signal back on':'road set'):'refused'),!r.ok);
   try{lastInter=await jget('/api/v1/interlocking')}catch(e){}
   renderRailsDyn()},
  stripJump:(id,el)=>{openYard(el.dataset.id)},

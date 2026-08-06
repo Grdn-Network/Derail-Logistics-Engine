@@ -3,3 +3,4 @@
 // the Multiplayer mod is absent. It still needs the channel's internal entry points,
 // so it is the one assembly allowed to see them.
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DleMpBridge")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DleSignalsBridge")]

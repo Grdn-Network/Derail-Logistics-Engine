@@ -12,8 +12,10 @@ namespace DLE.Dispatch
     /// the road greens along the CURRENT alignment until the next signal; every junction
     /// under that green locks until the train has passed or the dispatcher drops it.
     ///
-    /// Signals are DLE's own: vanilla Derail Valley has none, so one is placed at each
-    /// junction's facing approach, protecting the points the way real signalling does.
+    /// Signals come from the DV Signals mod through its own API (owner ruling): they are
+    /// real objects in the world that drivers read, so DLE reads them rather than
+    /// inventing its own. Setting a road takes one to Manual and clears it; cancelling
+    /// hands it back to that mod's automatic logic. No Signals mod means no signals here.
     /// A through-station move needs no special case, because a throat's switches resting
     /// in their normal position ARE the through route.
     ///
@@ -25,16 +27,15 @@ namespace DLE.Dispatch
     {
         private class Sig
         {
-            public int Id;
-            public Junction J;
+            public string Id;            // the Signals mod's own id
             public RailTrack Approach;   // the track a train sits on when reading it
-            public bool AtFirstEnd;      // which end of that track the signal guards
-            public Vector3 Pos;
+            public bool TowardOut;       // the way a move off this signal travels
+            public SignalsLink.SignalInfo Info;
         }
 
         private class Route
         {
-            public int SignalId;
+            public string SignalId;
             public List<RailTrack> Path = new List<RailTrack>();
             public List<int> Locked = new List<int>();
             public float[] Poly = Array.Empty<float>();
@@ -43,7 +44,7 @@ namespace DLE.Dispatch
 
         private static readonly List<Sig> _signals = new List<Sig>();
         private static readonly Dictionary<string, Sig> _byEnd = new Dictionary<string, Sig>(StringComparer.Ordinal);
-        private static readonly Dictionary<int, Route> _routes = new Dictionary<int, Route>();
+        private static readonly Dictionary<string, Route> _routes = new Dictionary<string, Route>(StringComparer.Ordinal);
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static string _builtHash;
@@ -91,43 +92,62 @@ namespace DLE.Dispatch
                 if (j == null) continue;
                 _jIds[j] = _junctions.Count;
                 _junctions.Add(j);
-                if (InYard(j.position)) continue;
-                var approach = j.inBranch?.track;
-                if (approach == null || approach.curve == null || approach.curve.pointCount < 2) continue;
-                bool atFirst = j.inBranch.first;
-                var key = EndKey(approach, atFirst);
-                if (_byEnd.ContainsKey(key)) continue;
-                var sig = new Sig
-                {
-                    Id = _signals.Count,
-                    J = j,
-                    Approach = approach,
-                    AtFirstEnd = atFirst,
-                    Pos = SignalPos(approach, atFirst) - move,
-                };
-                _signals.Add(sig);
-                _byEnd[key] = sig;
             }
-            Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) placed over {_junctions.Count} junction(s).");
-        }
 
-        /// <summary>A little way back from the points, where a driver would read it.</summary>
-        private static Vector3 SignalPos(RailTrack t, bool atFirstEnd)
-        {
-            var c = t.curve;
-            int n = c.pointCount;
-            int idx = atFirstEnd ? Math.Min(2, n - 1) : Math.Max(0, n - 3);
-            return c[idx].position;
+            // Signals are the Signals mod's. Match each to the track it stands on so a
+            // road can be walked from it; one that will not resolve still draws, it just
+            // cannot set a road.
+            SignalsLink.TryInit();
+            var byTrackId = new Dictionary<string, RailTrack>(StringComparer.Ordinal);
+            try
+            {
+                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
+                    if (kv.Key?.ID?.FullDisplayID is string tid && kv.Value != null)
+                        byTrackId[tid] = kv.Value;
+            }
+            catch { }
+            int resolved = 0;
+            foreach (var info in SignalsLink.All())
+            {
+                if (info?.Id == null) continue;
+                byTrackId.TryGetValue(info.TrackId ?? "", out var track);
+                bool towardOut = !string.Equals(info.Direction, "In", StringComparison.OrdinalIgnoreCase);
+                var sig = new Sig { Id = info.Id, Approach = track, TowardOut = towardOut, Info = info };
+                _signals.Add(sig);
+                if (track != null)
+                {
+                    resolved++;
+                    var key = EndKey(track, !towardOut);
+                    if (!_byEnd.ContainsKey(key)) _byEnd[key] = sig;
+                }
+            }
+            Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) from the Signals mod ({resolved} matched to track), "
+                + $"{_junctions.Count} junction(s) numbered.");
         }
 
         public static object Payload()
         {
             var move = WorldMover.currentMove;
+            // Aspects are read live so the board shows what the world actually shows,
+            // including changes the Signals mod makes on its own.
+            var live = SignalsLink.All().ToDictionary(i => i.Id, i => i, StringComparer.Ordinal);
             var sigs = new List<object>();
             foreach (var s in _signals)
             {
-                bool green = _routes.ContainsKey(s.Id);
-                sigs.Add(new { id = s.Id, x = (float)Math.Round(s.Pos.x, 1), z = (float)Math.Round(s.Pos.z, 1), green });
+                live.TryGetValue(s.Id, out var now);
+                var info = now ?? s.Info;
+                sigs.Add(new
+                {
+                    id = s.Id,
+                    x = info.X,
+                    z = info.Z,
+                    aspect = info.Aspect,
+                    on = info.IsOn,
+                    manual = info.Manual,
+                    type = info.Type,
+                    road = _routes.ContainsKey(s.Id),
+                    routable = s.Approach != null,
+                });
             }
             var locked = new HashSet<int>();
             foreach (var r in _routes.Values) foreach (var j in r.Locked) locked.Add(j);
@@ -160,7 +180,7 @@ namespace DLE.Dispatch
             if (j == null) return (false, "that switch is gone");
             foreach (var r in _routes.Values)
                 if (r.Locked.Contains(junctionId))
-                    return (false, $"locked by the route off signal {r.SignalId}; drop that route first");
+                    return (false, $"locked by the road off {r.SignalId}; drop that road first");
             int n = j.outBranches?.Count ?? 0;
             if (n < 2) return (false, "that junction has nothing to throw");
             try
@@ -176,19 +196,18 @@ namespace DLE.Dispatch
         /// Clear the road from a signal: walk the rails exactly as the switches are set
         /// until the next signal or the end of the line, then lock what was crossed.
         /// </summary>
-        public static (bool ok, string message) Clear(int signalId)
+        public static (bool ok, string message) Clear(string signalId)
         {
-            if (signalId < 0 || signalId >= _signals.Count) return (false, "no such signal");
+            var s = _signals.FirstOrDefault(x => x.Id == signalId);
+            if (s == null) return (false, "no such signal");
             if (_routes.ContainsKey(signalId)) return (false, "that signal is already off");
-            var s = _signals[signalId];
+            if (s.Approach == null) return (false, "that signal is not matched to a track, so no road can be set from it");
             var route = new Route { SignalId = signalId };
             var occupied = OccupiedTracks();
             var seen = new HashSet<int>();
 
-            // The signal guards the end its junction sits on, so the move runs toward
-            // that end: a signal at the track's first end means travelling inward.
             var track = s.Approach;
-            bool towardOut = !s.AtFirstEnd;
+            bool towardOut = s.TowardOut;
             for (int step = 0; step < 60; step++)
             {
                 if (track == null || !seen.Add(track.GetInstanceID())) break;
@@ -198,7 +217,7 @@ namespace DLE.Dispatch
                 if (!_jIds.TryGetValue(j, out var jid)) break;
                 foreach (var other in _routes.Values)
                     if (other.Locked.Contains(jid))
-                        return (false, $"switch {jid} is already locked by the route off signal {other.SignalId}");
+                        return (false, $"switch {jid} is already locked by the road off {other.SignalId}");
                 Junction.Branch next;
                 if (j.inBranch != null && j.inBranch.track == track)
                 {
@@ -228,13 +247,27 @@ namespace DLE.Dispatch
             if (route.Locked.Count == 0) return (false, "nothing to set from that signal");
             route.Poly = PathPolyline(route.Path);
             _routes[signalId] = route;
-            return (true, $"signal {signalId} off: {route.Locked.Count} switch(es) locked");
+
+            // The signal itself belongs to the Signals mod: take it to manual and clear
+            // it so drivers see a real green, not just a line on the dispatcher's board.
+            bool shown = false;
+            try
+            {
+                SignalsLink.SetManualFn?.Invoke(signalId);
+                shown = SignalsLink.SetAspectFn?.Invoke(signalId, SignalsLink.AspectClear) ?? false;
+            }
+            catch (Exception ex) { Main.Log($"[Interlocking] aspect set failed: {ex.Message}"); }
+            return (true, $"{signalId} off: {route.Locked.Count} switch(es) locked"
+                + (shown ? "" : " (the signal itself would not clear; check the Signals mod)"));
         }
 
-        public static (bool ok, string message) Cancel(int signalId)
+        public static (bool ok, string message) Cancel(string signalId)
         {
             if (!_routes.Remove(signalId)) return (false, "that signal is already on");
-            return (true, $"signal {signalId} back on; switches released");
+            // Hand it straight back to the Signals mod rather than pinning a stop of ours.
+            try { SignalsLink.SetAutomaticFn?.Invoke(signalId); }
+            catch (Exception ex) { Main.Log($"[Interlocking] handing {signalId} back failed: {ex.Message}"); }
+            return (true, $"{signalId} back on automatic; switches released");
         }
 
         /// <summary>Release a road once a train has run through it, the way a real one
@@ -253,7 +286,8 @@ namespace DLE.Dispatch
                 if (r.WasOccupied)
                 {
                     _routes.Remove(id);
-                    Main.Log($"[Interlocking] route off signal {id} released; the train is through.");
+                    try { SignalsLink.SetAutomaticFn?.Invoke(id); } catch { }
+                    Main.Log($"[Interlocking] road off {id} released; the train is through.");
                 }
             }
         }
