@@ -878,8 +878,9 @@ function renderRailsDyn(){
   for(let i=0;i<r.poly.length;i+=2){const q=rxy(r.poly[i],r.poly[i+1]);pts.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
   if(pts.length>1)h+=`<polyline points='${pts.join(' ')}' fill='none' stroke='#2f9e63' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.95'/>`}
  // Switches: a mark you can click to throw, ringed amber while a road holds it.
- for(const j of (il.junctions||[])){
-  const q=railPoint(j.x,j.z,j.side,j.dx,j.dz);
+ const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),9);
+ for(const j of jItems){
+  const q=j.p;
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='transparent'/>
@@ -888,8 +889,9 @@ function renderRailsDyn(){
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
- for(const sg of (il.signals||[])){
-  const q=railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz);
+ const sgItems=declutter((il.signals||[]).map(sg=>({...sg,p:railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz)})),10);
+ for(const sg of sgItems){
+  const q=sg.p;
   const a=sg.aspect||'';
   const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
@@ -933,6 +935,32 @@ function railPoint(x,z,side,dirX,dirZ){
  const a=rxy(x,z),b=rxy(x+(dirX||1)*10,z+(dirZ||0)*10);
  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
  return [q[0]-dy/L*RAIL_FAN*side, q[1]+dx/L*RAIL_FAN*side]}
+// Signals come in groups at every junction (a trunk and one per branch), so at map
+// scale they land on top of each other. Slide a clashing mark ALONG its own rail until
+// it has room: it stays on the rail it belongs to, which keeps the picture honest while
+// keeping every mark visible and clickable.
+function declutter(items,minSep){
+ const cell=minSep,occupied=new Map();
+ const key=(x,y)=>Math.round(x/cell)+':'+Math.round(y/cell);
+ const free=(x,y)=>{
+  const cx=Math.round(x/cell),cy=Math.round(y/cell);
+  for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
+   const b=occupied.get((cx+ax)+':'+(cy+ay));
+   if(!b)continue;
+   for(const [px,py] of b)if((px-x)*(px-x)+(py-y)*(py-y)<minSep*minSep)return false}
+  return true};
+ const put=(x,y)=>{const k=key(x,y);if(!occupied.has(k))occupied.set(k,[]);occupied.get(k).push([x,y])};
+ for(const it of items){
+  let [x,y]=it.p;
+  if(!free(x,y)){
+   // step out along the rail, alternating each way so a group spreads evenly
+   const a=rxy(it.x,it.z),b=rxy(it.x+(it.dx||1)*10,it.z+(it.dz||0)*10);
+   let ux=b[0]-a[0],uy=b[1]-a[1];const L=Math.hypot(ux,uy)||1;ux/=L;uy/=L;
+   for(let step=1;step<=6&&!free(x,y);step++){
+    const d=minSep*Math.ceil(step/2)*(step%2?1:-1);
+    x=it.p[0]+ux*d;y=it.p[1]+uy*d}}
+  it.p=[x,y];put(x,y)}
+ return items}
 function applyRailsVB(){if(railsVB)$('railsSvg').setAttribute('viewBox',railsVB.map(v=>v.toFixed(1)).join(' '))}
 // ── dispatch log ─────────────────────────────────────────────────────────
 let lastHist=[];
