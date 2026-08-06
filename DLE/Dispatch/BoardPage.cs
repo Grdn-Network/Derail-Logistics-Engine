@@ -814,7 +814,7 @@ let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,lastInter=null,rails
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
 // with a dark casing under a bright core, so crossings read and parallel track just
 // looks like heavier line work instead of the comb an earlier fan attempt drew.
-const RAIL_MPP=7.0,RAIL_XS=2.0;
+const RAIL_MPP=7.0,RAIL_XS=2.0,RAIL_FAN=3.6;
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
 async function loadRails(){
  if(railsGeo||railsLoading)return;
@@ -844,15 +844,19 @@ function renderRailsStatic(){
  const g=$('railsStatic');if(!g||!railsGeo)return;
  let h='';
  // Casing pass first, then the bright core, so every crossing reads cleanly.
+ // Rails the server paired as double track carry a side and get fanned apart here,
+ // in SCREEN space: the sideways stretch means a world perpendicular is not a screen
+ // perpendicular, so the shift has to be computed after projection.
  const paths=[];
  for(const ln of railsGeo.lines){
-  const pts=[];
-  for(let i=0;i<ln.length;i+=2){const q=rxy(ln[i],ln[i+1]);pts.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
-  paths.push(pts.join(' '))}
+  const a=ln.pts||ln,side=ln.side||0;
+  const q=[];
+  for(let i=0;i<a.length;i+=2)q.push(rxy(a[i],a[i+1]));
+  paths.push({d:railFan(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
-  h+=`<polyline points='${p}' fill='none' stroke='#0d0f1a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/>`;
+  h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
-  h+=`<polyline points='${p}' fill='none' stroke='#d5dcec' stroke-width='4.2' stroke-linecap='round' stroke-linejoin='round'/>`;
+  h+=`<polyline points='${p.d}' fill='none' stroke='${p.side?'#e4eaf8':'#aab4cd'}' stroke-width='${p.side?3.6:4.2}' stroke-linecap='round' stroke-linejoin='round'/>`;
  // Yards are bubbles: the rails run in and stop, everything inside is the yard view.
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
@@ -875,7 +879,7 @@ function renderRailsDyn(){
   if(pts.length>1)h+=`<polyline points='${pts.join(' ')}' fill='none' stroke='#2f9e63' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.95'/>`}
  // Switches: a mark you can click to throw, ringed amber while a road holds it.
  for(const j of (il.junctions||[])){
-  const q=rxy(j.x,j.z);
+  const q=railPoint(j.x,j.z,j.side,j.dx,j.dz);
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='transparent'/>
@@ -885,7 +889,7 @@ function renderRailsDyn(){
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
  for(const sg of (il.signals||[])){
-  const q=rxy(sg.x,sg.z);
+  const q=railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz);
   const a=sg.aspect||'';
   const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
@@ -912,6 +916,23 @@ function renderRailsDyn(){
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
    h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
  g.innerHTML=h}
+function railFan(q,side){
+ if(!side||q.length<2)return q;
+ const out=[];
+ for(let k=0;k<q.length;k++){
+  const a=q[Math.max(0,k-1)],b=q[Math.min(q.length-1,k+1)];
+  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
+  out.push([q[k][0]-dy/L*RAIL_FAN*side, q[k][1]+dx/L*RAIL_FAN*side]);}
+ return out}
+// A switch or signal standing on a fanned rail has to move with it, or it sits on the
+// centreline between the two tracks. The server sends the rail's heading in world
+// units; projecting it first keeps the offset square to what is drawn.
+function railPoint(x,z,side,dirX,dirZ){
+ const q=rxy(x,z);
+ if(!side)return q;
+ const a=rxy(x,z),b=rxy(x+(dirX||1)*10,z+(dirZ||0)*10);
+ const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
+ return [q[0]-dy/L*RAIL_FAN*side, q[1]+dx/L*RAIL_FAN*side]}
 function applyRailsVB(){if(railsVB)$('railsSvg').setAttribute('viewBox',railsVB.map(v=>v.toFixed(1)).join(' '))}
 // ── dispatch log ─────────────────────────────────────────────────────────
 let lastHist=[];
