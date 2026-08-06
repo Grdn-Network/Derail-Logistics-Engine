@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Multiplayer bridge. Holds every type that touches MultiplayerAPI, so the
+       core mod assembly references none and loads fine with the Multiplayer mod
+       absent or disabled (#163). DLE loads this by reflection at runtime only after
+       MultiplayerAPI is confirmed present, which is why nothing here is referenced
+       from the core project. -->
+
+  <PropertyGroup>
+    <AssemblyName>DleMpBridge</AssemblyName>
+    <RootNamespace>DLE.Dispatch</RootNamespace>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Optimize>True</Optimize>
+    <OutputPath>bin\Release</OutputPath>
+    <AssemblySearchPaths>$(AssemblySearchPaths);$(MSBuildProjectDirectory)\..\DLE\lib</AssemblySearchPaths>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- One-way: the bridge knows the core, never the reverse. -->
+    <ProjectReference Include="..\DLE\DLE.csproj">
+      <Private>False</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MultiplayerAPI">
+      <HintPath>..\DLE\lib\MultiplayerAPI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>..\DLE\lib\Assembly-CSharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="DV.ThingTypes">
+      <HintPath>..\DLE\lib\DV.ThingTypes.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="DV.Utils">
+      <HintPath>..\DLE\lib\DV.Utils.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>..\DLE\lib\UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>..\DLE\lib\UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityModManager">
+      <HintPath>..\DLE\lib\UnityModManager.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CopyToBuild" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\..\build\" />
+  </Target>
+
+</Project>

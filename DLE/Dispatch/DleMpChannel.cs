@@ -6,7 +6,6 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace DLE.Dispatch
@@ -81,7 +80,30 @@ namespace DLE.Dispatch
                     System.Reflection.Assembly.LoadFrom(apiPath);
                     Main.Log("[MpChannel] MultiplayerAPI.dll force-loaded from the Multiplayer mod folder.");
                 }
-                DleMpTransport.Init();
+                // The transport lives in a SEPARATE assembly because its packet types
+                // implement an MPAPI interface: a type whose base assembly is missing
+                // cannot load, and UMM enumerates every type in the mod, so keeping it
+                // here made a disabled Multiplayer mod kill DLE outright (#163). This
+                // core assembly now references no MPAPI type at all; the bridge is
+                // loaded only once MultiplayerAPI is known to be present.
+                var dir = System.IO.Path.GetDirectoryName(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+                var bridgePath = System.IO.Path.Combine(dir, "DleMpBridge.dll");
+                if (!System.IO.File.Exists(bridgePath))
+                {
+                    Main.LogAlways("[MpChannel] DleMpBridge.dll is missing from the mod folder; client sync disabled. Reinstall the mod folder complete.");
+                    return;
+                }
+                var bridge = System.Reflection.Assembly.LoadFrom(bridgePath);
+                var type = bridge.GetType("DLE.Dispatch.DleMpTransport");
+                var init = type?.GetMethod("Init", System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                if (init == null)
+                {
+                    Main.LogAlways("[MpChannel] DleMpBridge.dll has no transport entry point; client sync disabled.");
+                    return;
+                }
+                init.Invoke(null, null);
                 TransportArmed = true;
             }
             catch (Exception ex)
@@ -89,6 +111,13 @@ namespace DLE.Dispatch
                 Main.LogAlways($"[MpChannel] transport init failed ({ex.GetType().Name}: {ex.Message}); client sync disabled.");
             }
         }
+
+        // Filled in by the bridge on Init; null whenever Multiplayer is absent, which is
+        // exactly when every notify below must be a silent no-op.
+        public static Action SendHelloFn;
+        public static Action<string, string, float, bool, string, int, string> SendJobSyncFn;
+        public static Action<bool> SendLockFn;
+        public static Func<string, string, bool> SendFaxFn;
 
         /// <summary>True once event subscriptions are in place (independent of a session
         /// being live; TransportUp tracks an actual hosted session).</summary>
@@ -100,7 +129,7 @@ namespace DLE.Dispatch
         public static void AnnounceToHost()
         {
             if (!TransportArmed) return;
-            try { DleMpTransport.SendHello(); }
+            try { SendHelloFn?.Invoke(); }
             catch (Exception ex) { Main.Log($"[MpChannel] hello failed: {ex.Message}"); }
         }
 
@@ -110,14 +139,14 @@ namespace DLE.Dispatch
         public static void NotifyJobCreated(string jobId, float pay, bool unpaid, string cargo, int plannedCars)
         {
             if (!TransportUp) return;
-            try { DleMpTransport.SendJobSync(jobId, "", pay, unpaid, cargo, plannedCars, null); }
+            try { SendJobSyncFn?.Invoke(jobId, "", pay, unpaid, cargo, plannedCars, null); }
             catch (Exception ex) { Main.Log($"[MpChannel] job-created sync failed: {ex.Message}"); }
         }
 
         public static void NotifyAttach(string jobId, IEnumerable<string> carIds, float pay, bool unpaid, string cargo, int plannedCars)
         {
             if (!TransportUp) return;
-            try { DleMpTransport.SendJobSync(jobId, string.Join(",", carIds), pay, unpaid, cargo, plannedCars, null); }
+            try { SendJobSyncFn?.Invoke(jobId, string.Join(",", carIds), pay, unpaid, cargo, plannedCars, null); }
             catch (Exception ex) { Main.Log($"[MpChannel] attach sync failed: {ex.Message}"); }
         }
 
@@ -126,7 +155,7 @@ namespace DLE.Dispatch
         public static void NotifyLockChanged(bool enabled)
         {
             if (!TransportUp) return;
-            try { DleMpTransport.SendLock(enabled); }
+            try { SendLockFn?.Invoke(enabled); }
             catch (Exception ex) { Main.Log($"[MpChannel] lock sync failed: {ex.Message}"); }
         }
 
@@ -136,7 +165,7 @@ namespace DLE.Dispatch
         public static bool NotifyFax(string playerName, string jobId)
         {
             if (!TransportUp) return false;
-            try { return DleMpTransport.SendFax(playerName, jobId); }
+            try { return SendFaxFn != null && SendFaxFn(playerName, jobId); }
             catch (Exception ex)
             {
                 Main.Log($"[MpChannel] fax send failed: {ex.Message}");
@@ -393,166 +422,6 @@ namespace DLE.Dispatch
             }
             return rows;
         }
-    }
-
-    // Everything below touches MultiplayerAPI types INSIDE METHOD BODIES ONLY (fields
-    // hold object), so the CLR resolves MultiplayerAPI.dll on first call, never on type
-    // load. Do not add MPAPI types to any field or method signature here.
-
-    internal static class DleMpTransport
-    {
-        private static object _server;                       // IServer while hosting
-        private static object _client;                       // IClient while connected
-        private static readonly List<object> _dleClients = new List<object>(); // IPlayer
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void Init()
-        {
-            MPAPI.MultiplayerAPI.ServerStarted += OnServerStarted;
-            MPAPI.MultiplayerAPI.ServerStopped += () => { _server = null; _dleClients.Clear(); DleMpChannel.TransportUp = false; };
-            MPAPI.MultiplayerAPI.ClientStarted += OnClientStarted;
-            MPAPI.MultiplayerAPI.ClientStopped += () => { _client = null; DleMpChannel.ResetClientState(); };
-            // A session may already be live (mod loaded into a running game).
-            if (MPAPI.MultiplayerAPI.Server != null) OnServerStarted(MPAPI.MultiplayerAPI.Server);
-            if (MPAPI.MultiplayerAPI.Client != null) OnClientStarted(MPAPI.MultiplayerAPI.Client);
-            Main.LogAlways("[MpChannel] DVMP packet channel armed.");
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void OnServerStarted(MPAPI.Interfaces.IServer server)
-        {
-            _server = server;
-            DleMpChannel.TransportUp = true;
-            server.RegisterPacket<DleHelloPacket>((packet, sender) =>
-            {
-                if (!_dleClients.Contains(sender)) _dleClients.Add(sender);
-                var rows = DleMpChannel.SnapshotLiveJobs();
-                Main.LogAlways($"[MpChannel] {sender.Username} runs DLE; syncing {rows.Count} live job(s) to them.");
-                foreach (var row in rows)
-                    SendTo(sender, row.jobId, row.carIds, row.pay, row.unpaid, row.cargo, row.plannedCars, false);
-                // The lock state rides along so a client joining mid-session sweeps
-                // immediately instead of waiting for the next toggle.
-                SendLockTo(sender, AssignmentStore.Instance.LockEnabled);
-            });
-            server.OnPlayerDisconnected += player => _dleClients.Remove(player);
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void OnClientStarted(MPAPI.Interfaces.IClient client)
-        {
-            _client = client;
-            DleMpChannel.ResetClientState();
-            client.RegisterPacket<DleJobSyncPacket>(packet =>
-                DleMpChannel.ApplyJobSync(packet.JobId ?? "", packet.CarIdsCsv ?? "",
-                    packet.Pay, packet.Unpaid, packet.PrintBooklet,
-                    packet.Cargo ?? "", packet.PlannedCars));
-            client.RegisterPacket<DleLockPacket>(packet =>
-                DleMpChannel.ApplyLockState(packet.Enabled));
-            Main.LogAlways("[MpChannel] client session started; DLE sync handler registered.");
-            // Say hello so the host knows to sync us. A non-DLE host logs one parse
-            // warning and drops it; nothing breaks. Re-sent at world load in case this
-            // fires before the connection settles.
-            SendHello();
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void SendHello()
-        {
-            if (_client == null) return;
-            var client = (MPAPI.Interfaces.IClient)_client;
-            client.SendPacketToServer(new DleHelloPacket { Version = 1 });
-            Main.LogAlways("[MpChannel] hello sent to the host.");
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void SendTo(MPAPI.Interfaces.IPlayer player, string jobId, string carIds, float pay, bool unpaid, string cargo, int plannedCars, bool print)
-        {
-            ((MPAPI.Interfaces.IServer)_server).SendPacketToPlayer(new DleJobSyncPacket
-            {
-                JobId = jobId,
-                CarIdsCsv = carIds ?? "",
-                Cargo = cargo ?? "",
-                PlannedCars = plannedCars,
-                Pay = pay,
-                Unpaid = unpaid,
-                PrintBooklet = print,
-            }, player);
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void SendJobSync(string jobId, string carIds, float pay, bool unpaid, string cargo, int plannedCars, string onlyPlayer)
-        {
-            if (_server == null) return;
-            foreach (var obj in _dleClients)
-            {
-                var player = (MPAPI.Interfaces.IPlayer)obj;
-                if (onlyPlayer != null && !string.Equals(player.Username, onlyPlayer, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                SendTo(player, jobId, carIds, pay, unpaid, cargo, plannedCars, false);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void SendLockTo(MPAPI.Interfaces.IPlayer player, bool enabled)
-        {
-            ((MPAPI.Interfaces.IServer)_server).SendPacketToPlayer(
-                new DleLockPacket { Enabled = enabled }, player);
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static void SendLock(bool enabled)
-        {
-            if (_server == null) return;
-            foreach (var obj in _dleClients)
-                SendLockTo((MPAPI.Interfaces.IPlayer)obj, enabled);
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static bool SendFax(string playerName, string jobId)
-        {
-            if (_server == null) return false;
-            foreach (var obj in _dleClients)
-            {
-                var player = (MPAPI.Interfaces.IPlayer)obj;
-                if (!string.Equals(player.Username, playerName, StringComparison.OrdinalIgnoreCase)) continue;
-                StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def);
-                SendTo(player, jobId, "",
-                    def?.deliveryPayment ?? 0f, def?.unpaidMove ?? false,
-                    def?.transportedCargo.ToString() ?? "", def?.plannedCarCount ?? 0, true);
-                return true;
-            }
-            return false;
-        }
-    }
-
-    /// <summary>Client-to-server: "this client runs DLE, sync me." Auto-serialized.</summary>
-    public class DleHelloPacket : MPAPI.Interfaces.Packets.IPacket
-    {
-        public byte Version { get; set; }
-    }
-
-    /// <summary>Server-to-client job sync: cargo/count/pay meta always; attached car ids
-    /// when cars exist; PrintBooklet makes the client print the paper (fax). The cargo
-    /// and planned count ride in OUR packet on purpose: leaning on dv-mp's task sync for
-    /// them left client booklets reading "0 loads of ." Auto-serialized.</summary>
-    public class DleJobSyncPacket : MPAPI.Interfaces.Packets.IPacket
-    {
-        public string JobId { get; set; }
-        public string CarIdsCsv { get; set; }
-        public string Cargo { get; set; }
-        public int PlannedCars { get; set; }
-        public float Pay { get; set; }
-        public bool Unpaid { get; set; }
-        public bool PrintBooklet { get; set; }
-    }
-
-    /// <summary>Server-to-client: the host's assignment lock state. Sent at hello and on
-    /// every toggle; drives the client-side paper sweep. A 0.42.x client receiving this
-    /// unknown packet logs one dv-mp parse warning and drops it; nothing breaks (papers
-    /// just don't sweep there until the client updates). Auto-serialized.</summary>
-    public class DleLockPacket : MPAPI.Interfaces.Packets.IPacket
-    {
-        public bool Enabled { get; set; }
     }
 
     /// <summary>
