@@ -50,6 +50,11 @@ namespace DLE.Dispatch
         private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static string _builtHash;
 
+        // A signal stands beside its rail, not on the centreline, so the match allows a
+        // few metres; the cell only has to be at least that big for the 3x3 search.
+        private const float MatchCell = 30f;
+        private const float MatchRadius = 25f;
+
         public static void Reset()
         {
             _signals.Clear(); _byEnd.Clear(); _routes.Clear();
@@ -98,23 +103,57 @@ namespace DLE.Dispatch
                 _junctions.Add(j);
             }
 
-            // Signals are the Signals mod's. Match each to the track it stands on so a
-            // road can be walked from it; one that will not resolve still draws, it just
-            // cannot set a road.
+            // Signals are the Signals mod's, and it names them after junctions
+            // (W-0000-T for the trunk, W-0000:B1 and :B2 for the branches), so its
+            // TrackId is no use as a key into our rails: matching on it resolved nothing
+            // at all on a live world. Match on POSITION instead, which cannot care what
+            // anybody names anything: the rail whose centreline passes nearest the signal
+            // is the rail it stands on.
             SignalsLink.TryInit();
-            var byTrackId = new Dictionary<string, RailTrack>(StringComparer.Ordinal);
+            var grid = new Dictionary<long, List<(RailTrack t, Vector3 p)>>();
+            long GKey(float x, float z) =>
+                ((long)Mathf.FloorToInt(x / MatchCell) << 32) ^ (uint)Mathf.FloorToInt(z / MatchCell);
             try
             {
-                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
-                    if (kv.Key?.ID?.FullDisplayID is string tid && kv.Value != null)
-                        byTrackId[tid] = kv.Value;
+                foreach (var rt in SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks)
+                {
+                    if (rt?.curve == null) continue;
+                    for (int i = 0; i < rt.curve.pointCount; i++)
+                    {
+                        var bp = rt.curve[i];
+                        if (bp == null) continue;
+                        var q = bp.position - move;
+                        var key = GKey(q.x, q.z);
+                        if (!grid.TryGetValue(key, out var l)) grid[key] = l = new List<(RailTrack, Vector3)>();
+                        l.Add((rt, q));
+                    }
+                }
             }
             catch { }
+            RailTrack NearestRail(float x, float z, out float dist)
+            {
+                RailTrack best = null; float bestD = float.MaxValue;
+                int cx = Mathf.FloorToInt(x / MatchCell), cz = Mathf.FloorToInt(z / MatchCell);
+                for (int dx = -1; dx <= 1; dx++)
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        if (!grid.TryGetValue(((long)(cx + dx) << 32) ^ (uint)(cz + dz), out var bucket)) continue;
+                        foreach (var (t, q) in bucket)
+                        {
+                            float ddx = q.x - x, ddz = q.z - z;
+                            float d = ddx * ddx + ddz * ddz;
+                            if (d < bestD) { bestD = d; best = t; }
+                        }
+                    }
+                dist = bestD < float.MaxValue ? Mathf.Sqrt(bestD) : float.MaxValue;
+                return best;
+            }
             int resolved = 0;
             foreach (var info in SignalsLink.All())
             {
                 if (info?.Id == null) continue;
-                byTrackId.TryGetValue(info.TrackId ?? "", out var track);
+                var track = NearestRail(info.X, info.Z, out var dist);
+                if (dist > MatchRadius) track = null;
                 bool towardOut = !string.Equals(info.Direction, "In", StringComparison.OrdinalIgnoreCase);
                 var sig = new Sig { Id = info.Id, Approach = track, TowardOut = towardOut, Info = info };
                 _signals.Add(sig);
@@ -125,7 +164,7 @@ namespace DLE.Dispatch
                     if (!_byEnd.ContainsKey(key)) _byEnd[key] = sig;
                 }
             }
-            Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) from the Signals mod ({resolved} matched to track), "
+            Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) from the Signals mod ({resolved} matched to a rail by position), "
                 + $"{_junctions.Count} junction(s) numbered.");
         }
 
