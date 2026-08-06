@@ -317,7 +317,9 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <div class='maplegend'>
      <span class='k'>Rails</span>
      <span><i style='background:#d5dcec'></i>rail</span>
-     <span><i style='background:#8b5f5f;width:8px;height:8px;border-radius:50%'></i>switch</span>
+     <span><i style='background:#2f9e63;height:5px'></i>road set</span>
+     <span><i style='background:#c98f6b;width:8px;height:8px;border-radius:50%'></i>switch, click to throw</span>
+     <span><i style='background:#c25f5a;width:8px;height:8px;border-radius:50%'></i>signal, click to clear</span>
      <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
      <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
      <span class='k' style='letter-spacing:.06em'>drag the map to move · yards are bubbles, click one to open its view</span>
@@ -585,7 +587,7 @@ async function refresh(){
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
  if(lens==='rails'&&railsGeo){
-  try{lastTraffic=await jget('/api/v1/traffic')}catch(e){}
+  try{[lastTraffic,lastInter]=await Promise.all([jget('/api/v1/traffic'),jget('/api/v1/interlocking')])}catch(e){}
   renderRailsDyn()}
 }
 // ── haul lane: the whole board in one strip, filter chips included ───────
@@ -805,7 +807,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,railsLoading=false;
+let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -850,9 +852,6 @@ function renderRailsStatic(){
   h+=`<polyline points='${p}' fill='none' stroke='#0d0f1a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
   h+=`<polyline points='${p}' fill='none' stroke='#d5dcec' stroke-width='4.2' stroke-linecap='round' stroke-linejoin='round'/>`;
- for(const j of (railsGeo.junctions||[])){
-  const q=rxy(j[0],j[1]);
-  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3.4' fill='#c98f6b' stroke='#0d0f1a' stroke-width='1.4'/>`}
  // Yards are bubbles: the rails run in and stop, everything inside is the yard view.
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
@@ -864,8 +863,32 @@ function renderRailsStatic(){
 function renderRailsDyn(){
  const g=$('railsDyn');if(!g)return;
  const tr=lastTraffic;
- if(!tr||!railsGeo){g.innerHTML='';return}
+ if(!railsGeo){g.innerHTML='';return}
  let h='';
+ // Cleared roads first, under the traffic: a green that runs the way the switches
+ // are actually set, from the signal to the next one.
+ const il=lastInter||{};
+ for(const r of (il.routes||[])){
+  const pts=[];
+  for(let i=0;i<r.poly.length;i+=2){const q=rxy(r.poly[i],r.poly[i+1]);pts.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
+  if(pts.length>1)h+=`<polyline points='${pts.join(' ')}' fill='none' stroke='#2f9e63' stroke-width='5.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.95'/>`}
+ // Switches: a mark you can click to throw, ringed amber while a road holds it.
+ for(const j of (il.junctions||[])){
+  const q=rxy(j.x,j.z);
+  const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
+  h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='transparent'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='6.5' fill='none' stroke='#d9b47a' stroke-width='2'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3.6' fill='${j.branches>1?'#c98f6b':'#6f7691'}' stroke='#0d0f1a' stroke-width='1.4'/>
+   <title>${esc(t)}</title></g>`}
+ // Signals: click to pull off, click again to put back on.
+ for(const sg of (il.signals||[])){
+  const q=rxy(sg.x,sg.z);
+  h+=`<g data-act='signal' data-id='${sg.id}' style='cursor:pointer'>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='9' fill='transparent'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.6' fill='${sg.green?'#57c78e':'#c25f5a'}' stroke='#0d0f1a' stroke-width='1.6'/>
+   <title>signal ${sg.id}: ${sg.green?'off (road set) - click to put back on':'on - click to clear the road'}</title></g>`}
+ if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
  for(const c of (tr.consists||[])){
   const a=rxy(c.x1,c.z1),b=rxy(c.x2,c.z2);
@@ -1246,6 +1269,17 @@ const actions={
  lens:(id)=>{setLens(id)},
  backMap:()=>backToMap(),
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
+ throwSwitch:async(id,el)=>{
+  const r=await j('/api/v1/junctions/'+el.dataset.id+'/throw','POST');
+  toast(r.message||(r.ok?'switch thrown':'throw refused'),!r.ok);
+  if(r.ok){try{lastInter=await jget('/api/v1/interlocking')}catch(e){}renderRailsDyn()}},
+ signal:async(id,el)=>{
+  const sid=el.dataset.id;
+  const on=(lastInter&&(lastInter.signals||[]).find(s=>String(s.id)===String(sid))||{}).green;
+  const r=await j('/api/v1/signals/'+sid+'/'+(on?'cancel':'clear'),'POST');
+  toast(r.message||(r.ok?(on?'signal back on':'road set'):'refused'),!r.ok);
+  try{lastInter=await jget('/api/v1/interlocking')}catch(e){}
+  renderRailsDyn()},
  stripJump:(id,el)=>{openYard(el.dataset.id)},
  destPick:(id,el)=>{const v=el.dataset.id;const sel=$('hDest');
   if(jmLines.length&&jmDest)return;
