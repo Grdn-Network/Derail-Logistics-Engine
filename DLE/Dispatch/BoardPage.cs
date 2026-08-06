@@ -316,11 +316,12 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     </svg>
     <div class='maplegend'>
      <span class='k'>Rails</span>
-     <span><i style='background:#b8bdd1'></i>yard track</span>
-     <span><i style='background:#565b73'></i>open rail</span>
-     <span><i style='background:#7a4a46'></i>occupied</span>
-     <span><i style='background:#e09b95;height:4px'></i>consist on a job</span>
-     <span class='k' style='letter-spacing:.06em'>drag to pan · wheel to zoom · click a station chip for its yard</span>
+     <span><i style='background:#dfe3f0'></i>double track</span>
+     <span><i style='background:#7d8399'></i>single</span>
+     <span><i style='background:#8b5f5f;width:8px;height:8px;border-radius:50%'></i>switch</span>
+     <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
+     <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
+     <span class='k' style='letter-spacing:.06em'>drag the map to move · yards are bubbles, click one to open its view</span>
     </div>
    </div>
   </div>
@@ -806,62 +807,79 @@ function drawNet(){
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
 let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,railsLoading=false;
-const RW=2400;
-function rxy(x,z){return [(x-railsB.minX)*railsB.s,(railsB.maxZ-z)*railsB.s]}
+// Fixed scale, never zoomed: 5 metres a pixel puts a 25m car at 5px and a ten-car
+// train at 50px, and the sideways stretch makes the drag mostly horizontal on a wide
+// monitor. Parallel rails are 4m apart, which is under a pixel at ANY usable scale,
+// so corridors carrying two or more tracks fan apart at a fixed screen spacing.
+const RAIL_MPP=5.0,RAIL_XS=2.0,RAIL_FAN=6.0,RAIL_MAXFAN=4;
+function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
 async function loadRails(){
  if(railsGeo||railsLoading)return;
  railsLoading=true;
  try{const g=await jget('/api/v1/trackmap');
-  if(!g||!g.tracks||!g.tracks.length){toast('track map is empty; is the world loaded?',true);return}
-  let minX=1e12,maxX=-1e12,minZ=1e12,maxZ=-1e12;
-  for(const t of g.tracks)for(let i=0;i<t.pts.length;i+=2){
-   const x=t.pts[i],z=t.pts[i+1];
-   if(x<minX)minX=x;if(x>maxX)maxX=x;if(z<minZ)minZ=z;if(z>maxZ)maxZ=z}
-  const s=RW/Math.max(1,maxX-minX);
-  railsGeo=g;railsB={minX,maxX,minZ,maxZ,s};
-  railsVB=[0,0,RW,Math.max(1,(maxZ-minZ)*s)];
-  applyRailsVB();renderRailsStatic();renderRailsDyn()}
+  if(!g||!g.corridors||!g.corridors.length){toast('track map is empty; is the world loaded?',true);return}
+  railsGeo=g;railsB=g.bounds;
+  railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
+  railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
+  renderRailsStatic();
+  centreRails();
+  renderRailsDyn()}
  catch(e){toast('track map failed to load',true)}
  finally{railsLoading=false}}
+function railsViewport(){const r=$('railsSvg').getBoundingClientRect();
+ return [Math.max(200,r.width),Math.max(200,r.height)]}
+function centreRails(){
+ const [vw,vh]=railsViewport();
+ railsVB=[railsB.w/2-vw/2,railsB.h/2-vh/2,vw,vh];
+ clampRails();applyRailsVB()}
+function clampRails(){
+ if(!railsVB||!railsB)return;
+ const m=260;
+ railsVB[0]=Math.min(Math.max(railsVB[0],-m),Math.max(-m,railsB.w-railsVB[2]+m));
+ railsVB[1]=Math.min(Math.max(railsVB[1],-m),Math.max(-m,railsB.h-railsVB[3]+m))}
 function renderRailsStatic(){
  const g=$('railsStatic');if(!g||!railsGeo)return;
  let h='';
- for(const t of railsGeo.tracks){
-  const p=[];
-  for(let i=0;i<t.pts.length;i+=2){const q=rxy(t.pts[i],t.pts[i+1]);p.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
-  // Unnamed world rail carries a hash-prefixed id; only real yard tracks are
-  // the bright ones, or the whole map reads solid white.
-  const yardTrack=t.id&&t.id[0]!=='#';
-  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='${yardTrack?'#b8bdd1':'#565b73'}' stroke-width='${yardTrack?2:1.4}' stroke-linecap='round'>${t.id?`<title>${esc(trackDisp(t.id))}</title>`:''}</polyline>`}
+ for(const c of railsGeo.corridors){
+  const a=rxy(c[0],c[1]),b=rxy(c[2],c[3]);
+  const n=Math.min(RAIL_MAXFAN,c[4]||1);
+  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
+  const ox=-dy/L,oy=dx/L;
+  const col=n>1?'#dfe3f0':'#7d8399';
+  for(let i=0;i<n;i++){
+   const o=(i-(n-1)/2)*RAIL_FAN;
+   h+=`<line x1='${(a[0]+ox*o).toFixed(1)}' y1='${(a[1]+oy*o).toFixed(1)}' x2='${(b[0]+ox*o).toFixed(1)}' y2='${(b[1]+oy*o).toFixed(1)}' stroke='${col}' stroke-width='2.1' stroke-linecap='round'/>`}}
  for(const j of (railsGeo.junctions||[])){
-  const q=rxy(j.x,j.z);
-  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3' fill='#8b5f5f'/>`}
+  const q=rxy(j[0],j[1]);
+  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4' fill='#8b5f5f'/>`}
+ // Yards are bubbles: the rails run in and stop, everything inside is the yard view.
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
   h+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
-   <rect x='${(q[0]-24).toFixed(1)}' y='${(q[1]-36).toFixed(1)}' width='48' height='22' rx='3' fill='${SC[s.id]||'#4a4e60'}'/>
-   <text x='${q[0].toFixed(1)}' y='${(q[1]-20).toFixed(1)}' text-anchor='middle' font-size='13' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
-   <title>open the ${esc(s.id)} yard</title></g>`}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='30' fill='${SC[s.id]||'#4a4e60'}' stroke='#12141f' stroke-width='3'/>
+   <text x='${q[0].toFixed(1)}' y='${(q[1]+6).toFixed(1)}' text-anchor='middle' font-size='16' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
+   <title>${esc(s.id)}: open the yard view</title></g>`}
  g.innerHTML=h}
 function renderRailsDyn(){
  const g=$('railsDyn');if(!g)return;
  const tr=lastTraffic;
  if(!tr||!railsGeo){g.innerHTML='';return}
  let h='';
- const occ=new Set(tr.occupied||[]);
- for(const t of railsGeo.tracks){
-  if(!t.id||!occ.has(t.id))continue;
-  const p=[];
-  for(let i=0;i<t.pts.length;i+=2){const q=rxy(t.pts[i],t.pts[i+1]);p.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
-  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='#7a4a46' stroke-width='2.6' stroke-linecap='round'/>`}
+ // A consist is drawn car by car at true length, so a train reads as a train.
  for(const c of (tr.consists||[])){
   const a=rxy(c.x1,c.z1),b=rxy(c.x2,c.z2);
-  if(Math.abs(a[0]-b[0])<2&&Math.abs(a[1]-b[1])<2)b[0]=a[0]+3;
+  const n=Math.max(1,c.n||1);
   const col=c.jobId?'#e09b95':(c.loco?'#8fb8e0':'#9397ab');
-  h+=`<line x1='${a[0].toFixed(1)}' y1='${a[1].toFixed(1)}' x2='${b[0].toFixed(1)}' y2='${b[1].toFixed(1)}' stroke='${col}' stroke-width='5' stroke-linecap='round' opacity='0.95'>
-   <title>${c.n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`;
+  const dx=(b[0]-a[0])/n,dy=(b[1]-a[1])/n;
+  const short=Math.hypot(b[0]-a[0],b[1]-a[1])<4;
+  if(short){
+   h+=`<circle cx='${a[0].toFixed(1)}' cy='${a[1].toFixed(1)}' r='4' fill='${col}'><title>${n} car(s)</title></circle>`}
+  else for(let i=0;i<n;i++){
+   const x1=a[0]+dx*i,y1=a[1]+dy*i,x2=a[0]+dx*(i+0.82),y2=a[1]+dy*(i+0.82);
+   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='6.5' stroke-linecap='butt'>
+    <title>${n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`}
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
-   h+=`<text x='${((a[0]+b[0])/2).toFixed(1)}' y='${((a[1]+b[1])/2-8).toFixed(1)}' text-anchor='middle' font-size='11' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
+   h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
  g.innerHTML=h}
 function applyRailsVB(){if(railsVB)$('railsSvg').setAttribute('viewBox',railsVB.map(v=>v.toFixed(1)).join(' '))}
 // ── dispatch log ─────────────────────────────────────────────────────────
@@ -1486,7 +1504,9 @@ document.addEventListener('keydown',e=>{
  const t=e.target;
  if(t&&(t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA'))return;
  if(lens==='logi'&&surface==='yard')backToMap()});
-// Rails pan and zoom: viewBox math only, the drawing never rebuilds.
+// The Rails map moves ONLY when the dispatcher drags it: no zoom control, no
+// auto-pan, no click-to-centre. The scale is fixed, so panning is 1:1 with the
+// mouse and the drawing never rebuilds, only the viewBox origin moves.
 (function(){
  const svg=$('railsSvg');if(!svg)return;
  let panning=false,px=0,py=0,moved=0;
@@ -1494,23 +1514,18 @@ document.addEventListener('keydown',e=>{
  window.addEventListener('mouseup',()=>{panning=false;svg.style.cursor='grab'});
  window.addEventListener('mousemove',e=>{
   if(!panning||!railsVB)return;
-  const r=svg.getBoundingClientRect();
-  railsVB[0]-=(e.clientX-px)*railsVB[2]/r.width;
-  railsVB[1]-=(e.clientY-py)*railsVB[3]/r.height;
+  railsVB[0]-=(e.clientX-px);
+  railsVB[1]-=(e.clientY-py);
   moved+=Math.abs(e.clientX-px)+Math.abs(e.clientY-py);
-  px=e.clientX;py=e.clientY;applyRailsVB()});
- // A drag must not fire the station click underneath it.
- svg.addEventListener('click',e=>{if(moved>6){e.stopPropagation();e.preventDefault()}},true);
- svg.addEventListener('wheel',e=>{
-  if(!railsVB)return;e.preventDefault();
-  const f=e.deltaY>0?1.25:0.8;
-  const r=svg.getBoundingClientRect();
-  const mx=railsVB[0]+(e.clientX-r.left)/r.width*railsVB[2];
-  const my=railsVB[1]+(e.clientY-r.top)/r.height*railsVB[3];
-  railsVB[2]*=f;railsVB[3]*=f;
-  railsVB[0]=mx-(mx-railsVB[0])*f;
-  railsVB[1]=my-(my-railsVB[1])*f;
-  applyRailsVB()},{passive:false});
+  px=e.clientX;py=e.clientY;clampRails();applyRailsVB()});
+ // A drag must not fire the station bubble underneath it; the distance clears on
+ // use so a later plain click is never swallowed by an older drag.
+ svg.addEventListener('click',e=>{
+  if(moved>6){moved=0;e.stopPropagation();e.preventDefault()}},true);
+ window.addEventListener('resize',()=>{
+  if(!railsVB)return;
+  const [vw,vh]=railsViewport();
+  railsVB[2]=vw;railsVB[3]=vh;clampRails();applyRailsVB()});
 })();
 syncDock();
 refresh();setInterval(refresh,5000);
