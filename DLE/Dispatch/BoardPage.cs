@@ -507,12 +507,18 @@ function restoreCrew(s){for(const id in s.m){const i=$(id);if(i&&!i.value)i.valu
 function keepSelect(sel,items){const cur=sel.value;
  sel.innerHTML=items.map(v=>`<option value='${esc(v)}'>${esc(disp(v))}</option>`).join('');
  if([...sel.options].some(o=>o.value===cur))sel.value=cur}
+let crewTick=0,lastCrews=[];
 async function refresh(){
  let state,jobs,econ,hist,crews;
+ // Crew names change on join and leave only; poll them every 6th cycle (30s)
+ // instead of every 5s. The roster was the priciest thing the board asked for.
+ const wantCrews=(crewTick++%6)===0;
  try{[state,options,jobs,econ,hist,crews]=await Promise.all([
-  jget('/api/v1/state'),jget('/api/v1/options'),jget('/api/v1/jobs'),jget('/api/v1/economy'),jget('/api/v1/history?limit=60'),jget('/api/v1/players')]);
+  jget('/api/v1/state'),jget('/api/v1/options'),jget('/api/v1/jobs'),jget('/api/v1/economy'),jget('/api/v1/history?limit=60'),
+  wantCrews?jget('/api/v1/players'):Promise.resolve(lastCrews)]);
   $('dot').className='dot'}
  catch(e){$('dot').className='dot bad';return}
+ lastCrews=crews||[];
  lastJobs=jobs;
  const cKey=JSON.stringify(crews||[]);
  if(last.crews!==cKey){last.crews=cKey;

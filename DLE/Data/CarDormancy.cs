@@ -548,11 +548,14 @@ namespace DLE.Data
             catch { }
             try
             {
-                // The scene scan is the expensive part (the lag meter caught it on the
-                // roster endpoint); avatars change only on join and leave, so cache the
-                // component refs briefly and rescan early if any died.
+                // The scene scan is the expensive part (~80ms with a full car world);
+                // avatars change only on join and leave, so rescan when the MPAPI
+                // roster changes or a cached component died, with a slow safety rescan.
                 var now = Time.realtimeSinceStartup;
-                bool refresh = _avatarCache == null || now - _avatarCacheAt > 15f;
+                string rosterKey = null;
+                try { var mp = Dispatch.DispatchFax.MpApiPlayerNames(); if (mp != null) rosterKey = string.Join("|", mp); } catch { }
+                bool refresh = _avatarCache == null || now - _avatarCacheAt > 120f
+                    || (rosterKey != null && rosterKey != _avatarRosterKey);
                 if (!refresh)
                     foreach (var c in _avatarCache) if (c == null) { refresh = true; break; }
                 if (refresh)
@@ -564,6 +567,7 @@ namespace DLE.Data
                         ? Array.Empty<Component>()
                         : UnityEngine.Object.FindObjectsOfType(type).OfType<Component>().ToArray();
                     _avatarCacheAt = now;
+                    _avatarRosterKey = rosterKey;
                 }
                 foreach (var comp in _avatarCache)
                     if (comp != null) list.Add(comp.transform.position);
@@ -575,6 +579,7 @@ namespace DLE.Data
         private static Type _networkedPlayerType;
         private static Component[] _avatarCache;
         private static float _avatarCacheAt = -999f;
+        private static string _avatarRosterKey;
         private static bool _mpSendFailed;
         private static bool _mpSendArmed;
         private static readonly HashSet<int> _deferLogged = new HashSet<int>();

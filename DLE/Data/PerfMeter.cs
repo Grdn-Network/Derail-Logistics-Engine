@@ -149,7 +149,7 @@ namespace DLE.Data
             {
                 sb.AppendLine("[Lag] board handler time this session (main thread):");
                 foreach (var kv in _reqMs.OrderByDescending(kv => kv.Value).Take(8))
-                    sb.AppendLine($"[Lag]   {kv.Key}: {kv.Value}ms over {_reqN[kv.Key]} request(s)");
+                    sb.AppendLine($"[Lag]   {kv.Key}: {kv.Value}ms TOTAL over {_reqN[kv.Key]} request(s), avg {(kv.Value / (float)Math.Max(1, _reqN[kv.Key])):0.0}ms each");
             }
             return sb.ToString().TrimEnd();
         }
