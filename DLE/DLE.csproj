@@ -102,6 +102,10 @@
       <HintPath>lib\DV.Localization.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="BezierCurves">
+      <HintPath>lib\BezierCurves.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="DV.RailTrack">
       <HintPath>lib\DV.RailTrack.dll</HintPath>
       <Private>False</Private>

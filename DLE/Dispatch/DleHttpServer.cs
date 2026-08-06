@@ -343,6 +343,15 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/players") { Json(ctx, 200, DispatchFax.GetPlayerNames()); return; }
+                if (method == "GET" && path == "/api/v1/trackmap")
+                {
+                    // Pre-serialized and memoized per world inside TrackMap; the bytes
+                    // go out directly so the big payload never re-serializes.
+                    ctx.RespStatus = 200; ctx.RespType = "application/json";
+                    ctx.RespBytes = TrackMap.GeometryBytes();
+                    return;
+                }
+                if (method == "GET" && path == "/api/v1/traffic") { Json(ctx, 200, TrackMap.TrafficPayload()); return; }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -1495,7 +1504,7 @@ namespace DLE.Dispatch
         }
 
         private static readonly HashSet<string> CacheablePaths = new HashSet<string>(StringComparer.Ordinal)
-        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players" };
+        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players", "/api/v1/traffic" };
         private static readonly Dictionary<string, (float at, byte[] bytes)> _payloadCache =
             new Dictionary<string, (float, byte[])>(StringComparer.Ordinal);
 
