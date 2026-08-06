@@ -125,6 +125,10 @@ namespace DLE.Dispatch
                 js.Add(new[] { (float)Math.Round(p.x, 1), (float)Math.Round(p.z, 1) });
             }
 
+            // Signals hang off the same non-yard junctions this map draws.
+            try { Interlocking.Build(stPos, YardRadius); }
+            catch (Exception ex) { Main.LogAlways($"[Interlocking] build failed: {ex.GetType().Name}: {ex.Message}"); }
+
             var payload = new
             {
                 hash,

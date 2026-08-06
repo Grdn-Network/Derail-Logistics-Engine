@@ -352,6 +352,30 @@ namespace DLE.Dispatch
                     return;
                 }
                 if (method == "GET" && path == "/api/v1/traffic") { Json(ctx, 200, TrackMap.TrafficPayload()); return; }
+                if (method == "GET" && path == "/api/v1/interlocking") { Json(ctx, 200, Interlocking.Payload()); return; }
+                // Switches and signals: host-side only, and a throw rides the game's own
+                // Junction.Switch event, which the Multiplayer mod already broadcasts.
+                if (method == "POST" && path.StartsWith("/api/v1/junctions/", StringComparison.Ordinal)
+                    && path.EndsWith("/throw", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var seg = path.Split('/');
+                    if (seg.Length < 5 || !int.TryParse(seg[4], out var jid)) { Json(ctx, 400, new { error = "bad switch id" }); return; }
+                    var (jok, jmsg) = Interlocking.Throw(jid);
+                    Json(ctx, jok ? 200 : 409, new { ok = jok, message = jmsg });
+                    return;
+                }
+                if (method == "POST" && path.StartsWith("/api/v1/signals/", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var seg = path.Split('/');
+                    if (seg.Length < 6 || !int.TryParse(seg[4], out var sid)) { Json(ctx, 400, new { error = "bad signal id" }); return; }
+                    var (sok, smsg) = seg[5] == "clear" ? Interlocking.Clear(sid)
+                        : seg[5] == "cancel" ? Interlocking.Cancel(sid)
+                        : (false, "unknown signal action");
+                    Json(ctx, sok ? 200 : 409, new { ok = sok, message = smsg });
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -1504,7 +1528,7 @@ namespace DLE.Dispatch
         }
 
         private static readonly HashSet<string> CacheablePaths = new HashSet<string>(StringComparer.Ordinal)
-        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players", "/api/v1/traffic" };
+        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players", "/api/v1/traffic", "/api/v1/interlocking" };
         private static readonly Dictionary<string, (float at, byte[] bytes)> _payloadCache =
             new Dictionary<string, (float, byte[])>(StringComparer.Ordinal);
 
