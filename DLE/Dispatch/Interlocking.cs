@@ -47,12 +47,13 @@ namespace DLE.Dispatch
         private static readonly Dictionary<string, Route> _routes = new Dictionary<string, Route>(StringComparer.Ordinal);
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
+        private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static string _builtHash;
 
         public static void Reset()
         {
             _signals.Clear(); _byEnd.Clear(); _routes.Clear();
-            _jIds.Clear(); _junctions.Clear(); _builtHash = null;
+            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _builtHash = null;
         }
 
         private static string EndKey(RailTrack t, bool first) => t.GetInstanceID() + (first ? ":0" : ":1");
@@ -90,6 +91,9 @@ namespace DLE.Dispatch
             {
                 var j = all[i];
                 if (j == null) continue;
+                // Yard junctions keep their number, since a road can still run through
+                // one, but they are not drawn: their station's own view owns them.
+                if (InYard(j.position)) _inYard.Add(_junctions.Count);
                 _jIds[j] = _junctions.Count;
                 _junctions.Add(j);
             }
@@ -136,11 +140,20 @@ namespace DLE.Dispatch
             {
                 live.TryGetValue(s.Id, out var now);
                 var info = now ?? s.Info;
+                int sside = 0; float sdx = 1f, sdz = 0f;
+                if (s.Approach != null)
+                {
+                    sside = TrackMap.SideOfTrack(info.TrackId ?? s.Info.TrackId);
+                    Heading(s.Approach, !s.TowardOut, out sdx, out sdz);
+                }
                 sigs.Add(new
                 {
                     id = s.Id,
                     x = info.X,
                     z = info.Z,
+                    side = sside,
+                    dx = (float)Math.Round(sdx, 3),
+                    dz = (float)Math.Round(sdz, 3),
                     aspect = info.Aspect,
                     on = info.IsOn,
                     manual = info.Manual,
@@ -155,8 +168,17 @@ namespace DLE.Dispatch
             for (int i = 0; i < _junctions.Count; i++)
             {
                 var j = _junctions[i];
-                if (j == null) continue;
+                if (j == null || _inYard.Contains(i)) continue;
                 var p = j.position - move;
+                // Stand the mark on the same side its rail is drawn, or a crossover puts
+                // two switches on one spot between the tracks.
+                var approach = j.inBranch?.track;
+                int side = 0; float dx = 1f, dz = 0f;
+                if (approach != null)
+                {
+                    side = TrackMap.SideOfTrack(TrackIdOf(approach));
+                    Heading(approach, j.inBranch.first, out dx, out dz);
+                }
                 jn.Add(new
                 {
                     id = i,
@@ -165,6 +187,9 @@ namespace DLE.Dispatch
                     branch = (int)j.selectedBranch,
                     branches = j.outBranches?.Count ?? 0,
                     locked = locked.Contains(i),
+                    side,
+                    dx = (float)Math.Round(dx, 3),
+                    dz = (float)Math.Round(dz, 3),
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
@@ -290,6 +315,37 @@ namespace DLE.Dispatch
                     Main.Log($"[Interlocking] road off {id} released; the train is through.");
                 }
             }
+        }
+
+        /// <summary>The rail's id as the map keys it, for the fan-side lookup.</summary>
+        private static string TrackIdOf(RailTrack t)
+        {
+            try
+            {
+                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
+                    if (ReferenceEquals(kv.Value, t)) return kv.Key?.ID?.FullDisplayID;
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>Unit heading of a rail at the end in question, so a mark standing on
+        /// it can be pushed square to the way it runs.</summary>
+        private static void Heading(RailTrack t, bool atFirstEnd, out float dx, out float dz)
+        {
+            dx = 1f; dz = 0f;
+            try
+            {
+                var c = t.curve;
+                int n = c.pointCount;
+                if (n < 2) return;
+                var a = atFirstEnd ? c[0].position : c[n - 2].position;
+                var b = atFirstEnd ? c[1].position : c[n - 1].position;
+                float ex = b.x - a.x, ez = b.z - a.z;
+                float len = Mathf.Sqrt(ex * ex + ez * ez);
+                if (len > 0.001f) { dx = ex / len; dz = ez / len; }
+            }
+            catch { }
         }
 
         private static HashSet<RailTrack> OccupiedTracks()
