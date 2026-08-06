@@ -584,6 +584,34 @@ namespace DLE.Data
                 yield return new WaitForSeconds(0.5f);
             }
 
+            // Respawn is the fleet reset, and stored cars are part of the fleet (owner
+            // ruling): the dormant ledger wipes first, so the repack starts from a clean
+            // slate and fills to the cap. Cars a booklet has reserved keep their records
+            // (deleting them would break the haul); everything the sweep re-despawns
+            // afterwards gets a fresh, clean capture, which also heals any legacy record.
+            if (_dormant.Count > 0)
+            {
+                var keep = new HashSet<string>(StringComparer.Ordinal);
+                try
+                {
+                    foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                        if (kv.Value?.reservedCarIds != null)
+                            foreach (var rid in kv.Value.reservedCarIds) keep.Add(rid);
+                }
+                catch { }
+                int wiped = 0, kept = 0;
+                foreach (var r in _dormant.Values.ToList())
+                {
+                    if (r.Id != null && keep.Contains(r.Id)) { kept++; continue; }
+                    try { DV.Utils.SingletonBehaviour<DV.Logic.Job.IdGenerator>.Instance.UnReserveCarId(r.Id); } catch { }
+                    _dormant.Remove(r.Guid);
+                    _guids.Remove(r.Guid);
+                    wiped++;
+                }
+                if (wiped > 0)
+                    Main.LogAlways($"[CarPool] respawn cleared {wiped} stored car(s) for a fresh fleet{(kept > 0 ? $"; {kept} kept (booked by hauls)" : "")}; far cars go back to sleep on the next sweeps.");
+            }
+
             // Guids of cars that died since load (any cause) otherwise count against the
             // cap and shrink the repack by exactly that many phantom cars.
             PruneDeadGuids();
