@@ -260,6 +260,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
  <div class='brand'>DLE</div>
  <div class='tbdiv'></div>
  <span class='tab on' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
+ <span class='tab' id='tabRails' data-act='lens' data-id='rails'>Rails</span>
  <span class='tab' id='tabFleet' data-act='lens' data-id='fleet'>Fleet</span>
  <span class='tab' id='tabLog' data-act='lens' data-id='log'>Log</span>
  <div class='spacer'></div>
@@ -307,6 +308,21 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <span><i style='background:#16233a;border-color:#39597f'></i>power</span>
     <span class='spacer'></span><span id='jmSel' class='meta'></span></div>
    <div id='strip'></div>
+  </div>
+  <div class='surf' id='surfRails'>
+   <div style='flex:1;position:relative;overflow:hidden;background:#101220'>
+    <svg id='railsSvg' style='position:absolute;inset:0;width:100%;height:100%;cursor:grab'>
+     <g id='railsStatic'></g><g id='railsDyn'></g>
+    </svg>
+    <div class='maplegend'>
+     <span class='k'>Rails</span>
+     <span><i style='background:#b8bdd1'></i>yard track</span>
+     <span><i style='background:#565b73'></i>open rail</span>
+     <span><i style='background:#7a4a46'></i>occupied</span>
+     <span><i style='background:#e09b95;height:4px'></i>consist on a job</span>
+     <span class='k' style='letter-spacing:.06em'>drag to pan · wheel to zoom · click a station chip for its yard</span>
+    </div>
+   </div>
   </div>
   <div class='surf' id='surfFleet'>
    <div class='surfpad'>
@@ -480,13 +496,16 @@ function unpaidPill(x){
 // ── lens / surface switching: Lens > Surface > Inspector, one back ───────
 function setLens(l){lens=l;
  $('tabLogi').classList.toggle('on',l==='logi');
+ $('tabRails').classList.toggle('on',l==='rails');
  $('tabFleet').classList.toggle('on',l==='fleet');
  $('tabLog').classList.toggle('on',l==='log');
  $('surfMap').classList.toggle('on',l==='logi'&&surface==='map');
  $('surfYard').classList.toggle('on',l==='logi'&&surface==='yard');
+ $('surfRails').classList.toggle('on',l==='rails');
  $('surfFleet').classList.toggle('on',l==='fleet');
  $('surfLog').classList.toggle('on',l==='log');
  $('dock').classList.toggle('hidden',l!=='logi');
+ if(l==='rails')loadRails();
  syncDock()}
 function setSurface(s){surface=s;setLens('logi');
  if(s==='yard')pollYard(true)}
@@ -565,6 +584,9 @@ async function refresh(){
  pollYard();
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
+ if(lens==='rails'&&railsGeo){
+  try{lastTraffic=await jget('/api/v1/traffic')}catch(e){}
+  renderRailsDyn()}
 }
 // ── haul lane: the whole board in one strip, filter chips included ───────
 function laneCard(x){
@@ -779,6 +801,66 @@ function drawNet(){
  svg.innerHTML=h;
  if(dockMode==='station')renderDockStation();
 }
+// ── the Rails map (#131 first pass): the real railway, read-only ─────────
+// Geometry loads once per session (the server memoizes it per world); traffic
+// rides the 5s refresh while the lens is open. World x,z map to SVG with north
+// up; RS is the uniform scale, so distances stay honest.
+let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,railsLoading=false;
+const RW=2400;
+function rxy(x,z){return [(x-railsB.minX)*railsB.s,(railsB.maxZ-z)*railsB.s]}
+async function loadRails(){
+ if(railsGeo||railsLoading)return;
+ railsLoading=true;
+ try{const g=await jget('/api/v1/trackmap');
+  if(!g||!g.tracks||!g.tracks.length){toast('track map is empty; is the world loaded?',true);return}
+  let minX=1e12,maxX=-1e12,minZ=1e12,maxZ=-1e12;
+  for(const t of g.tracks)for(let i=0;i<t.pts.length;i+=2){
+   const x=t.pts[i],z=t.pts[i+1];
+   if(x<minX)minX=x;if(x>maxX)maxX=x;if(z<minZ)minZ=z;if(z>maxZ)maxZ=z}
+  const s=RW/Math.max(1,maxX-minX);
+  railsGeo=g;railsB={minX,maxX,minZ,maxZ,s};
+  railsVB=[0,0,RW,Math.max(1,(maxZ-minZ)*s)];
+  applyRailsVB();renderRailsStatic();renderRailsDyn()}
+ catch(e){toast('track map failed to load',true)}
+ finally{railsLoading=false}}
+function renderRailsStatic(){
+ const g=$('railsStatic');if(!g||!railsGeo)return;
+ let h='';
+ for(const t of railsGeo.tracks){
+  const p=[];
+  for(let i=0;i<t.pts.length;i+=2){const q=rxy(t.pts[i],t.pts[i+1]);p.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
+  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='${t.id?'#b8bdd1':'#565b73'}' stroke-width='${t.id?2:1.4}' stroke-linecap='round'>${t.id?`<title>${esc(trackDisp(t.id))}</title>`:''}</polyline>`}
+ for(const j of (railsGeo.junctions||[])){
+  const q=rxy(j.x,j.z);
+  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3' fill='#8b5f5f'/>`}
+ for(const s of (railsGeo.stations||[])){
+  const q=rxy(s.x,s.z);
+  h+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
+   <rect x='${(q[0]-24).toFixed(1)}' y='${(q[1]-36).toFixed(1)}' width='48' height='22' rx='3' fill='${SC[s.id]||'#4a4e60'}'/>
+   <text x='${q[0].toFixed(1)}' y='${(q[1]-20).toFixed(1)}' text-anchor='middle' font-size='13' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
+   <title>open the ${esc(s.id)} yard</title></g>`}
+ g.innerHTML=h}
+function renderRailsDyn(){
+ const g=$('railsDyn');if(!g)return;
+ const tr=lastTraffic;
+ if(!tr||!railsGeo){g.innerHTML='';return}
+ let h='';
+ const occ=new Set(tr.occupied||[]);
+ for(const t of railsGeo.tracks){
+  if(!t.id||!occ.has(t.id))continue;
+  const p=[];
+  for(let i=0;i<t.pts.length;i+=2){const q=rxy(t.pts[i],t.pts[i+1]);p.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
+  h+=`<polyline points='${p.join(' ')}' fill='none' stroke='#7a4a46' stroke-width='2.6' stroke-linecap='round'/>`}
+ for(const c of (tr.consists||[])){
+  const a=rxy(c.x1,c.z1),b=rxy(c.x2,c.z2);
+  if(Math.abs(a[0]-b[0])<2&&Math.abs(a[1]-b[1])<2)b[0]=a[0]+3;
+  const col=c.jobId?'#e09b95':(c.loco?'#8fb8e0':'#9397ab');
+  h+=`<line x1='${a[0].toFixed(1)}' y1='${a[1].toFixed(1)}' x2='${b[0].toFixed(1)}' y2='${b[1].toFixed(1)}' stroke='${col}' stroke-width='5' stroke-linecap='round' opacity='0.95'>
+   <title>${c.n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`;
+  if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
+   h+=`<text x='${((a[0]+b[0])/2).toFixed(1)}' y='${((a[1]+b[1])/2-8).toFixed(1)}' text-anchor='middle' font-size='11' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
+ g.innerHTML=h}
+function applyRailsVB(){if(railsVB)$('railsSvg').setAttribute('viewBox',railsVB.map(v=>v.toFixed(1)).join(' '))}
 // ── dispatch log ─────────────────────────────────────────────────────────
 let lastHist=[];
 function renderLog(hist){
@@ -1401,6 +1483,32 @@ document.addEventListener('keydown',e=>{
  const t=e.target;
  if(t&&(t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA'))return;
  if(lens==='logi'&&surface==='yard')backToMap()});
+// Rails pan and zoom: viewBox math only, the drawing never rebuilds.
+(function(){
+ const svg=$('railsSvg');if(!svg)return;
+ let panning=false,px=0,py=0,moved=0;
+ svg.addEventListener('mousedown',e=>{panning=true;moved=0;px=e.clientX;py=e.clientY;svg.style.cursor='grabbing'});
+ window.addEventListener('mouseup',()=>{panning=false;svg.style.cursor='grab'});
+ window.addEventListener('mousemove',e=>{
+  if(!panning||!railsVB)return;
+  const r=svg.getBoundingClientRect();
+  railsVB[0]-=(e.clientX-px)*railsVB[2]/r.width;
+  railsVB[1]-=(e.clientY-py)*railsVB[3]/r.height;
+  moved+=Math.abs(e.clientX-px)+Math.abs(e.clientY-py);
+  px=e.clientX;py=e.clientY;applyRailsVB()});
+ // A drag must not fire the station click underneath it.
+ svg.addEventListener('click',e=>{if(moved>6){e.stopPropagation();e.preventDefault()}},true);
+ svg.addEventListener('wheel',e=>{
+  if(!railsVB)return;e.preventDefault();
+  const f=e.deltaY>0?1.25:0.8;
+  const r=svg.getBoundingClientRect();
+  const mx=railsVB[0]+(e.clientX-r.left)/r.width*railsVB[2];
+  const my=railsVB[1]+(e.clientY-r.top)/r.height*railsVB[3];
+  railsVB[2]*=f;railsVB[3]*=f;
+  railsVB[0]=mx-(mx-railsVB[0])*f;
+  railsVB[1]=my-(my-railsVB[1])*f;
+  applyRailsVB()},{passive:false});
+})();
 syncDock();
 refresh();setInterval(refresh,5000);
 </script></body></html>
