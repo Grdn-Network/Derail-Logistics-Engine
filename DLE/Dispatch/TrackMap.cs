@@ -17,9 +17,9 @@ namespace DLE.Dispatch
     /// </summary>
     internal static class TrackMap
     {
-        private const float YardRadius = 340f;    // inside this, the yard owns the picture
-        private const float MergeCell = 22f;      // parallel-rail clustering cell, metres
-        private const float JunctionCell = 45f;   // junction thinning cell, metres
+        private const float YardRadius = 500f;    // inside this, the yard owns the picture
+        private const float ThinMeters = 10f;     // drop points closer than this together
+        private const float JunctionCell = 60f;   // junction thinning cell, metres
 
         private static byte[] _geometryBytes;
         private static string _geometryHash;
@@ -63,69 +63,45 @@ namespace DLE.Dispatch
 
             // Only open rail is drawn on the network view (owner ruling): yard interiors
             // belong to the station's own view, so the approach rails just run into the
-            // bubble and stop. Parallel rails sit ~4m apart, which is about one pixel at
-            // any scale a dispatcher can use, so they are merged here into CORRIDORS
-            // carrying a track count and fanned apart on screen instead.
-            var corrA = new List<Vector2>();
-            var corrB = new List<Vector2>();
-            var corrN = new List<int>();
-            var index = new Dictionary<string, int>(StringComparer.Ordinal);
+            // bubble and stop. The rails go out as their REAL polylines. An earlier build
+            // tried merging parallel rails into fanned corridors and it drew combs: the
+            // clustering counted sequential pieces of one track as parallel neighbours,
+            // so a single curve claimed fifteen tracks. Real geometry, drawn heavy, reads
+            // better than any synthetic spreading.
+            var lines = new List<float[]>();
             float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+            var run = new List<float>();
+            void Flush()
+            {
+                if (run.Count >= 4) lines.Add(run.ToArray());
+                run.Clear();
+            }
             foreach (var rt in SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks)
             {
                 if (rt == null || rt.curve == null || rt.curve.pointCount < 2) continue;
                 if (names.TryGetValue(rt, out var id) && id != null && id.Length > 0 && id[0] != '#')
                     continue; // named track = yard interior
-                Vector2? prev = null;
+                run.Clear();
+                float lx = 0f, lz = 0f; bool have = false;
                 for (int i = 0; i < rt.curve.pointCount; i++)
                 {
                     var bp = rt.curve[i];
                     if (bp == null) continue;
                     var p = bp.position - move;
-                    var cur = new Vector2(p.x, p.z);
-                    if (prev.HasValue)
-                    {
-                        var a = prev.Value; var b = cur;
-                        if ((a - b).sqrMagnitude > 1f && !(InYard(a.x, a.y) && InYard(b.x, b.y)))
-                        {
-                            var mid = (a + b) * 0.5f;
-                            float ang = Mathf.Atan2(b.y - a.y, b.x - a.x) * Mathf.Rad2Deg;
-                            int ab = (int)(((ang % 180f) + 180f) % 180f / 20f);
-                            int cx = Mathf.FloorToInt(mid.x / MergeCell), cz = Mathf.FloorToInt(mid.y / MergeCell);
-                            int hit = -1;
-                            for (int dx = -1; dx <= 1 && hit < 0; dx++)
-                                for (int dz = -1; dz <= 1 && hit < 0; dz++)
-                                    for (int da = -1; da <= 1 && hit < 0; da++)
-                                    {
-                                        var k = (cx + dx) + ":" + (cz + dz) + ":" + (((ab + da) % 9) + 9) % 9;
-                                        if (index.TryGetValue(k, out var at)) hit = at;
-                                    }
-                            if (hit >= 0) corrN[hit]++;
-                            else
-                            {
-                                index[cx + ":" + cz + ":" + ab] = corrA.Count;
-                                corrA.Add(a); corrB.Add(b); corrN.Add(1);
-                            }
-                            foreach (var q in new[] { a, b })
-                            {
-                                if (q.x < minX) minX = q.x;
-                                if (q.x > maxX) maxX = q.x;
-                                if (q.y < minZ) minZ = q.y;
-                                if (q.y > maxZ) maxZ = q.y;
-                            }
-                        }
-                    }
-                    prev = cur;
+                    if (InYard(p.x, p.z)) { Flush(); have = false; continue; }
+                    // Thin the jitter: anything inside ThinMeters of the last kept point
+                    // adds noise and payload without changing the drawn shape.
+                    if (have && (p.x - lx) * (p.x - lx) + (p.z - lz) * (p.z - lz) < ThinMeters * ThinMeters) continue;
+                    run.Add((float)Math.Round(p.x, 1));
+                    run.Add((float)Math.Round(p.z, 1));
+                    lx = p.x; lz = p.z; have = true;
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.z < minZ) minZ = p.z;
+                    if (p.z > maxZ) maxZ = p.z;
                 }
+                Flush();
             }
-            var corridors = new List<float[]>(corrA.Count);
-            for (int i = 0; i < corrA.Count; i++)
-                corridors.Add(new[]
-                {
-                    (float)Math.Round(corrA[i].x, 1), (float)Math.Round(corrA[i].y, 1),
-                    (float)Math.Round(corrB[i].x, 1), (float)Math.Round(corrB[i].y, 1),
-                    corrN[i]
-                });
 
             // Junctions live under the same track root dv-mp indexes them from; one
             // scan at map build, refs kept for the live state reads.
@@ -152,16 +128,15 @@ namespace DLE.Dispatch
             var payload = new
             {
                 hash,
-                corridors,
+                lines,
                 junctions = js,
                 stations,
                 bounds = new { minX, maxX, minZ, maxZ }
             };
             _geometryBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
             _geometryHash = hash;
-            int doubles = corrN.Count(n => n > 1);
-            Main.LogAlways($"[TrackMap] network built: {corridors.Count} corridor(s) ({doubles} multi-track), "
-                + $"{js.Count} junction(s), {stations.Count} station(s), {_geometryBytes.Length / 1024}KB; yard interiors excluded.");
+            Main.LogAlways($"[TrackMap] network built: {lines.Count} rail line(s), {js.Count} junction(s), "
+                + $"{stations.Count} station(s), {_geometryBytes.Length / 1024}KB; yard interiors excluded.");
             return _geometryBytes;
         }
 
