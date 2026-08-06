@@ -316,8 +316,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     </svg>
     <div class='maplegend'>
      <span class='k'>Rails</span>
-     <span><i style='background:#dfe3f0'></i>double track</span>
-     <span><i style='background:#7d8399'></i>single</span>
+     <span><i style='background:#d5dcec'></i>rail</span>
      <span><i style='background:#8b5f5f;width:8px;height:8px;border-radius:50%'></i>switch</span>
      <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
      <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
@@ -807,17 +806,18 @@ function drawNet(){
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
 let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,railsLoading=false;
-// Fixed scale, never zoomed: 5 metres a pixel puts a 25m car at 5px and a ten-car
-// train at 50px, and the sideways stretch makes the drag mostly horizontal on a wide
-// monitor. Parallel rails are 4m apart, which is under a pixel at ANY usable scale,
-// so corridors carrying two or more tracks fan apart at a fixed screen spacing.
-const RAIL_MPP=5.0,RAIL_XS=2.0,RAIL_FAN=6.0,RAIL_MAXFAN=4;
+// Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
+// putting the whole railway inside about two screens, and the sideways stretch makes
+// the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
+// with a dark casing under a bright core, so crossings read and parallel track just
+// looks like heavier line work instead of the comb an earlier fan attempt drew.
+const RAIL_MPP=7.0,RAIL_XS=2.0;
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
 async function loadRails(){
  if(railsGeo||railsLoading)return;
  railsLoading=true;
  try{const g=await jget('/api/v1/trackmap');
-  if(!g||!g.corridors||!g.corridors.length){toast('track map is empty; is the world loaded?',true);return}
+  if(!g||!g.lines||!g.lines.length){toast('track map is empty; is the world loaded?',true);return}
   railsGeo=g;railsB=g.bounds;
   railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
   railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
@@ -840,23 +840,24 @@ function clampRails(){
 function renderRailsStatic(){
  const g=$('railsStatic');if(!g||!railsGeo)return;
  let h='';
- for(const c of railsGeo.corridors){
-  const a=rxy(c[0],c[1]),b=rxy(c[2],c[3]);
-  const n=Math.min(RAIL_MAXFAN,c[4]||1);
-  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
-  const ox=-dy/L,oy=dx/L;
-  const col=n>1?'#dfe3f0':'#7d8399';
-  for(let i=0;i<n;i++){
-   const o=(i-(n-1)/2)*RAIL_FAN;
-   h+=`<line x1='${(a[0]+ox*o).toFixed(1)}' y1='${(a[1]+oy*o).toFixed(1)}' x2='${(b[0]+ox*o).toFixed(1)}' y2='${(b[1]+oy*o).toFixed(1)}' stroke='${col}' stroke-width='2.1' stroke-linecap='round'/>`}}
+ // Casing pass first, then the bright core, so every crossing reads cleanly.
+ const paths=[];
+ for(const ln of railsGeo.lines){
+  const pts=[];
+  for(let i=0;i<ln.length;i+=2){const q=rxy(ln[i],ln[i+1]);pts.push(q[0].toFixed(1)+','+q[1].toFixed(1))}
+  paths.push(pts.join(' '))}
+ for(const p of paths)
+  h+=`<polyline points='${p}' fill='none' stroke='#0d0f1a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/>`;
+ for(const p of paths)
+  h+=`<polyline points='${p}' fill='none' stroke='#d5dcec' stroke-width='4.2' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const j of (railsGeo.junctions||[])){
   const q=rxy(j[0],j[1]);
-  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4' fill='#8b5f5f'/>`}
+  h+=`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='3.4' fill='#c98f6b' stroke='#0d0f1a' stroke-width='1.4'/>`}
  // Yards are bubbles: the rails run in and stop, everything inside is the yard view.
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
   h+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='30' fill='${SC[s.id]||'#4a4e60'}' stroke='#12141f' stroke-width='3'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='30' fill='${SC[s.id]||'#4a4e60'}' stroke='#0d0f1a' stroke-width='4'/>
    <text x='${q[0].toFixed(1)}' y='${(q[1]+6).toFixed(1)}' text-anchor='middle' font-size='16' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
    <title>${esc(s.id)}: open the yard view</title></g>`}
  g.innerHTML=h}
@@ -876,7 +877,7 @@ function renderRailsDyn(){
    h+=`<circle cx='${a[0].toFixed(1)}' cy='${a[1].toFixed(1)}' r='4' fill='${col}'><title>${n} car(s)</title></circle>`}
   else for(let i=0;i<n;i++){
    const x1=a[0]+dx*i,y1=a[1]+dy*i,x2=a[0]+dx*(i+0.82),y2=a[1]+dy*(i+0.82);
-   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='6.5' stroke-linecap='butt'>
+   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='7.5' stroke-linecap='butt'>
     <title>${n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`}
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
    h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
