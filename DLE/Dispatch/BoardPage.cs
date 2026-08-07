@@ -949,7 +949,9 @@ function renderRailsDyn(){
   const leg=j&&(j.legs||[]).find(l=>l.branch===sg.leg);
   if(leg){
    const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
-   const w=walkAlong(smooth(railFan(pts,leg.side||0)),railSize(30)+sg.slot*railSize(26));
+   // Far enough out that the triangle clears the switch mark and its lock ring, so a
+   // three legged junction reads as three separate signals instead of a huddle.
+   const w=walkAlong(smooth(railFan(pts,leg.side||0)),railSize(52)+sg.slot*railSize(34));
    if(w){q=w[0];u=w[1]}}
   if(!q)q=rxy(sg.x,sg.z);
   if(sg.inbound)u=[-u[0],-u[1]];
@@ -1001,6 +1003,9 @@ function smooth(q){
 // Walk a projected line from its first point until a given number of screen pixels
 // have gone by, and report where that lands plus the way the line is running there.
 // This is how a signal keeps the same distance off its switch at any scale.
+// A leg stub is a couple of hundred metres, which is only a few pixels at map scale,
+// so a line that runs out is CARRIED ON in the direction it was going. Without that
+// every mark clamped to the end of its stub and piled back onto the switch.
 function walkAlong(q,dist){
  if(!q||q.length<2)return null;
  let run=0;
@@ -1012,7 +1017,8 @@ function walkAlong(q,dist){
   run+=L}
  const n=q.length-1;
  const dx=q[n][0]-q[n-1][0],dy=q[n][1]-q[n-1][1],L=Math.hypot(dx,dy)||1e-6;
- return [q[n],[dx/L,dy/L]]}
+ const ux=dx/L,uy=dy/L,over=dist-run;
+ return [[q[n][0]+ux*over,q[n][1]+uy*over],[ux,uy]]}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
