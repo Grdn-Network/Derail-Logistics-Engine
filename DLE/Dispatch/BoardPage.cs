@@ -882,7 +882,7 @@ function renderRailsStatic(){
   const a=ln.pts||ln,side=ln.side||0;
   const q=[];
   for(let i=0;i<a.length;i+=2)q.push(rxy(a[i],a[i+1]));
-  paths.push({d:railFan(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
+  paths.push({d:smooth(railFan(q,side)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
@@ -912,7 +912,7 @@ function renderRailsDyn(){
   for(const seg of (r.poly||[])){
    const q=[];
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
-   const d=railFan(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   const d=smooth(railFan(q,seg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // Switches: a mark you can click to throw, ringed amber while a road holds it.
  // Every leg out of a switch is drawn: the one it is set to stays solid, the others
@@ -922,8 +922,9 @@ function renderRailsDyn(){
    const q=[];
    for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
-   const d=railFan(q,leg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   const set=leg.branch===j.branch;
+   const d=smooth(railFan(q,leg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   // The trunk is leg -1 and is always connected; only the branches take turns.
+   const set=leg.branch<0||leg.branch===j.branch;
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${railSize(set?10:7)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),railSize(20));
  for(const j of jItems){
@@ -936,17 +937,30 @@ function renderRailsDyn(){
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
- const sgItems=declutter((il.signals||[]).map(sg=>({...sg,p:railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz)})),railSize(24));
- for(const sg of sgItems){
-  const q=sg.p;
+ // Every one of them stands at a junction on one of its legs, so it is drawn a fixed
+ // step up THAT leg from the switch. That is where it really is, it can never land on
+ // top of the junction's other signals, and the triangle points the way a move off it
+ // runs. The build before this slid clashing marks along the rail instead, which strung
+ // a junction's three signals out down the line like a picket fence.
+ const jById={};for(const j of (il.junctions||[]))jById[j.id]=j;
+ for(const sg of (il.signals||[])){
+  let q=null,u=[1,0];
+  const j=jById[sg.jid];
+  const leg=j&&(j.legs||[]).find(l=>l.branch===sg.leg);
+  if(leg){
+   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
+   const w=walkAlong(smooth(railFan(pts,leg.side||0)),railSize(30)+sg.slot*railSize(26));
+   if(w){q=w[0];u=w[1]}}
+  if(!q)q=rxy(sg.x,sg.z);
+  if(sg.inbound)u=[-u[0],-u[1]];
   const a=sg.aspect||'';
   const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
-  const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not matched to a track'}`;
+  const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not standing at a switch this board knows'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
    ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
-   <polygon points='${tri(q,sg.x,sg.z,sg.dx,sg.dz)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
+   <polygon points='${triAt(q,u)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -971,6 +985,34 @@ function screenDir(x,z,dx,dz){
  const a=rxy(x,z),b=rxy(x+(dx||1)*10,z+(dz||0)*10);
  let ux=b[0]-a[0],uy=b[1]-a[1];const L=Math.hypot(ux,uy)||1;
  return [ux/L,uy/L]}
+// Track geometry is sampled every ten metres or so, and at map scale that sampling
+// shows up as a shiver along every curve. One Chaikin pass rounds the corners off
+// without moving the line anywhere: the route keeps its real shape, it just stops
+// looking hand-drawn.
+function smooth(q){
+ if(!q||q.length<3)return q;
+ const o=[q[0]];
+ for(let i=0;i<q.length-1;i++){
+  const a=q[i],b=q[i+1];
+  o.push([a[0]*0.75+b[0]*0.25,a[1]*0.75+b[1]*0.25]);
+  o.push([a[0]*0.25+b[0]*0.75,a[1]*0.25+b[1]*0.75])}
+ o.push(q[q.length-1]);
+ return o}
+// Walk a projected line from its first point until a given number of screen pixels
+// have gone by, and report where that lands plus the way the line is running there.
+// This is how a signal keeps the same distance off its switch at any scale.
+function walkAlong(q,dist){
+ if(!q||q.length<2)return null;
+ let run=0;
+ for(let i=1;i<q.length;i++){
+  const dx=q[i][0]-q[i-1][0],dy=q[i][1]-q[i-1][1],L=Math.hypot(dx,dy)||1e-6;
+  if(run+L>=dist){
+   const t=(dist-run)/L;
+   return [[q[i-1][0]+dx*t,q[i-1][1]+dy*t],[dx/L,dy/L]]}
+  run+=L}
+ const n=q.length-1;
+ const dx=q[n][0]-q[n-1][0],dy=q[n][1]-q[n-1][1],L=Math.hypot(dx,dy)||1e-6;
+ return [q[n],[dx/L,dy/L]]}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -994,8 +1036,8 @@ function railPoint(x,z,side,dirX,dirZ){
 // keeping every mark visible and clickable.
 // A signal is drawn as a triangle whose apex points the way it governs, so its facing
 // reads without hovering (owner ruling, and how the reference panel does it).
-function tri(q,x,z,dx,dz){
- const [ux,uy]=screenDir(x,z,dx,dz);
+function triAt(q,u){
+ const ux=u[0],uy=u[1];
  const px=-uy,py=ux,L=railSize(19),W=railSize(12);
  return [[q[0]+ux*L,q[1]+uy*L],
          [q[0]-ux*railSize(6)+px*W,q[1]-uy*railSize(6)+py*W],

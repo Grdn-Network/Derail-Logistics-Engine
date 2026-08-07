@@ -16,8 +16,16 @@ namespace DLE.Dispatch
     /// real objects in the world that drivers read, so DLE reads them rather than
     /// inventing its own. Setting a road takes one to Manual and clears it; cancelling
     /// hands it back to that mod's automatic logic. No Signals mod means no signals here.
-    /// A through-station move needs no special case, because a throat's switches resting
-    /// in their normal position ARE the through route.
+    ///
+    /// Every signal that mod places belongs to a JUNCTION and stands on one of its legs:
+    /// the ids say so outright (W-0507-T on the trunk, W-0507:B1 and :B2 on the branches).
+    /// So a signal is anchored to the junction it guards and to the leg it stands on, and
+    /// the board draws it a fixed distance up that leg. An earlier build matched signals
+    /// to the nearest sampled curve point instead, which left a quarter of them attached
+    /// to nothing at all (127 of 473 on a live world) and, worse, let the board scatter
+    /// the survivors along the rail to keep them from overlapping: a junction's three
+    /// signals ended up strung out like a picket fence hundreds of metres from where they
+    /// really stand.
     ///
     /// Host-side only, and throwing a switch goes through the game's own Junction.Switch,
     /// which fires the Switched event that the Multiplayer mod already broadcasts, so a
@@ -28,8 +36,10 @@ namespace DLE.Dispatch
         private class Sig
         {
             public string Id;            // the Signals mod's own id
-            public RailTrack Approach;   // the track a train sits on when reading it
-            public bool TowardOut;       // the way a move off this signal travels
+            public int J = -1;           // junction index, -1 when it could not be placed
+            public int Leg = -1;         // -1 the trunk, 0..n an out branch
+            public bool Inbound = true;  // a move reads it running TOWARD the junction
+            public int Slot;             // 0, 1, 2: two signals on one leg never stack
             public SignalsLink.SignalInfo Info;
         }
 
@@ -43,27 +53,28 @@ namespace DLE.Dispatch
         }
 
         private static readonly List<Sig> _signals = new List<Sig>();
-        private static readonly Dictionary<string, Sig> _byEnd = new Dictionary<string, Sig>(StringComparer.Ordinal);
+        private static readonly Dictionary<long, Sig> _inboundAt = new Dictionary<long, Sig>();
         private static readonly Dictionary<string, Route> _routes = new Dictionary<string, Route>(StringComparer.Ordinal);
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
-        private const float StubMeters = 90f;
+        private const float StubMeters = 120f;
         private static string _builtHash;
 
-        // A signal stands beside its rail, not on the centreline, so the match allows a
-        // few metres; the cell only has to be at least that big for the 3x3 search.
-        private const float MatchCell = 30f;
-        private const float MatchRadius = 25f;
+        // A signal stands beside the junction it guards, a train length or so up its own
+        // leg; on a live world the furthest sat 54m out, so this is generous rather than
+        // tight, and the nearest junction wins anyway.
+        private const float AnchorCell = 120f;
+        private const float AnchorRadius = 150f;
 
         public static void Reset()
         {
-            _signals.Clear(); _byEnd.Clear(); _routes.Clear();
+            _signals.Clear(); _inboundAt.Clear(); _routes.Clear();
             _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _stubs.Clear(); _builtHash = null;
         }
 
-        private static string EndKey(RailTrack t, bool first) => t.GetInstanceID() + (first ? ":0" : ":1");
+        private static long LegKey(int junction, int leg) => ((long)junction << 8) ^ (uint)(leg + 8);
 
         /// <summary>
         /// Which of the Signals mod's types actually bound a block, and so belong on a
@@ -75,9 +86,22 @@ namespace DLE.Dispatch
             string.Equals(type, "Mainline", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// One scan per world: number the junctions, and hang a signal off each one's
-        /// facing approach. Junctions inside a station belong to that yard's own view,
-        /// so they get no signal here.
+        /// Which leg of its junction a signal stands on, straight off the id the Signals
+        /// mod gives it: W-0507:B1 and :B2 are the branches, everything else is the trunk.
+        /// </summary>
+        private static int LegFromId(string id)
+        {
+            int c = id.LastIndexOf(':');
+            if (c >= 0 && c + 2 < id.Length && (id[c + 1] == 'B' || id[c + 1] == 'b')
+                && int.TryParse(id.Substring(c + 2), out var b) && b >= 1)
+                return b - 1;
+            return -1;
+        }
+
+        /// <summary>
+        /// One scan per world: number the junctions, then hang every main signal off the
+        /// junction and leg it belongs to. Junctions inside a station belong to that
+        /// yard's own view, so they are numbered but not drawn.
         /// </summary>
         public static void Build(IReadOnlyList<Vector2> stationPositions, float yardRadius)
         {
@@ -104,74 +128,48 @@ namespace DLE.Dispatch
                 }
                 return false;
             }
-            bool InYard(Vector3 world)
-            {
-                var p = world - move;
-                foreach (var s in stationPositions)
-                {
-                    float dx = p.x - s.x, dz = p.z - s.y;
-                    if (dx * dx + dz * dz < yardRadius * yardRadius) return true;
-                }
-                return false;
-            }
 
+            var jgrid = new Dictionary<long, List<int>>();
+            long GKey(float x, float z) =>
+                ((long)Mathf.FloorToInt(x / AnchorCell) << 32) ^ (uint)Mathf.FloorToInt(z / AnchorCell);
             for (int i = 0; i < all.Length; i++)
             {
                 var j = all[i];
                 if (j == null) continue;
+                var p = j.position - move;
                 // Yard junctions keep their number, since a road can still run through
                 // one, but they are not drawn: their station's own view owns them.
-                if (InYard(j.position)) _inYard.Add(_junctions.Count);
+                if (InYardShifted(p.x, p.z)) _inYard.Add(_junctions.Count);
+                var key = GKey(p.x, p.z);
+                if (!jgrid.TryGetValue(key, out var l)) jgrid[key] = l = new List<int>();
+                l.Add(_junctions.Count);
                 _jIds[j] = _junctions.Count;
                 _junctions.Add(j);
             }
-
-            // Signals are the Signals mod's, and it names them after junctions
-            // (W-0000-T for the trunk, W-0000:B1 and :B2 for the branches), so its
-            // TrackId is no use as a key into our rails: matching on it resolved nothing
-            // at all on a live world. Match on POSITION instead, which cannot care what
-            // anybody names anything: the rail whose centreline passes nearest the signal
-            // is the rail it stands on.
-            SignalsLink.TryInit();
-            var grid = new Dictionary<long, List<(RailTrack t, Vector3 p)>>();
-            long GKey(float x, float z) =>
-                ((long)Mathf.FloorToInt(x / MatchCell) << 32) ^ (uint)Mathf.FloorToInt(z / MatchCell);
-            try
+            int NearestJunction(float x, float z, out float dist)
             {
-                foreach (var rt in SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks)
-                {
-                    if (rt?.curve == null) continue;
-                    for (int i = 0; i < rt.curve.pointCount; i++)
-                    {
-                        var bp = rt.curve[i];
-                        if (bp == null) continue;
-                        var q = bp.position - move;
-                        var key = GKey(q.x, q.z);
-                        if (!grid.TryGetValue(key, out var l)) grid[key] = l = new List<(RailTrack, Vector3)>();
-                        l.Add((rt, q));
-                    }
-                }
-            }
-            catch { }
-            RailTrack NearestRail(float x, float z, out float dist)
-            {
-                RailTrack best = null; float bestD = float.MaxValue;
-                int cx = Mathf.FloorToInt(x / MatchCell), cz = Mathf.FloorToInt(z / MatchCell);
+                int best = -1; float bestD = float.MaxValue;
+                int cx = Mathf.FloorToInt(x / AnchorCell), cz = Mathf.FloorToInt(z / AnchorCell);
                 for (int dx = -1; dx <= 1; dx++)
                     for (int dz = -1; dz <= 1; dz++)
                     {
-                        if (!grid.TryGetValue(((long)(cx + dx) << 32) ^ (uint)(cz + dz), out var bucket)) continue;
-                        foreach (var (t, q) in bucket)
+                        if (!jgrid.TryGetValue(((long)(cx + dx) << 32) ^ (uint)(cz + dz), out var bucket)) continue;
+                        foreach (var idx in bucket)
                         {
-                            float ddx = q.x - x, ddz = q.z - z;
+                            var p = _junctions[idx].position - move;
+                            float ddx = p.x - x, ddz = p.z - z;
                             float d = ddx * ddx + ddz * ddz;
-                            if (d < bestD) { bestD = d; best = t; }
+                            if (d < bestD) { bestD = d; best = idx; }
                         }
                     }
                 dist = bestD < float.MaxValue ? Mathf.Sqrt(bestD) : float.MaxValue;
                 return best;
             }
-            int resolved = 0, skipped = 0;
+
+            SignalsLink.TryInit();
+            int placed = 0, skipped = 0, loose = 0;
+            var dirs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var used = new Dictionary<long, int>();
             foreach (var info in SignalsLink.All())
             {
                 if (info?.Id == null) continue;
@@ -185,18 +183,33 @@ namespace DLE.Dispatch
                 // exactly like the switches there. Drawing it here piles marks onto the
                 // bubble and mangles the station's own name.
                 if (InYardShifted(info.X, info.Z)) { skipped++; continue; }
-                var track = NearestRail(info.X, info.Z, out var dist);
-                if (dist > MatchRadius) track = null;
-                bool towardOut = !string.Equals(info.Direction, "In", StringComparison.OrdinalIgnoreCase);
-                var sig = new Sig { Id = info.Id, Approach = track, TowardOut = towardOut, Info = info };
+
+                var key = info.Direction ?? "None";
+                dirs.TryGetValue(key, out var dc); dirs[key] = dc + 1;
+
+                var sig = new Sig { Id = info.Id, Info = info, Leg = LegFromId(info.Id) };
+                int jidx = NearestJunction(info.X, info.Z, out var dist);
+                if (jidx >= 0 && dist <= AnchorRadius) { sig.J = jidx; placed++; }
+                else loose++;
                 _signals.Add(sig);
-                if (track != null)
-                {
-                    resolved++;
-                    var key = EndKey(track, !towardOut);
-                    if (!_byEnd.ContainsKey(key)) _byEnd[key] = sig;
-                }
             }
+            // A leg carries at most one signal facing each way. The mod's own Direction
+            // decides which when it says anything useful; where it does not, the first
+            // signal on a leg guards it and any second one governs the way out. Slots
+            // keep the marks a step apart on the board so they never stack.
+            foreach (var sig in _signals)
+            {
+                if (sig.J < 0) continue;
+                var k = LegKey(sig.J, sig.Leg);
+                used.TryGetValue(k, out var n);
+                used[k] = n + 1;
+                sig.Slot = n;
+                if (string.Equals(sig.Info.Direction, "In", StringComparison.OrdinalIgnoreCase)) sig.Inbound = true;
+                else if (string.Equals(sig.Info.Direction, "Out", StringComparison.OrdinalIgnoreCase)) sig.Inbound = false;
+                else sig.Inbound = n == 0;
+                if (sig.Inbound && !_inboundAt.ContainsKey(k)) _inboundAt[k] = sig;
+            }
+
             // Leg geometry never moves, so it is worked out once here and only the
             // selected index changes from poll to poll.
             for (int i = 0; i < _junctions.Count; i++)
@@ -206,8 +219,10 @@ namespace DLE.Dispatch
                 try { BuildStubs(_junctions[i], list); } catch { }
                 if (list.Count > 0) _stubs[i] = list;
             }
-            Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({resolved} matched to a rail by position), "
-                + $"{skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered.");
+            var dirText = string.Join(", ", dirs.Select(kv => kv.Key + "=" + kv.Value).ToArray());
+            Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({placed} standing at a known switch, "
+                + $"{loose} loose), {skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered; "
+                + $"the mod reports direction {dirText}.");
         }
 
         public static object Payload()
@@ -215,32 +230,31 @@ namespace DLE.Dispatch
             var move = WorldMover.currentMove;
             // Aspects are read live so the board shows what the world actually shows,
             // including changes the Signals mod makes on its own.
-            var live = SignalsLink.All().ToDictionary(i => i.Id, i => i, StringComparer.Ordinal);
+            var live = new Dictionary<string, SignalsLink.SignalInfo>(StringComparer.Ordinal);
+            foreach (var i in SignalsLink.All()) live[i.Id] = i;
             var sigs = new List<object>();
             foreach (var s in _signals)
             {
                 live.TryGetValue(s.Id, out var now);
                 var info = now ?? s.Info;
-                int sside = 0; float sdx = 1f, sdz = 0f;
-                if (s.Approach != null)
-                {
-                    sside = TrackMap.SideOfTrack(info.TrackId ?? s.Info.TrackId);
-                    Heading(s.Approach, !s.TowardOut, out sdx, out sdz);
-                }
                 sigs.Add(new
                 {
                     id = s.Id,
+                    // The board draws a placed signal on its own leg, a fixed step off the
+                    // junction, so these are only the fallback for a loose one.
                     x = info.X,
                     z = info.Z,
-                    side = sside,
-                    dx = (float)Math.Round(sdx, 3),
-                    dz = (float)Math.Round(sdz, 3),
+                    jid = s.J,
+                    leg = s.Leg,
+                    slot = s.Slot,
+                    inbound = s.Inbound,
                     aspect = info.Aspect,
                     on = info.IsOn,
                     manual = info.Manual,
                     type = info.Type,
+                    dir = info.Direction,
                     road = _routes.ContainsKey(s.Id),
-                    routable = s.Approach != null,
+                    routable = s.J >= 0,
                 });
             }
             var locked = new HashSet<int>();
@@ -285,9 +299,7 @@ namespace DLE.Dispatch
             if (junctionId < 0 || junctionId >= _junctions.Count) return (false, "no such switch");
             var j = _junctions[junctionId];
             if (j == null) return (false, "that switch is gone");
-            foreach (var r in _routes.Values)
-                if (r.Locked.Contains(junctionId))
-                    return (false, $"locked by the road off {r.SignalId}; drop that road first");
+            if (Held(junctionId, out var by)) return (false, by + "; drop that road first");
             int n = j.outBranches?.Count ?? 0;
             if (n < 2) return (false, "that junction has nothing to throw");
             try
@@ -300,58 +312,69 @@ namespace DLE.Dispatch
         }
 
         /// <summary>
-        /// Clear the road from a signal: walk the rails exactly as the switches are set
-        /// until the next signal or the end of the line, then lock what was crossed.
+        /// Clear the road from a signal: leave its leg, run through the junction the way
+        /// the switches are actually set, and carry on until the next signal facing the
+        /// move or the end of the line. Every junction crossed locks behind it.
         /// </summary>
         public static (bool ok, string message) Clear(string signalId)
         {
             var s = _signals.FirstOrDefault(x => x.Id == signalId);
             if (s == null) return (false, "no such signal");
             if (_routes.ContainsKey(signalId)) return (false, "that signal is already off");
-            if (s.Approach == null) return (false, "that signal is not matched to a track, so no road can be set from it");
+            if (s.J < 0 || s.J >= _junctions.Count)
+                return (false, "that signal is not standing at a switch this board knows, so no road can be set from it");
+            var j0 = _junctions[s.J];
+            if (j0 == null) return (false, "that switch is gone");
+            var startLeg = BranchOf(j0, s.Leg);
+            if (startLeg?.track == null) return (false, "that signal's own track is missing");
+
             var route = new Route { SignalId = signalId };
             var occupied = OccupiedTracks();
             var seen = new HashSet<int>();
+            RailTrack track;
+            bool towardOut;
 
-            var track = s.Approach;
-            bool towardOut = s.TowardOut;
+            if (s.Inbound)
+            {
+                // Read from its own leg: into the junction and out the far side.
+                route.Path.Add(startLeg.track);
+                seen.Add(startLeg.track.GetInstanceID());
+                var exit = ExitFrom(j0, s.Leg, out var why);
+                if (exit?.track == null) return (false, why ?? "that switch has nowhere to go");
+                if (Held(s.J, out var by0)) return (false, by0);
+                route.Locked.Add(s.J);
+                track = exit.track; towardOut = exit.first;
+            }
+            else
+            {
+                // A departure: the move comes off whichever leg is set and runs out along
+                // this one, so the switch has to be facing this way already.
+                if (s.Leg >= 0 && j0.selectedBranch != s.Leg)
+                    return (false, $"switch {s.J} is set the other way; throw it first");
+                if (Held(s.J, out var by1)) return (false, by1);
+                route.Locked.Add(s.J);
+                track = startLeg.track; towardOut = startLeg.first;
+            }
+
             for (int step = 0; step < 60; step++)
             {
                 if (track == null || !seen.Add(track.GetInstanceID())) break;
                 route.Path.Add(track);
-                var j = towardOut ? track.outJunction : track.inJunction;
-                if (j == null) break;                       // buffer stop or plain end
-                if (!_jIds.TryGetValue(j, out var jid)) break;
-                foreach (var other in _routes.Values)
-                    if (other.Locked.Contains(jid))
-                        return (false, $"switch {jid} is already locked by the road off {other.SignalId}");
-                Junction.Branch next;
-                if (j.inBranch != null && j.inBranch.track == track)
-                {
-                    var outs = j.outBranches;
-                    if (outs == null || j.selectedBranch >= outs.Count) break;
-                    next = outs[j.selectedBranch];
-                }
-                else
-                {
-                    int idx = j.outBranches?.FindIndex(b => b.track == track) ?? -1;
-                    if (idx < 0 || idx != j.selectedBranch) break;  // set against a trailing move
-                    next = j.inBranch;
-                }
-                if (next?.track == null) break;
-                route.Locked.Add(jid);
-                track = next.track;
-                towardOut = next.first;
-                if (occupied.Contains(track))
-                    return (false, "the road ahead is occupied");
-                // Stop at the next signal facing this way, exactly like a real green.
-                if (_byEnd.TryGetValue(EndKey(track, !towardOut), out var stop) && stop.Id != signalId)
-                {
-                    route.Path.Add(track);
-                    break;
-                }
+                if (occupied.Contains(track)) return (false, "the road ahead is occupied");
+                var nj = towardOut ? track.outJunction : track.inJunction;
+                if (nj == null) break;                         // buffer stop or plain end
+                if (!_jIds.TryGetValue(nj, out var njid)) break;
+                int arrive = LegOf(nj, track);
+                if (arrive == -2) break;
+                // A signal facing this move ends the road, exactly like a real green.
+                if (_inboundAt.TryGetValue(LegKey(njid, arrive), out var stop) && stop.Id != signalId) break;
+                var exit = ExitFrom(nj, arrive, out _);
+                if (exit?.track == null) break;                // set against the move
+                if (Held(njid, out var by)) return (false, by);
+                route.Locked.Add(njid);
+                track = exit.track; towardOut = exit.first;
             }
-            if (route.Locked.Count == 0) return (false, "nothing to set from that signal");
+            if (route.Path.Count == 0) return (false, "nothing to set from that signal");
             route.Poly = PathPolyline(route.Path);
             _routes[signalId] = route;
 
@@ -364,7 +387,7 @@ namespace DLE.Dispatch
                 shown = SignalsLink.SetAspectFn?.Invoke(signalId, SignalsLink.AspectClear) ?? false;
             }
             catch (Exception ex) { Main.Log($"[Interlocking] aspect set failed: {ex.Message}"); }
-            return (true, $"{signalId} off: {route.Locked.Count} switch(es) locked"
+            return (true, $"{signalId} off: {route.Path.Count} track(s), {route.Locked.Count} switch(es) locked"
                 + (shown ? "" : " (the signal itself would not clear; check the Signals mod)"));
         }
 
@@ -397,6 +420,61 @@ namespace DLE.Dispatch
                     Main.Log($"[Interlocking] road off {id} released; the train is through.");
                 }
             }
+        }
+
+        private static bool Held(int junctionId, out string message)
+        {
+            foreach (var r in _routes.Values)
+                if (r.Locked.Contains(junctionId))
+                {
+                    message = $"switch {junctionId} is locked by the road off {r.SignalId}";
+                    return true;
+                }
+            message = null;
+            return false;
+        }
+
+        /// <summary>The branch on a given leg: -1 is the trunk, 0..n an out branch.</summary>
+        private static Junction.Branch BranchOf(Junction j, int leg)
+        {
+            if (leg < 0) return j.inBranch;
+            var outs = j.outBranches;
+            return outs != null && leg < outs.Count ? outs[leg] : null;
+        }
+
+        /// <summary>Which leg of a junction a track hangs off, or -2 when it does not.</summary>
+        private static int LegOf(Junction j, RailTrack t)
+        {
+            if (j.inBranch != null && ReferenceEquals(j.inBranch.track, t)) return -1;
+            var outs = j.outBranches;
+            if (outs != null)
+                for (int i = 0; i < outs.Count; i++)
+                    if (outs[i] != null && ReferenceEquals(outs[i].track, t)) return i;
+            return -2;
+        }
+
+        /// <summary>
+        /// Where a move entering on one leg comes out, given how the switch is set right
+        /// now. Null means the switch is against it, which is exactly when a real road
+        /// refuses rather than quietly moving the points under a train.
+        /// </summary>
+        private static Junction.Branch ExitFrom(Junction j, int leg, out string why)
+        {
+            why = null;
+            var outs = j.outBranches;
+            if (leg < 0)
+            {
+                if (outs == null || j.selectedBranch >= outs.Count) { why = "that switch has nowhere to go"; return null; }
+                return outs[j.selectedBranch];
+            }
+            if (j.selectedBranch != leg)
+            {
+                _jIds.TryGetValue(j, out var id);
+                why = $"switch {id} is set the other way; throw it first";
+                return null;
+            }
+            if (j.inBranch?.track == null) { why = "that switch has nowhere to go"; return null; }
+            return j.inBranch;
         }
 
         /// <summary>The rail's id as the map keys it, for the fan-side lookup.</summary>
@@ -474,44 +552,48 @@ namespace DLE.Dispatch
         }
 
         /// <summary>
-        /// A short piece of each leg out of a junction, cached at build because the
-        /// geometry never moves. The board paints the leg the switch is set to solid and
-        /// the others grey, so a dispatcher can see where a switch IS pointing and where
-        /// it COULD point without clicking anything (owner ruling).
+        /// A short piece of every leg out of a junction, the trunk included, cached at
+        /// build because the geometry never moves. The board paints the leg the switch is
+        /// set to solid and the others grey, so a dispatcher can see where a switch IS
+        /// pointing and where it COULD point without clicking anything (owner ruling).
+        /// Each stub starts AT the junction and runs outward, which is also what lets the
+        /// board stand a signal a fixed step up its own leg.
         /// </summary>
         private static void BuildStubs(Junction j, List<object> into)
         {
-            var move = WorldMover.currentMove;
             var outs = j.outBranches;
+            if (j.inBranch != null) AddStub(j.inBranch, -1, into);
             if (outs == null) return;
-            for (int b = 0; b < outs.Count; b++)
+            for (int b = 0; b < outs.Count; b++) AddStub(outs[b], b, into);
+        }
+
+        private static void AddStub(Junction.Branch br, int leg, List<object> into)
+        {
+            if (br?.track?.curve == null) return;
+            var move = WorldMover.currentMove;
+            var c = br.track.curve;
+            int n = c.pointCount;
+            var pts = new List<float>();
+            float run = 0f;
+            Vector3 prev = default; bool have = false;
+            for (int k = 0; k < n && run < StubMeters; k++)
             {
-                var br = outs[b];
-                if (br?.track?.curve == null) continue;
-                var c = br.track.curve;
-                int n = c.pointCount;
-                var pts = new List<float>();
-                float run = 0f;
-                Vector3 prev = default; bool have = false;
-                for (int k = 0; k < n && run < StubMeters; k++)
-                {
-                    // Walk outward from the end that touches the junction.
-                    var bp = br.first ? c[k] : c[n - 1 - k];
-                    if (bp == null) continue;
-                    var q = bp.position - move;
-                    if (have) run += Vector3.Distance(prev, q);
-                    prev = q; have = true;
-                    pts.Add((float)Math.Round(q.x, 1));
-                    pts.Add((float)Math.Round(q.z, 1));
-                }
-                if (pts.Count >= 4)
-                    into.Add(new
-                    {
-                        branch = b,
-                        side = TrackMap.SideOfTrack(TrackIdOf(br.track)),
-                        pts = pts.ToArray(),
-                    });
+                // Walk outward from the end that touches the junction.
+                var bp = br.first ? c[k] : c[n - 1 - k];
+                if (bp == null) continue;
+                var q = bp.position - move;
+                if (have) run += Vector3.Distance(prev, q);
+                prev = q; have = true;
+                pts.Add((float)Math.Round(q.x, 1));
+                pts.Add((float)Math.Round(q.z, 1));
             }
+            if (pts.Count >= 4)
+                into.Add(new
+                {
+                    branch = leg,
+                    side = TrackMap.SideOfTrack(TrackIdOf(br.track)),
+                    pts = pts.ToArray(),
+                });
         }
     }
 }

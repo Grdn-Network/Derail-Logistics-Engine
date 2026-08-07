@@ -30,6 +30,7 @@ namespace DLE.Dispatch
             public string Direction;  // Out, In, None
             public string TrackId;
             public string YardId;
+            public string JunctionId;  // the mod's own junction key, for diagnosis
         }
 
         // Filled in by the bridge; all null when the Signals mod is absent.
