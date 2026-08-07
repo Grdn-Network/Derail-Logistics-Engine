@@ -48,6 +48,7 @@ namespace DLE.Dispatch
                     Direction = s.Direction.ToString(),
                     TrackId = s.TrackId,
                     YardId = s.YardId,
+                    JunctionId = Convert.ToString(s.JunctionId),
                 });
             }
             return outp;
