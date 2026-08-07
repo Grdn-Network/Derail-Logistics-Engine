@@ -434,7 +434,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;'}[c]));
-let options=[],lockOn=false,ctcOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
+let railMarks=[],options=[],lockOn=false,ctcOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
 // Shell state: which lens, which surface inside Logistics, what the inspector shows.
 let lens='logi',surface='map',dockMode='hint',haulSel=null;
 // Job maker state: the picked cars, the compatible-car set for the chosen cargo,
@@ -937,8 +937,10 @@ function renderRailsDyn(){
    // The trunk is leg -1 and is always connected; only the branches take turns.
    const set=leg.branch<0||leg.branch===j.branch;
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${railSize(set?10:7)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+ railMarks=[];
  for(const j of jItems){
   const q=j.p;
+  if(j.branches>1)railMarks.push({kind:'jn',id:j.id,x:q[0],y:q[1]});
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
@@ -965,6 +967,7 @@ function renderRailsDyn(){
    if(w){q=w[0];u=w[1]}}
   if(!q)q=rxy(sg.x,sg.z);
   if(sg.inbound)u=[-u[0],-u[1]];
+  railMarks.push({kind:'sig',id:sg.id,x:q[0],y:q[1]});
   const a=sg.aspect||'';
   const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
@@ -1029,6 +1032,22 @@ function walkAlong(q,dist){
  const dx=q[n][0]-q[n-1][0],dy=q[n][1]-q[n-1][1],L=Math.hypot(dx,dy)||1e-6;
  const ux=dx/L,uy=dy/L,over=dist-run;
  return [[q[n][0]+ux*over,q[n][1]+uy*over],[ux,uy]]}
+// The mark nearest the pointer, in the map's own coordinates. Hit areas at a switch
+// overlap however carefully they are sized, so proximity decides instead of stacking
+// order: whatever the eye reads as closest is what answers the click.
+function nearestMark(e){
+ const svg=$('railsSvg');
+ if(!svg||!railMarks.length||!svg.getScreenCTM)return null;
+ const m=svg.getScreenCTM();
+ if(!m)return null;
+ const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
+ const p=pt.matrixTransform(m.inverse());
+ const reach=railSize(34);
+ let best=null,bd=reach*reach;
+ for(const k of railMarks){
+  const d=(k.x-p.x)*(k.x-p.x)+(k.y-p.y)*(k.y-p.y);
+  if(d<bd){bd=d;best=k}}
+ return best}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -1737,8 +1756,17 @@ document.addEventListener('keydown',e=>{
   px=e.clientX;py=e.clientY;clampRails();applyRailsVB()});
  // A drag must not fire the station bubble underneath it; the distance clears on
  // use so a later plain click is never swallowed by an older drag.
+ // Marks stand close together at a switch, so a click goes to the NEAREST one rather
+ // than to whichever hit area happens to lie on top. Chasing a signal or a switch
+ // around with the mouse to find the pixel that answers is no way to run a railway.
  svg.addEventListener('click',e=>{
-  if(moved>6){moved=0;e.stopPropagation();e.preventDefault()}},true);
+  if(moved>6){moved=0;e.stopPropagation();e.preventDefault();return}
+  if(e.target.closest && e.target.closest(`[data-act='stripJump']`))return;
+  const m=nearestMark(e);
+  if(!m)return;
+  e.stopPropagation();e.preventDefault();
+  const fake={dataset:{id:String(m.id)}};
+  if(m.kind==='sig')actions.signal(null,fake); else actions.throwSwitch(null,fake)},true);
  window.addEventListener('resize',()=>{
   if(!railsVB)return;
   const [vw,vh]=railsViewport();
