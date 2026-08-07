@@ -193,10 +193,14 @@ namespace DLE.Dispatch
                 else loose++;
                 _signals.Add(sig);
             }
-            // A leg carries at most one signal facing each way. The mod's own Direction
-            // decides which when it says anything useful; where it does not, the first
-            // signal on a leg guards it and any second one governs the way out. Slots
-            // keep the marks a step apart on the board so they never stack.
+            // A signal at a junction guards it: it stands on one leg and a train reads it
+            // running toward the points. That is what the world shows, confirmed at
+            // SM-SUB-N where the mast faces a train coming up the trunk. The mod's own
+            // Direction field does not separate the two cases (it reports Out for every
+            // trunk signal and None for every branch one), so it is not used for facing:
+            // trusting it pointed the trunk signals backwards and greened the face a
+            // driver passes on the back. Only a leg carrying a SECOND signal has one
+            // governing the way out, and slots keep those two marks a step apart.
             foreach (var sig in _signals)
             {
                 if (sig.J < 0) continue;
@@ -204,9 +208,7 @@ namespace DLE.Dispatch
                 used.TryGetValue(k, out var n);
                 used[k] = n + 1;
                 sig.Slot = n;
-                if (string.Equals(sig.Info.Direction, "In", StringComparison.OrdinalIgnoreCase)) sig.Inbound = true;
-                else if (string.Equals(sig.Info.Direction, "Out", StringComparison.OrdinalIgnoreCase)) sig.Inbound = false;
-                else sig.Inbound = n == 0;
+                sig.Inbound = n == 0;
                 if (sig.Inbound && !_inboundAt.ContainsKey(k)) _inboundAt[k] = sig;
             }
 
