@@ -312,7 +312,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
   <div class='surf' id='surfRails'>
    <div style='flex:1;position:relative;overflow:hidden;background:#101220'>
     <svg id='railsSvg' style='position:absolute;inset:0;width:100%;height:100%;cursor:grab'>
-     <g id='railsStatic'></g><g id='railsDyn'></g>
+     <g id='railsStatic'></g><g id='railsDyn'></g><g id='railsTop'></g>
     </svg>
     <div class='maplegend'>
      <span class='k'>Rails</span>
@@ -324,6 +324,16 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
      <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
      <span class='k' style='letter-spacing:.06em'>drag the map to move · yards are bubbles, click one to open its view</span>
+    </div>
+    <div style='position:absolute;right:12px;top:12px;display:flex;align-items:center;gap:6px;
+     background:rgba(22,24,38,.92);border:1px solid var(--line);border-radius:6px;padding:6px 9px'>
+     <span class='k'>Size</span>
+     <button class='mini' data-act='railZoom' data-id='out' title='fit more railway on screen'>&minus;</button>
+     <button class='mini' data-act='railZoom' data-id='in' title='fewer kilometres, everything bigger'>+</button>
+     <span class='k' style='margin-left:6px'>Glyphs</span>
+     <button class='mini' data-act='railGlyph' data-id='down' title='smaller marks'>&minus;</button>
+     <button class='mini' data-act='railGlyph' data-id='up' title='bigger marks'>+</button>
+     <span class='k num' id='railScaleLabel' style='margin-left:6px'></span>
     </div>
    </div>
   </div>
@@ -814,7 +824,25 @@ let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,lastInter=null,rails
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
 // with a dark casing under a bright core, so crossings read and parallel track just
 // looks like heavier line work instead of the comb an earlier fan attempt drew.
-const RAIL_MPP=7.0,RAIL_XS=2.0,RAIL_FAN=3.6;
+const RAIL_XS=2.0;
+// Scale and glyph size are DIALS, not constants. I cannot see the board, so rather than
+// guessing sizes on someone's behalf these are set on screen and remembered per browser.
+// Set them once and then pan; nothing here changes while you work.
+let RAIL_MPP=+localStorage.getItem('dleRailMpp')||7.0;
+let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
+const RAIL_FAN=()=>9*RAIL_G;
+function railSize(k){return k*RAIL_G}
+function setRailScale(mpp,glyph){
+ RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
+ RAIL_G=Math.min(4,Math.max(0.5,glyph));
+ localStorage.setItem('dleRailMpp',RAIL_MPP);
+ localStorage.setItem('dleRailGlyph',RAIL_G);
+ if(!railsGeo)return;
+ railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
+ railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
+ renderRailsStatic();centreRails();renderRailsDyn();
+ const l=$('railScaleLabel');
+ if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x';}
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
 async function loadRails(){
  if(railsGeo||railsLoading)return;
@@ -826,7 +854,9 @@ async function loadRails(){
   railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
   renderRailsStatic();
   centreRails();
-  renderRailsDyn()}
+  renderRailsDyn();
+  const l=$('railScaleLabel');
+  if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x'}
  catch(e){toast('track map failed to load',true)}
  finally{railsLoading=false}}
 function railsViewport(){const r=$('railsSvg').getBoundingClientRect();
@@ -854,17 +884,20 @@ function renderRailsStatic(){
   for(let i=0;i<a.length;i+=2)q.push(rxy(a[i],a[i+1]));
   paths.push({d:railFan(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
-  h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/>`;
+  h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
-  h+=`<polyline points='${p.d}' fill='none' stroke='${p.side?'#e4eaf8':'#aab4cd'}' stroke-width='${p.side?3.6:4.2}' stroke-linecap='round' stroke-linejoin='round'/>`;
- // Yards are bubbles: the rails run in and stop, everything inside is the yard view.
+  h+=`<polyline points='${p.d}' fill='none' stroke='${p.side?'#e4eaf8':'#aab4cd'}' stroke-width='${railSize(p.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`;
+ g.innerHTML=h;
+ // Bubbles go in their own layer ABOVE the traffic, or signals and switches paint over
+ // the station letters and turn them to mush.
+ let tp='';
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
-  h+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='30' fill='${SC[s.id]||'#4a4e60'}' stroke='#0d0f1a' stroke-width='4'/>
-   <text x='${q[0].toFixed(1)}' y='${(q[1]+6).toFixed(1)}' text-anchor='middle' font-size='16' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
+  tp+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(46)}' fill='${SC[s.id]||'#4a4e60'}' stroke='#0d0f1a' stroke-width='${railSize(6)}'/>
+   <text x='${q[0].toFixed(1)}' y='${(q[1]+railSize(9)).toFixed(1)}' text-anchor='middle' font-size='${railSize(26)}' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
    <title>${esc(s.id)}: open the yard view</title></g>`}
- g.innerHTML=h}
+ $('railsTop').innerHTML=tp}
 function renderRailsDyn(){
  const g=$('railsDyn');if(!g)return;
  const tr=lastTraffic;
@@ -880,7 +913,7 @@ function renderRailsDyn(){
    const q=[];
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
    const d=railFan(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${seg.side?3.6:4.2}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // Switches: a mark you can click to throw, ringed amber while a road holds it.
  // Every leg out of a switch is drawn: the one it is set to stays solid, the others
  // grey so a dispatcher can see there IS a connection and exactly where it goes.
@@ -891,19 +924,19 @@ function renderRailsDyn(){
    if(q.length<2)continue;
    const d=railFan(q,leg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    const set=leg.branch===j.branch;
-   h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${set?4.2:3}' stroke-linecap='round' stroke-linejoin='round'/>`}}
- const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),9);
+   h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${railSize(set?10:7)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+ const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),railSize(20));
  for(const j of jItems){
   const q=j.p;
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='6.5' fill='none' stroke='#d9b47a' stroke-width='2'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='4.4' fill='#07080e' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='1.6'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(13)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(9)}' fill='#07080e' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(3)}'/>
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
- const sgItems=declutter((il.signals||[]).map(sg=>({...sg,p:railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz)})),10);
+ const sgItems=declutter((il.signals||[]).map(sg=>({...sg,p:railPoint(sg.x,sg.z,sg.side,sg.dx,sg.dz)})),railSize(24));
  for(const sg of sgItems){
   const q=sg.p;
   const a=sg.aspect||'';
@@ -911,9 +944,9 @@ function renderRailsDyn(){
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
   const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not matched to a track'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='9' fill='transparent'/>
-   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='8' fill='none' stroke='#2f9e63' stroke-width='1.8'/>`:''}
-   <polygon points='${tri(q,sg.x,sg.z,sg.dx,sg.dz)}' fill='${col}' stroke='#0d0f1a' stroke-width='1.4' stroke-linejoin='round'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
+   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
+   <polygon points='${tri(q,sg.x,sg.z,sg.dx,sg.dz)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -927,7 +960,7 @@ function renderRailsDyn(){
    h+=`<circle cx='${a[0].toFixed(1)}' cy='${a[1].toFixed(1)}' r='4' fill='${col}'><title>${n} car(s)</title></circle>`}
   else for(let i=0;i<n;i++){
    const x1=a[0]+dx*i,y1=a[1]+dy*i,x2=a[0]+dx*(i+0.82),y2=a[1]+dy*(i+0.82);
-   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='7.5' stroke-linecap='butt'>
+   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='${railSize(15)}' stroke-linecap='butt'>
     <title>${n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`}
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
    h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
@@ -944,7 +977,7 @@ function railFan(q,side){
  for(let k=0;k<q.length;k++){
   const a=q[Math.max(0,k-1)],b=q[Math.min(q.length-1,k+1)];
   const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
-  out.push([q[k][0]-dy/L*RAIL_FAN*side, q[k][1]+dx/L*RAIL_FAN*side]);}
+  out.push([q[k][0]-dy/L*RAIL_FAN()*side, q[k][1]+dx/L*RAIL_FAN()*side]);}
  return out}
 // A switch or signal standing on a fanned rail has to move with it, or it sits on the
 // centreline between the two tracks. The server sends the rail's heading in world
@@ -954,7 +987,7 @@ function railPoint(x,z,side,dirX,dirZ){
  if(!side)return q;
  const a=rxy(x,z),b=rxy(x+(dirX||1)*10,z+(dirZ||0)*10);
  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
- return [q[0]-dy/L*RAIL_FAN*side, q[1]+dx/L*RAIL_FAN*side]}
+ return [q[0]-dy/L*RAIL_FAN()*side, q[1]+dx/L*RAIL_FAN()*side]}
 // Signals come in groups at every junction (a trunk and one per branch), so at map
 // scale they land on top of each other. Slide a clashing mark ALONG its own rail until
 // it has room: it stays on the rail it belongs to, which keeps the picture honest while
@@ -963,10 +996,10 @@ function railPoint(x,z,side,dirX,dirZ){
 // reads without hovering (owner ruling, and how the reference panel does it).
 function tri(q,x,z,dx,dz){
  const [ux,uy]=screenDir(x,z,dx,dz);
- const px=-uy,py=ux,L=6.2,W=4.4;
+ const px=-uy,py=ux,L=railSize(19),W=railSize(12);
  return [[q[0]+ux*L,q[1]+uy*L],
-         [q[0]-ux*2+px*W,q[1]-uy*2+py*W],
-         [q[0]-ux*2-px*W,q[1]-uy*2-py*W]]
+         [q[0]-ux*railSize(6)+px*W,q[1]-uy*railSize(6)+py*W],
+         [q[0]-ux*railSize(6)-px*W,q[1]-uy*railSize(6)-py*W]]
    .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}
 function declutter(items,minSep){
  const cell=minSep,occupied=new Map();
@@ -1354,6 +1387,8 @@ const actions={
  lens:(id)=>{setLens(id)},
  backMap:()=>backToMap(),
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
+ railZoom:(id,el)=>setRailScale(RAIL_MPP*(el.dataset.id==='in'?0.7:1/0.7),RAIL_G),
+ railGlyph:(id,el)=>setRailScale(RAIL_MPP,RAIL_G*(el.dataset.id==='up'?1.25:0.8)),
  throwSwitch:async(id,el)=>{
   const r=await j('/api/v1/junctions/'+el.dataset.id+'/throw','POST');
   toast(r.message||(r.ok?'switch thrown':'throw refused'),!r.ok);
