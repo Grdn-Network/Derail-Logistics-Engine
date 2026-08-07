@@ -825,7 +825,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsGeo=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -857,6 +857,11 @@ async function loadRails(){
  try{const g=await jget('/api/v1/trackmap');
   if(!g||!g.lines||!g.lines.length){toast('track map is empty; is the world loaded?',true);return}
   railsGeo=g;railsB=g.bounds;
+  // Switch legs are geometry: they arrive once with the map and are keyed by switch
+  // here, rather than riding the live poll where they would be hundreds of kilobytes
+  // of unchanging track every five seconds.
+  railLegs={};
+  for(const e of (g.legs||[]))railLegs[e.id]=e.legs;
   railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
   railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
   renderRailsStatic();
@@ -941,7 +946,7 @@ function renderRailsDyn(){
   // not set can carry no road.
   if(j&&sg.leg>=0&&sg.leg!==j.branch)continue;
   let q=null,u=[1,0];
-  const leg=j&&(j.legs||[]).find(l=>l.branch===sg.leg);
+  const leg=j&&(railLegs[j.id]||[]).find(l=>l.branch===sg.leg);
   if(leg){
    const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
    // Far enough out that the triangle clears the switch mark and its lock ring.
@@ -960,7 +965,7 @@ function renderRailsDyn(){
  for(const m of jItems)
   h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(14)}' fill='#07080e'/>`;
  for(const j of (il.junctions||[])){
-  for(const leg of (j.legs||[])){
+  for(const leg of (railLegs[j.id]||[])){
    const q=[];
    for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
