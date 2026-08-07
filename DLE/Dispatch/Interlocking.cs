@@ -59,8 +59,15 @@ namespace DLE.Dispatch
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
-        private const float StubMeters = 120f;
+        // How far each leg of a switch is drawn. This is the ONLY thing on the board that
+        // says which way a switch is set, so it has to be long enough to read without
+        // winding the zoom up: 120m is seventeen pixels at the default scale, which is
+        // nothing. Half a kilometre reads at a glance and still stops well short of
+        // claiming the whole section.
+        private const float StubMeters = 500f;
+        private const float StubThin = 12f;      // drop points closer together than this
         private static string _builtHash;
+        private static string _facingReport = "";
 
         // A signal stands beside the junction it guards, a train length or so up its own
         // leg; on a live world the furthest sat 54m out, so this is generous rather than
@@ -89,6 +96,22 @@ namespace DLE.Dispatch
         /// Which leg of its junction a signal stands on, straight off the id the Signals
         /// mod gives it: W-0507:B1 and :B2 are the branches, everything else is the trunk.
         /// </summary>
+        /// <summary>The tail of a signal id, which is how the mod says what it is:
+        /// T on the trunk toward the junction, F on the trunk away from it, B1 and B2
+        /// on the branches.</summary>
+        private static string SuffixOf(string id)
+        {
+            int c = id.LastIndexOf(':');
+            if (c >= 0) return id.Substring(c + 1);
+            int h = id.LastIndexOf('-');
+            return h >= 0 ? id.Substring(h + 1) : "?";
+        }
+
+        /// <summary>A From signal governs the move OUT of its junction, away along the
+        /// leg it stands on, which is the one case that is not an approach.</summary>
+        private static bool IsDepartureId(string id) =>
+            id.EndsWith("-F", StringComparison.Ordinal);
+
         private static int LegFromId(string id)
         {
             int c = id.LastIndexOf(':');
@@ -193,14 +216,21 @@ namespace DLE.Dispatch
                 else loose++;
                 _signals.Add(sig);
             }
-            // A signal at a junction guards it: it stands on one leg and a train reads it
-            // running toward the points. That is what the world shows, confirmed at
-            // SM-SUB-N where the mast faces a train coming up the trunk. The mod's own
-            // Direction field does not separate the two cases (it reports Out for every
-            // trunk signal and None for every branch one), so it is not used for facing:
-            // trusting it pointed the trunk signals backwards and greened the face a
-            // driver passes on the back. Only a leg carrying a SECOND signal has one
-            // governing the way out, and slots keep those two marks a step apart.
+            // Which way a signal faces, which decides both the arrow and the road.
+            //
+            // The mod's own Direction field cannot tell the cases apart: it reports Out for
+            // every trunk signal in the world and None for every branch one. So the id
+            // decides, and the id says To or From. A trunk signal named -T guards the
+            // junction and is read by a train running toward the points, which the world
+            // confirms at SM-SUB-N where that mast faces a train coming up the trunk. One
+            // named -F governs the move the other way, out of the junction and away along
+            // the trunk, which is what a section signal beyond a junction does. Branch
+            // signals guard the junction like -T does.
+            //
+            // Nothing here is guesswork that stays guesswork: the log prints the split by
+            // suffix, so a report of a signal greening backwards can be traced to a group
+            // rather than hunted one mast at a time.
+            var facing = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var sig in _signals)
             {
                 if (sig.J < 0) continue;
@@ -208,9 +238,15 @@ namespace DLE.Dispatch
                 used.TryGetValue(k, out var n);
                 used[k] = n + 1;
                 sig.Slot = n;
-                sig.Inbound = n == 0;
+                // A second signal on one leg necessarily faces the other way, whatever it
+                // is called; that is four legs in the whole world.
+                sig.Inbound = n == 0 && !IsDepartureId(sig.Id);
+                var fk = SuffixOf(sig.Id) + (sig.Inbound ? " inbound" : " outbound");
+                facing.TryGetValue(fk, out var fc); facing[fk] = fc + 1;
                 if (sig.Inbound && !_inboundAt.ContainsKey(k)) _inboundAt[k] = sig;
             }
+            _facingReport = string.Join(", ", facing.OrderBy(kv => kv.Key)
+                .Select(kv => kv.Key + "=" + kv.Value).ToArray());
 
             // Leg geometry never moves, so it is worked out once here and only the
             // selected index changes from poll to poll.
@@ -225,6 +261,8 @@ namespace DLE.Dispatch
             Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({placed} standing at a known switch, "
                 + $"{loose} loose), {skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered; "
                 + $"the mod reports direction {dirText}.");
+            Main.LogAlways($"[Interlocking] signal facing by id: {_facingReport}. "
+                + "A signal reported as greening the wrong way should name its group here.");
             // A world reload rebuilds this list, so a railway left under CTC has to be
             // put back to stop or half of it would quietly go automatic again.
             if (Ctc && _signals.Count > 0) HoldEverything();
@@ -307,6 +345,21 @@ namespace DLE.Dispatch
             catch (Exception ex) { Main.Log($"[Interlocking] releasing {id} failed: {ex.Message}"); }
         }
 
+        /// <summary>
+        /// The legs of every drawn switch, which is pure geometry and never changes once a
+        /// world is built. It rides the memoized map payload rather than the live one:
+        /// half a kilometre of leg on six hundred junctions is hundreds of kilobytes, and
+        /// re-serializing that on the game's own thread every five seconds to say nothing
+        /// new is exactly the kind of cost the board is supposed to avoid.
+        /// </summary>
+        public static object LegsPayload()
+        {
+            var outp = new List<object>();
+            foreach (var kv in _stubs)
+                outp.Add(new { id = kv.Key, legs = kv.Value });
+            return outp;
+        }
+
         public static object Payload()
         {
             var move = WorldMover.currentMove;
@@ -367,7 +420,6 @@ namespace DLE.Dispatch
                     side,
                     dx = (float)Math.Round(dx, 3),
                     dz = (float)Math.Round(dz, 3),
-                    legs = _stubs.TryGetValue(i, out var st) ? st : null,
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
@@ -657,7 +709,7 @@ namespace DLE.Dispatch
             int n = c.pointCount;
             var pts = new List<float>();
             float run = 0f;
-            Vector3 prev = default; bool have = false;
+            Vector3 prev = default, kept = default; bool have = false;
             for (int k = 0; k < n && run < StubMeters; k++)
             {
                 // Walk outward from the end that touches the junction.
@@ -665,7 +717,12 @@ namespace DLE.Dispatch
                 if (bp == null) continue;
                 var q = bp.position - move;
                 if (have) run += Vector3.Distance(prev, q);
-                prev = q; have = true;
+                prev = q;
+                // The first point IS the junction and always goes in; the rest are thinned,
+                // because half a kilometre of raw curve points on every leg of six hundred
+                // junctions rides in the payload on every poll.
+                if (have && Vector3.Distance(kept, q) < StubThin) continue;
+                kept = q; have = true;
                 pts.Add((float)Math.Round(q.x, 1));
                 pts.Add((float)Math.Round(q.z, 1));
             }

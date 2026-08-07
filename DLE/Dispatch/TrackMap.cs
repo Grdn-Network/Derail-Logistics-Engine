@@ -146,12 +146,18 @@ namespace DLE.Dispatch
             try { Interlocking.Build(stPos, YardRadius); }
             catch (Exception ex) { Main.LogAlways($"[Interlocking] build failed: {ex.GetType().Name}: {ex.Message}"); }
 
+            // Switch legs are geometry too, so they ride here and are built once, not
+            // re-sent on every live poll.
+            object legs = null;
+            try { legs = Interlocking.LegsPayload(); } catch { }
+
             var payload = new
             {
                 hash,
                 lines = lineOut,
                 junctions = js,
                 stations,
+                legs,
                 bounds = new { minX, maxX, minZ, maxZ }
             };
             _geometryBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
