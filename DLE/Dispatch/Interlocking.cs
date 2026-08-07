@@ -92,6 +92,18 @@ namespace DLE.Dispatch
             try { all = RailTrackRegistry.Instance.TrackRootParent.GetComponentsInChildren<Junction>(); }
             catch { return; }
 
+            // Signal positions arrive already shifted from the bridge, junction positions
+            // do not, so the yard test comes in both flavours rather than one of them
+            // being quietly wrong.
+            bool InYardShifted(float x, float z)
+            {
+                foreach (var s in stationPositions)
+                {
+                    float dx = x - s.x, dz = z - s.y;
+                    if (dx * dx + dz * dz < yardRadius * yardRadius) return true;
+                }
+                return false;
+            }
             bool InYard(Vector3 world)
             {
                 var p = world - move;
@@ -169,6 +181,10 @@ namespace DLE.Dispatch
                 // would clutter the panel and, worse, stop a road short at something
                 // that never was a block boundary.
                 if (!IsBlockSignal(info.Type)) { skipped++; continue; }
+                // A signal standing inside a station belongs to that yard's own view,
+                // exactly like the switches there. Drawing it here piles marks onto the
+                // bubble and mangles the station's own name.
+                if (InYardShifted(info.X, info.Z)) { skipped++; continue; }
                 var track = NearestRail(info.X, info.Z, out var dist);
                 if (dist > MatchRadius) track = null;
                 bool towardOut = !string.Equals(info.Direction, "In", StringComparison.OrdinalIgnoreCase);
