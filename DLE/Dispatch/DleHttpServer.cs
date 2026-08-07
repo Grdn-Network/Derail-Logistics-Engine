@@ -379,6 +379,17 @@ namespace DLE.Dispatch
                     Json(ctx, sok ? 200 : 409, new { ok = sok, message = smsg });
                     return;
                 }
+                // CTC (#176): hold the whole railway at stop until dispatch clears a road.
+                if (method == "PUT" && path == "/api/v1/ctc")
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var creq = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
+                    if (creq?.enabled == null)
+                    { Json(ctx, 400, new { error = "enabled (true or false) required" }); return; }
+                    var (cok, cmsg) = Interlocking.SetCtc(creq.enabled.Value);
+                    Json(ctx, cok ? 200 : 409, new { ok = cok, message = cmsg, ctc = Interlocking.Ctc });
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -1244,6 +1255,7 @@ namespace DLE.Dispatch
         {
             modVersion = Main.ModEntry?.Info?.Version,
             lockEnabled = AssignmentStore.Instance.LockEnabled,
+            ctc = Interlocking.Ctc,
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
             dormantCars = Data.DleCarPool.Instance.DormantCount,
