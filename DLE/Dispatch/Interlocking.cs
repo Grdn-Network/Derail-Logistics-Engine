@@ -225,6 +225,86 @@ namespace DLE.Dispatch
             Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({placed} standing at a known switch, "
                 + $"{loose} loose), {skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered; "
                 + $"the mod reports direction {dirText}.");
+            // A world reload rebuilds this list, so a railway left under CTC has to be
+            // put back to stop or half of it would quietly go automatic again.
+            if (Ctc && _signals.Count > 0) HoldEverything();
+        }
+
+        /// <summary>
+        /// CTC (#176): every main signal held at stop until a dispatcher clears a road
+        /// through it. Off, signals run on the Signals mod's own automatic logic and a
+        /// crew can work the railway without dispatch; on, nothing moves that the board
+        /// has not authorised, which is the whole point of the seat.
+        /// </summary>
+        public static bool Ctc { get; private set; }
+
+        public static (bool ok, string message) SetCtc(bool on)
+        {
+            if (!SignalsLink.Available)
+                return (false, "the DV Signals mod is not loaded, so there are no signals to hold");
+            if (Ctc == on) return (true, on ? "CTC is already on" : "CTC is already off");
+            Ctc = on;
+            if (!on)
+            {
+                int freed = 0;
+                foreach (var s in _signals)
+                {
+                    if (_routes.ContainsKey(s.Id)) continue;
+                    try { SignalsLink.SetAutomaticFn?.Invoke(s.Id); freed++; } catch { }
+                }
+                Main.LogAlways($"[Interlocking] CTC off: {freed} signal(s) handed back to automatic.");
+                return (true, $"CTC off; {freed} signal(s) back on automatic");
+            }
+            var (held, marked) = HoldEverything();
+            return (true, $"CTC on; {held} signal(s) held at stop"
+                + (marked > 0 ? $", {marked} of them showing the manual marker" : ""));
+        }
+
+        /// <summary>
+        /// Put every signal not already carrying a road to stop. The aspect is tried on
+        /// its own first, because taking a signal to manual is what lights the white
+        /// marker lamp under the head and the owner would rather not see it; only the
+        /// ones that will not hold without it get switched to manual.
+        /// </summary>
+        private static (int held, int marked) HoldEverything()
+        {
+            int held = 0, marked = 0;
+            foreach (var s in _signals)
+            {
+                if (_routes.ContainsKey(s.Id)) continue;
+                if (HoldStop(s.Id)) held++;
+            }
+            var now = new Dictionary<string, SignalsLink.SignalInfo>(StringComparer.Ordinal);
+            foreach (var i in SignalsLink.All()) now[i.Id] = i;
+            foreach (var s in _signals)
+            {
+                if (_routes.ContainsKey(s.Id)) continue;
+                if (now.TryGetValue(s.Id, out var i)
+                    && string.Equals(i.Aspect, SignalsLink.AspectStop, StringComparison.Ordinal)) continue;
+                try { SignalsLink.SetManualFn?.Invoke(s.Id); } catch { }
+                if (HoldStop(s.Id)) { marked++; if (held < _signals.Count) held++; }
+            }
+            Main.LogAlways($"[Interlocking] CTC on: {held} signal(s) held at stop; "
+                + $"{marked} would not hold on aspect alone and went to manual (white marker lit).");
+            return (held, marked);
+        }
+
+        private static bool HoldStop(string id)
+        {
+            try { return SignalsLink.SetAspectFn?.Invoke(id, SignalsLink.AspectStop) ?? false; }
+            catch { return false; }
+        }
+
+        /// <summary>Give a signal back once its road ends: to the mod's own logic
+        /// normally, or straight back to stop while CTC holds the railway.</summary>
+        private static void Release(string id)
+        {
+            try
+            {
+                if (Ctc) HoldStop(id);
+                else SignalsLink.SetAutomaticFn?.Invoke(id);
+            }
+            catch (Exception ex) { Main.Log($"[Interlocking] releasing {id} failed: {ex.Message}"); }
         }
 
         public static object Payload()
@@ -291,7 +371,7 @@ namespace DLE.Dispatch
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
-            return new { signals = sigs, junctions = jn, routes = rts };
+            return new { signals = sigs, junctions = jn, routes = rts, ctc = Ctc };
         }
 
         /// <summary>Throw a switch from the board. The game's own event carries it to
@@ -396,10 +476,10 @@ namespace DLE.Dispatch
         public static (bool ok, string message) Cancel(string signalId)
         {
             if (!_routes.Remove(signalId)) return (false, "that signal is already on");
-            // Hand it straight back to the Signals mod rather than pinning a stop of ours.
-            try { SignalsLink.SetAutomaticFn?.Invoke(signalId); }
-            catch (Exception ex) { Main.Log($"[Interlocking] handing {signalId} back failed: {ex.Message}"); }
-            return (true, $"{signalId} back on automatic; switches released");
+            Release(signalId);
+            return (true, Ctc
+                ? $"{signalId} back to stop; switches released"
+                : $"{signalId} back on automatic; switches released");
         }
 
         /// <summary>Release a road once a train has run through it, the way a real one
@@ -418,7 +498,7 @@ namespace DLE.Dispatch
                 if (r.WasOccupied)
                 {
                     _routes.Remove(id);
-                    try { SignalsLink.SetAutomaticFn?.Invoke(id); } catch { }
+                    Release(id);
                     Main.Log($"[Interlocking] road off {id} released; the train is through.");
                 }
             }

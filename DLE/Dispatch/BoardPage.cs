@@ -271,8 +271,10 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
  <span class='pill pld' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='pill pal' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='tbdiv'></div>
+ <button class='lockbtn' id='bCtc' data-act='ctc'
+  title='CTC: every main signal held at stop until you clear a road through it. Off, signals run on their own automatic logic and a crew can work the railway without dispatch.'>CTC &middot; &hellip;</button>
  <button class='lockbtn' id='bLock' data-act='lock'
-  title='When ON, crews can only accept hauls assigned to them and Company Haul papers leave the station offices. Faxed booklets still work.'>LOCK &middot; &hellip;</button>
+  title='Director OFF stops new hauls being generated, sweeps the station office papers, and leaves crews only the hauls dispatch has assigned them. Faxed booklets still work.'>DIRECTOR &middot; &hellip;</button>
 </header>
 <div id='stage'>
  <div id='surface'>
@@ -432,7 +434,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;'}[c]));
-let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
+let options=[],lockOn=false,ctcOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
 // Shell state: which lens, which surface inside Logistics, what the inspector shows.
 let lens='logi',surface='map',dockMode='hint',haulSel=null;
 // Job maker state: the picked cars, the compatible-car set for the chosen cargo,
@@ -556,8 +558,13 @@ async function refresh(){
  if(last.crews!==cKey){last.crews=cKey;
   $('crewNames').innerHTML=(crews||[]).map(n=>`<option>${esc(n)}</option>`).join('')}
  lockOn=!!state.lockEnabled;
- $('bLock').textContent='LOCK '+(lockOn?'ON':'OFF');
+ // The lock is what pauses the director, so the button says so: locked means the
+ // director is off and the only work on offer is what dispatch has handed out.
+ $('bLock').textContent='DIRECTOR '+(lockOn?'OFF':'ON');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
+ ctcOn=!!state.ctc;
+ $('bCtc').textContent='CTC '+(ctcOn?'ON':'OFF');
+ $('bCtc').className='lockbtn'+(ctcOn?' on':'');
  $('chipVer').textContent='v'+(state.modVersion||'?');
  $('chipStations').textContent=state.stationCount+' stations';
  $('chipJobs').textContent=state.jobCount+' hauls';
@@ -914,9 +921,13 @@ function renderRailsDyn(){
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
    const d=smooth(railFan(q,seg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
- // Switches: a mark you can click to throw, ringed amber while a road holds it.
- // Every leg out of a switch is drawn: the one it is set to stays solid, the others
- // grey so a dispatcher can see there IS a connection and exactly where it goes.
+ // Switches: a black disc with the track lines running THROUGH it (owner ruling), the
+ // leg it is set to solid white and the others greyed so a dispatcher can see there IS
+ // a connection and exactly where it goes. The disc goes down first and the legs are
+ // drawn over it, which is why this is in three passes rather than one.
+ const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),railSize(20));
+ for(const j of jItems)
+  h+=`<circle cx='${j.p[0].toFixed(1)}' cy='${j.p[1].toFixed(1)}' r='${railSize(14)}' fill='#07080e'/>`;
  for(const j of (il.junctions||[])){
   for(const leg of (j.legs||[])){
    const q=[];
@@ -926,14 +937,13 @@ function renderRailsDyn(){
    // The trunk is leg -1 and is always connected; only the branches take turns.
    const set=leg.branch<0||leg.branch===j.branch;
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${railSize(set?10:7)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
- const jItems=declutter((il.junctions||[]).map(j=>({...j,p:railPoint(j.x,j.z,j.side,j.dx,j.dz)})),railSize(20));
  for(const j of jItems){
   const q=j.p;
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(13)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(9)}' fill='#07080e' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(3)}'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(21)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(14)}' fill='none' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(3)}'/>
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
@@ -1457,8 +1467,12 @@ const actions={
   if(surface==='yard'&&haulSel){setSurface('map')}
   syncDock();renderDockHaul();drawNet();last.jobs=null;refresh()},
  dockClose:()=>{dockMode='hint';haulSel=null;netSel=null;drawNet();syncDock()},
+ ctc:async()=>{const r=await j('/api/v1/ctc','PUT',{enabled:!ctcOn});
+  toast(r.message||(r.ok?'CTC changed':'CTC refused'),!r.ok);
+  try{lastInter=await jget('/api/v1/interlocking')}catch(e){}
+  renderRailsDyn();refresh()},
  lock:async()=>{const r=await j('/api/v1/lock','PUT',{enabled:!lockOn});
-  toast('Assignment lock is now '+(r.lockEnabled?'ON':'OFF')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
+  toast('The director is now '+(r.lockEnabled?'OFF':'ON')+(r.purged?'; '+r.purged+' open booklet(s) expired, supply returned':''));refresh()},
  spawnHaul:async()=>{
   if(spawnBusy)return;spawnBusy=true;try{
   const o=$('hOrigin').value,d=$('hDest').value,c=$('hCargo').value;
