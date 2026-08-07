@@ -66,6 +66,15 @@ namespace DLE.Dispatch
         private static string EndKey(RailTrack t, bool first) => t.GetInstanceID() + (first ? ":0" : ":1");
 
         /// <summary>
+        /// Which of the Signals mod's types actually bound a block, and so belong on a
+        /// dispatcher's panel. Distants only repeat what the next main signal is already
+        /// saying, and shunting signals live inside yard limits this view hands to the
+        /// station's own screen.
+        /// </summary>
+        private static bool IsBlockSignal(string type) =>
+            string.Equals(type, "Mainline", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// One scan per world: number the junctions, and hang a signal off each one's
         /// facing approach. Junctions inside a station belong to that yard's own view,
         /// so they get no signal here.
@@ -150,10 +159,16 @@ namespace DLE.Dispatch
                 dist = bestD < float.MaxValue ? Mathf.Sqrt(bestD) : float.MaxValue;
                 return best;
             }
-            int resolved = 0;
+            int resolved = 0, skipped = 0;
             foreach (var info in SignalsLink.All())
             {
                 if (info?.Id == null) continue;
+                // Main signals only (owner ruling). Distants merely repeat the signal
+                // ahead and form no block of their own, and shunting signals govern
+                // moves inside yard limits, which this view does not draw. Carrying them
+                // would clutter the panel and, worse, stop a road short at something
+                // that never was a block boundary.
+                if (!IsBlockSignal(info.Type)) { skipped++; continue; }
                 var track = NearestRail(info.X, info.Z, out var dist);
                 if (dist > MatchRadius) track = null;
                 bool towardOut = !string.Equals(info.Direction, "In", StringComparison.OrdinalIgnoreCase);
@@ -175,8 +190,8 @@ namespace DLE.Dispatch
                 try { BuildStubs(_junctions[i], list); } catch { }
                 if (list.Count > 0) _stubs[i] = list;
             }
-            Main.LogAlways($"[Interlocking] {_signals.Count} signal(s) from the Signals mod ({resolved} matched to a rail by position), "
-                + $"{_junctions.Count} junction(s) numbered.");
+            Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({resolved} matched to a rail by position), "
+                + $"{skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered.");
         }
 
         public static object Payload()
