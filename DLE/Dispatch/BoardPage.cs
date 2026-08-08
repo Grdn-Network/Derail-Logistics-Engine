@@ -852,13 +852,14 @@ let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
 // four metres, which is invisible at any scale a dispatcher can use, so the board
 // spreads it on purpose: geography decides WHERE the pair runs, this decides that you
 // can see and click both of them.
-const RAIL_FAN=()=>22*RAIL_G;
-// The scaling law (owner ruling): zooming OUT never shrinks a glyph, zooming IN grows
-// them a little, up to a cap. Far out, everything holds its screen size so the map
-// stays readable; close in, the throat under the cursor turns chunky instead of the
-// marks sitting spindly on fat empty space.
-function railZ(){return Math.min(1.6,Math.max(1,Math.pow(7/RAIL_MPP,0.3)))}
-function railSize(k){return k*RAIL_G*railZ()}
+const RAIL_FAN=()=>railSize(22);
+// Sizes are TRUE TO WORLD (owner ruling): everything is drawn the size it has at
+// 1.0 m/px with glyphs 1.0x, and that size belongs to the railway, not the screen.
+// Zoom is just a camera. Pull away and the marks shrink with the world; close in and
+// they grow with it; nothing ever changes size relative to the track it stands on.
+// Screen-anchored glyphs were the scaling the owner kept seeing: zoom out and every
+// icon ballooned against the shrinking world until the map was nothing but icons.
+function railSize(k){return k*RAIL_G/RAIL_MPP}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.3,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -927,9 +928,9 @@ function renderRailsStatic(){
  let tp='';
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
-  tp+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-railSize(26)).toFixed(1)}' text-anchor='middle'
-   font-size='${railSize(26)}' font-weight='700' fill='${SC[s.id]||'#7f879c'}'
-   stroke='#0d0f1a' stroke-width='${railSize(4)}' paint-order='stroke'>${esc(s.id)}</text>`}
+  tp+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-10).toFixed(1)}' text-anchor='middle'
+   font-size='${(26*RAIL_G).toFixed(1)}' font-weight='700' fill='${SC[s.id]||'#7f879c'}'
+   stroke='#0d0f1a' stroke-width='${(4*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(s.id)}</text>`}
  $('railsTop').innerHTML=tp}
 function renderRailsDyn(){
  const g=$('railsDyn');if(!g)return;
@@ -958,7 +959,8 @@ function renderRailsDyn(){
  (il.junctions||[]).forEach((j,i)=>{
   // A plain track join is not a switch: nothing to throw, nothing to draw.
   if(j.branches<2)return;
-  const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
+  // True position: the fan ramps to zero at a junction, so the rails arrive HERE.
+  const p=rxy(j.x,j.z);
   marks.push({kind:'jn',id:j.id,j,click:true,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
@@ -997,13 +999,13 @@ function renderRailsDyn(){
   const toQ=l=>{const q=[];for(let i=0;i<l.pts.length;i+=2)q.push(rxy(l.pts[i],l.pts[i+1]));return q};
   // The arm is a length of TRACK, clamped in screen terms at both ends: never gone
   // when zoomed out, never a thicket when zoomed in.
-  const armPx=Math.max(railSize(40),Math.min(railSize(300),300/RAIL_MPP));
+  const armPx=railSize(110);
   // Branches NOT set: dim, and PARTED from the switch by a gap, the way a panel shows
   // a route that is not made. They only appear once the zoom gives them room.
   for(const leg of legs){
    if(leg.branch<0||leg.branch===j.branch)continue;
    const q=toQ(leg);if(q.length<2)continue;
-   const cut=skipAlong(railPath(clip(q,armPx*0.85),leg.side||0),railSize(17));
+   const cut=skipAlong(railPath(clip(q,railSize(80)),leg.side||0),railSize(14));
    if(pathLen(cut)<railSize(9))continue;
    h+=`<polyline points='${cut.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}' fill='none' stroke='#5f6880' stroke-width='${railSize(4.5)}' stroke-linecap='butt' stroke-linejoin='round'/>`}
   // The route that IS made: one bright line from the trunk THROUGH the switch onto the
@@ -1015,9 +1017,16 @@ function renderRailsDyn(){
   for(const leg of [trunk,setLeg]){
    if(!leg)continue;
    const q=toQ(leg);if(q.length<2)continue;
-   const d=railPath(clip(q,leg===setLeg?armPx:armPx*0.55),leg.side||0)
+   const d=railPath(clip(q,leg===setLeg?armPx:railSize(60)),leg.side||0)
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(7.5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(7.5)}' stroke-linecap='round' stroke-linejoin='round'/>`}
+  // The dot (owner ask): one green dot ON the branch the switch is set to, just off
+  // the points. Whatever else the eye misses, the dot names the side.
+  if(setLeg){
+   const qd=toQ(setLeg);
+   if(qd.length>1){
+    const w=walkAlong(railPath(clip(qd,armPx),setLeg.side||0),railSize(34));
+    if(w)h+=`<circle cx='${w[0][0].toFixed(1)}' cy='${w[0][1].toFixed(1)}' r='${railSize(7)}' fill='#57c78e' stroke='#0d0f1a' stroke-width='${railSize(2)}'/>`}}}
  for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`;
@@ -1144,11 +1153,19 @@ function nearestMark(e){
 function railPath(q,side){return smooth(railFan(q,side))}
 function railFan(q,side){
  if(!side||q.length<2)return q;
+ const cum=[0];
+ for(let i=1;i<q.length;i++)cum.push(cum[i-1]+Math.hypot(q[i][0]-q[i-1][0],q[i][1]-q[i-1][1]));
+ const total=cum[q.length-1],R=railSize(55);
  const out=[];
  for(let k=0;k<q.length;k++){
   const a=q[Math.max(0,k-1)],b=q[Math.min(q.length-1,k+1)];
   const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
-  out.push([q[k][0]-dy/L*RAIL_FAN()*side, q[k][1]+dx/L*RAIL_FAN()*side]);}
+  // The offset ramps to zero at both ends, because a rail's ends ARE its junctions:
+  // the drawn line must land exactly where the switch and the next rail sit, or the
+  // double track floats disconnected beside the turnout it belongs to.
+  const t=Math.min(1,Math.min(cum[k],total-cum[k])/R);
+  const f=RAIL_FAN()*side*t;
+  out.push([q[k][0]-dy/L*f,q[k][1]+dx/L*f]);}
  return out}
 // A switch or signal standing on a fanned rail has to move with it, or it sits on the
 // centreline between the two tracks. The server sends the rail's heading in world
