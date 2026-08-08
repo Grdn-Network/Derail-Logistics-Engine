@@ -332,7 +332,6 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span class='k'>Size</span>
      <button class='mini' data-act='railZoom' data-id='out' title='fit more railway on screen'>&minus;</button>
      <button class='mini' data-act='railZoom' data-id='in' title='fewer kilometres, everything bigger'>+</button>
-     <button class='mini' data-act='railSchem' id='bSchem' title='Switch between the real railway and a straightened, opened out one'>&hellip;</button>
      <span class='k' style='margin-left:6px'>Glyphs</span>
      <button class='mini' data-act='railGlyph' data-id='down' title='smaller marks'>&minus;</button>
      <button class='mini' data-act='railGlyph' data-id='up' title='bigger marks'>+</button>
@@ -610,7 +609,6 @@ async function refresh(){
   // The map is fetched once and kept. Loading a second save rebuilds the same railway
   // under a possibly different world origin, so the copy in hand can be stale while
   // every id still matches. The server counts its rebuilds; a change means refetch.
-  if(!railWarp&&lastInter&&lastInter.junctions){buildWarp();renderRailsStatic()}
   if(lastInter&&railsGeo.epoch!=null&&lastInter.epoch!=null
    &&lastInter.epoch!==railsGeo.epoch&&lastInter.epoch!==railsEpochSeen){
    // Remembering which epoch was chased stops a refetch every five seconds forever
@@ -836,7 +834,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railNodes=[],railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsGeo=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -848,9 +846,6 @@ const RAIL_XS=2.0;
 // Set them once and then pan; nothing here changes while you work.
 let RAIL_MPP=+localStorage.getItem('dleRailMpp')||7.0;
 let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
-// Schematic on by default: a railway drawn in 45s is what a dispatcher can read at a
-// glance. True geography is one click away for anyone who wants to see the real shape.
-let RAIL_SCHEM=localStorage.getItem('dleRailSchem')!=='0';
 // Double track must read as TWO tracks. Nine pixels each way is eighteen apart, but
 // every rail carries a sixteen pixel casing, so the casings all but touched and a
 // double track section drew as one fat line with a hairline down it. Real spacing is
@@ -859,9 +854,6 @@ let RAIL_SCHEM=localStorage.getItem('dleRailSchem')!=='0';
 // can see and click both of them.
 const RAIL_FAN=()=>22*RAIL_G;
 function railSize(k){return k*RAIL_G}
-function syncSchemBtn(){const b=$('bSchem');if(b){b.textContent=RAIL_SCHEM?'schematic':'geographic';
- b.title=RAIL_SCHEM?'Straightened into 45s and opened out at the switches; click for the real railway'
-  :'Real curves, real positions, nothing moved; zoom in to work a throat'}}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -870,7 +862,7 @@ function setRailScale(mpp,glyph){
  if(!railsGeo)return;
  railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS+railSize(260);
  railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP+railSize(260);
- buildWarp();renderRailsStatic();centreRails();renderRailsDyn();
+ renderRailsStatic();centreRails();renderRailsDyn();
  const l=$('railScaleLabel');
  if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x';}
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
@@ -887,11 +879,10 @@ async function loadRails(){
   for(const e of (g.legs||[]))railLegs[e.id]=e.legs;
   railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS+railSize(260);
   railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP+railSize(260);
-  buildWarp();renderRailsStatic();
+  renderRailsStatic();
   centreRails();
   renderRailsDyn();
   const l=$('railScaleLabel');
-  syncSchemBtn();
   if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x'}
  catch(e){toast('track map failed to load',true)}
  finally{railsLoading=false}}
@@ -914,37 +905,26 @@ function renderRailsStatic(){
  // in SCREEN space: the sideways stretch means a world perpendicular is not a screen
  // perpendicular, so the shift has to be computed after projection.
  const paths=[];
- // Rails stop at the yard boundary, which left every station bubble floating in open
- // ground with its approaches ending in mid air. Run each approach into its bubble
- // instead: the bubble is drawn over the top, so the join is hidden and the railway
- // reads as one connected thing rather than fragments around a dot.
- const ST=railsGeo.stations||[];
- const nearSt=(x,z)=>{let b=null,bd=680*680;
-  for(const s of ST){const d=(s.x-x)*(s.x-x)+(s.z-z)*(s.z-z);if(d<bd){bd=d;b=s}}
-  return b};
  for(const ln of railsGeo.lines){
   const a=ln.pts||ln,side=ln.side||0;
   const w=[];
   for(let i=0;i<a.length;i+=2)w.push([a[i],a[i+1]]);
-  if(w.length>1){
-   const s0=nearSt(w[0][0],w[0][1]);if(s0)w.unshift([s0.x,s0.z]);
-   const s1=nearSt(w[w.length-1][0],w[w.length-1][1]);if(s1)w.push([s1.x,s1.z])}
-  const q=w.map(p=>wxy(p[0],p[1]));
+  const q=w.map(p=>rxy(p[0],p[1]));
   paths.push({d:railPath(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='${p.side?'#e4eaf8':'#aab4cd'}' stroke-width='${railSize(p.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  g.innerHTML=h;
- // Bubbles go in their own layer ABOVE the traffic, or signals and switches paint over
- // the station letters and turn them to mush.
+ // No station bubbles (owner ruling): the whole railway is drawn now, yards included,
+ // and a filled disc over a yard throat hides the very track you would be working. The
+ // name stays as a plain label so you still know where you are.
  let tp='';
  for(const s of (railsGeo.stations||[])){
-  const q=wxy(s.x,s.z);
-  tp+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(46)}' fill='${SC[s.id]||'#4a4e60'}' stroke='#0d0f1a' stroke-width='${railSize(6)}'/>
-   <text x='${q[0].toFixed(1)}' y='${(q[1]+railSize(9)).toFixed(1)}' text-anchor='middle' font-size='${railSize(26)}' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
-   <title>${esc(s.id)}: open the yard view</title></g>`}
+  const q=rxy(s.x,s.z);
+  tp+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-railSize(26)).toFixed(1)}' text-anchor='middle'
+   font-size='${railSize(26)}' font-weight='700' fill='${SC[s.id]||'#7f879c'}'
+   stroke='#0d0f1a' stroke-width='${railSize(4)}' paint-order='stroke'>${esc(s.id)}</text>`}
  $('railsTop').innerHTML=tp}
 function renderRailsDyn(){
  const g=$('railsDyn');if(!g)return;
@@ -959,7 +939,7 @@ function renderRailsDyn(){
  for(const r of (il.routes||[])){
   for(const seg of (r.poly||[])){
    const q=[];
-   for(let i=0;i<seg.pts.length;i+=2)q.push(wxy(seg.pts[i],seg.pts[i+1]));
+   for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
    const d=railPath(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // WHERE EVERY MARK GOES. True positions first, then one spreading pass over the lot,
@@ -971,10 +951,8 @@ function renderRailsDyn(){
  const jById={};for(const j of (il.junctions||[]))jById[j.id]=j;
  const marks=[];
  (il.junctions||[]).forEach((j,i)=>{
-  // The warp was built from these, so this IS where the railway now bends to.
-  const n=railNodes[i];
-  const p=n?[n.x,n.y]:railPoint(j.x,j.z,j.side,j.dx,j.dz);
-  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,fix:RAIL_SCHEM,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
+  const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
+  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
   // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
@@ -986,17 +964,18 @@ function renderRailsDyn(){
   let q=null,u=[1,0];
   const leg=j&&(railLegs[j.id]||[]).find(l=>l.branch===sg.leg);
   if(leg){
-   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(wxy(leg.pts[i],leg.pts[i+1]));
+   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
    // Far enough out that the triangle clears the switch mark and its lock ring.
    const w=walkAlong(railPath(pts,leg.side||0),railSize(52)+sg.slot*railSize(34));
    if(w){q=w[0];u=w[1]}}
   // A signal with no leg to stand on falls back to its own coordinates, which
   // the server only sends in that case.
-  if(!q){if(sg.x==null)continue;q=wxy(sg.x,sg.z)}
+  if(!q){if(sg.x==null)continue;q=rxy(sg.x,sg.z)}
   if(sg.inbound)u=[-u[0],-u[1]];
   marks.push({kind:'sig',id:sg.id,sg,u,click:true,x:q[0],y:q[1],ax:q[0],ay:q[1]})}
- // Only the signals still have anything to settle; the switches are already placed.
- spread(marks,railSize(31),railSize(44));
+ // A nudge, not a rearrangement: enough that two marks on one spot can both be hit,
+ // little enough that nothing is anywhere it is not. Zoom does the rest.
+ spread(marks,railSize(30),railSize(18));
  railMarks=marks;
  const jItems=marks.filter(m=>m.kind==='jn');
  // Switches: a black disc with the track lines running THROUGH it (owner ruling), the
@@ -1012,13 +991,18 @@ function renderRailsDyn(){
    // The one thing a dispatcher needs to see is which branch the points lie on.
    if(leg.branch<0)continue;
    const q=[];
-   for(let i=0;i<leg.pts.length;i+=2)q.push(wxy(leg.pts[i],leg.pts[i+1]));
+   for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
    const set=leg.branch===j.branch;
    // Short. Measured at the live leg length, arms came to 153 PERCENT of the total
    // length of the railway itself, which is why the map read as a thicket however the
    // colours were tuned. An arm is a blade on the points, not a piece of route.
-   const d=railPath(clip(q,set?railSize(46):railSize(32)),leg.side||0)
+   // The arm is a length of TRACK, not a length of screen. Fixed pixels looked like a
+   // bar sitting inside the switch mark once zoomed in, which is exactly why the way a
+   // switch is set could not be read. Clamped at both ends so it never disappears and
+   // never turns back into the thicket.
+   const armPx=Math.max(railSize(40),Math.min(railSize(320),300/RAIL_MPP));
+   const d=railPath(clip(q,set?armPx:armPx*0.6),leg.side||0)
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#39404f'}' stroke-width='${railSize(set?9:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  for(const m of jItems){
@@ -1035,13 +1019,13 @@ function renderRailsDyn(){
   if(m.kind!=='sig')continue;
   const sg=m.sg,q=[m.x,m.y],u=m.u;
   const a=sg.aspect||'';
-  const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
+  const col=!sg.on?'#727a90':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
   const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.jid>=0?'':' - not standing at a switch this board knows'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
    ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
-   <polygon points='${triAt(q,u,sg.on?1:0.62)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
+   <polygon points='${triAt(q,u,sg.on?1:0.82)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -1125,111 +1109,12 @@ function nearestMark(e){
   if(d<bd){bd=d;best=k}}
  return best}
 // EVERY rail on this map goes through here: the lines, the cleared roads, the switch
-// legs, and the walk that decides where a signal stands. If they did not share it, a
+// arms, and the walk that decides where a signal stands. If they did not share it, a
 // green road would sit beside its own rail and a signal would float off its leg.
-//
-// Schematic mode straightens the railway into 45 degree pieces, the way a control panel
-// draws one. Real curves are honest but they are also why a compact section is
-// unreadable without winding the zoom up: geography is kept for what it is good for,
-// which is deciding what runs where and detecting double track, and thrown away for
-// what it is bad at, which is being legible at a glance.
-function railPath(q,side){
- // The spread goes on FIRST and the straightening second. The other way round, the
- // perpendicular offset at each elbow is the average of two directions, which tilts
- // the segment off 45 again: exactly the double track lines came out crooked.
- return RAIL_SCHEM?octi(railFan(q,side)):smooth(railFan(q,side))}
-// Douglas-Peucker: the few points that carry the shape, dropping the wiggle between.
-function simplify(q,tol){
- if(q.length<3)return q.slice();
- const keep=new Array(q.length).fill(false);
- keep[0]=keep[q.length-1]=true;
- const stack=[[0,q.length-1]];
- while(stack.length){
-  const se=stack.pop(),a=q[se[0]],b=q[se[1]];
-  const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy;
-  let best=-1,bd=tol;
-  for(let i=se[0]+1;i<se[1];i++){
-   let t=L2?((q[i][0]-a[0])*dx+(q[i][1]-a[1])*dy)/L2:0;
-   t=t<0?0:t>1?1:t;
-   const d=Math.hypot(q[i][0]-(a[0]+dx*t),q[i][1]-(a[1]+dy*t));
-   if(d>bd){bd=d;best=i}}
-  if(best>=0){keep[best]=true;stack.push([se[0],best],[best,se[1]])}}
- return q.filter((_,i)=>keep[i])}
-// Straighten to horizontals, verticals and true diagonals. Both ENDS are pinned, which
-// is what keeps the network joined up: a rail still starts and finishes exactly where it
-// met its neighbours. Only the shape between them is redrawn, as one straight run into
-// one 45 degree elbow. The turning points snap to a grid so two rails that run together
-// snap the same way and stay parallel instead of drifting apart.
-function octi(q){
- if(q.length<2)return q;
- const tol=railSize(13),grid=railSize(11);
- const key=simplify(q,tol);
- for(let i=1;i<key.length-1;i++)
-  key[i]=[Math.round(key[i][0]/grid)*grid,Math.round(key[i][1]/grid)*grid];
- const out=[key[0]];
- for(let i=1;i<key.length;i++){
-  const a=out[out.length-1],b=key[i];
-  const dx=b[0]-a[0],dy=b[1]-a[1],ax=Math.abs(dx),ay=Math.abs(dy);
-  if(ax>ay)out.push([a[0]+Math.sign(dx)*(ax-ay),a[1]]);
-  else if(ay>ax)out.push([a[0],a[1]+Math.sign(dy)*(ay-ax)]);
-  out.push(b)}
- return out}
-// A THROAT IS NOT DRAWN AT ITS REAL SIZE.
-//
-// This railway is fifteen kilometres across and carries 221 switches on the open line.
-// At any scale where the whole thing is on screen, a junction throat is a few pixels
-// wide, and no glyph size fixes that: make the marks bigger and they overlap, make them
-// smaller and you cannot see them. That is why every scale setting felt wrong. Geography
-// and legibility are simply asking for different pictures.
-//
-// So the switches are pushed apart until each has room, and then the RAILWAY IS BENT TO
-// FOLLOW THEM. Every line, arm, road and signal is drawn through the same displacement
-// field, so nothing can come adrift from anything else: a switch keeps its rails, a road
-// keeps its track, a signal keeps its leg. Empty countryside has no switches in it and so
-// is left exactly where it was; only the crowded places open up.
-let railWarp=null;
-function buildWarp(){
- railWarp=null;railNodes=[];
- // Geographic mode means GEOGRAPHIC. Real curves, real positions, nothing shifted, so
- // the picture can be trusted for routing, distances and eventually speeds and grades.
- // Zoom is what makes a throat workable there, not moving the railway about.
- if(!RAIL_SCHEM)return;
- const il=lastInter;
- if(!il||!il.junctions||!il.junctions.length||!railsB)return;
- const nodes=il.junctions.map(j=>{const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
-  return {x:p[0],y:p[1],ax:p[0],ay:p[1]}});
- spread(nodes,railSize(46),railSize(120));
- railNodes=nodes;
- // Index the switches so warping a point is a look at its neighbours, not a search over
- // the whole railway.
- const reach=railSize(150);
- const grid=new Map();
- for(const n of nodes){
-  const k=Math.floor(n.ax/reach)+':'+Math.floor(n.ay/reach);
-  let b=grid.get(k);if(!b)grid.set(k,b=[]);b.push(n)}
- railWarp={grid,reach}}
-// Inverse distance weighting, computed per point rather than sampled off a grid. That
-// matters more than it sounds: a grid smooths the field over its own cell size, and the
-// first version of this left switches up to 71px off their own rails because of it. With
-// the weight taken at the point itself, a rail arriving at a switch is dominated by that
-// switch's own displacement by three orders of magnitude, so it lands on it.
-function warpPt(p){
- const W=railWarp;
- if(!W)return p;
- const R=W.reach,cx=Math.floor(p[0]/R),cy=Math.floor(p[1]/R);
- let sw=0,sx=0,sy=0;
- for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
-  const b=W.grid.get((cx+ax)+':'+(cy+ay));
-  if(!b)continue;
-  for(const n of b){
-   const dx=p[0]-n.ax,dy=p[1]-n.ay,d2=dx*dx+dy*dy;
-   if(d2>R*R)continue;
-   const wt=1/(d2+1);
-   sw+=wt;sx+=wt*(n.x-n.ax);sy+=wt*(n.y-n.ay)}}
- return sw>0?[p[0]+sx/sw,p[1]+sy/sw]:p}
-// Project a world point and put it through the warp in one step, so no caller can
-// accidentally draw something in the unbent world.
-function wxy(x,z){return warpPt(rxy(x,z))}
+// Geographic, and only geographic: real curves, real positions, nothing moved. The
+// schematic and the field that opened out throats are gone (owner ruling); zoom is what
+// makes a throat workable now, and it does not lie about where anything is.
+function railPath(q,side){return smooth(railFan(q,side))}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -1255,7 +1140,7 @@ function railPoint(x,z,side,dirX,dirZ){
 // reads without hovering (owner ruling, and how the reference panel does it).
 function triAt(q,u,k){
  const ux=u[0],uy=u[1],z=k||1;
- const px=-uy,py=ux,L=railSize(18)*z,W=railSize(11)*z;
+ const px=-uy,py=ux,L=railSize(21)*z,W=railSize(13)*z;
  return [[q[0]+ux*L,q[1]+uy*L],
          [q[0]-ux*railSize(5)*z+px*W,q[1]-uy*railSize(5)*z+py*W],
          [q[0]-ux*railSize(5)*z-px*W,q[1]-uy*railSize(5)*z-py*W]]
@@ -1670,8 +1555,6 @@ const actions={
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
  railZoom:(id,el)=>setRailScale(RAIL_MPP*(el.dataset.id==='in'?0.7:1/0.7),RAIL_G),
  railGlyph:(id,el)=>setRailScale(RAIL_MPP,RAIL_G*(el.dataset.id==='up'?1.25:0.8)),
- railSchem:()=>{RAIL_SCHEM=!RAIL_SCHEM;localStorage.setItem('dleRailSchem',RAIL_SCHEM?'1':'0');
-  syncSchemBtn();buildWarp();renderRailsStatic();renderRailsDyn()},
  throwSwitch:async(id,el)=>{
   const r=await j('/api/v1/junctions/'+el.dataset.id+'/throw','POST');
   toast(r.message||(r.ok?'switch thrown':'throw refused'),!r.ok);
