@@ -204,29 +204,41 @@ namespace DLE.Dispatch
                 seen.Add(tc.trainset);
                 var cars = tc.trainset.cars;
                 if (cars == null || cars.Count == 0) continue;
-                var head = cars[0];
-                var tail = cars[cars.Count - 1];
-                if (head == null || tail == null) continue;
-                var a = head.transform.position - move;
-                var b = tail.transform.position - move;
-                bool loco = false;
-                string jobId = null;
+                // Every car for itself (owner ruling, the RD way): true position, true
+                // length, its own heading, its own job. The board draws the vehicle,
+                // not a line between two ends.
+                var carsOut = new List<object>(cars.Count);
                 foreach (var c in cars)
                 {
                     if (c == null) continue;
-                    if (c.IsLoco) loco = true;
-                    if (jobId == null && c.logicCar != null && jobsManager != null)
+                    var p = c.transform.position - move;
+                    var f = c.transform.forward;
+                    string jid = null;
+                    if (c.logicCar != null && jobsManager != null)
                     {
                         var j = jobsManager.GetJobOfCar(c.logicCar);
-                        if (j != null) jobId = j.ID;
+                        if (j != null) jid = j.ID;
                     }
+                    float len = 20f;
+                    try { if (c.logicCar != null) len = c.logicCar.length; } catch { }
+                    string type = null;
+                    try { type = c.carLivery != null ? c.carLivery.id : null; } catch { }
+                    string cid = null;
+                    try { cid = c.ID; } catch { }
+                    carsOut.Add(new
+                    {
+                        x = (float)Math.Round(p.x, 1),
+                        z = (float)Math.Round(p.z, 1),
+                        dx = (float)Math.Round(f.x, 2),
+                        dz = (float)Math.Round(f.z, 2),
+                        len = (float)Math.Round(len, 1),
+                        loco = c.IsLoco,
+                        id = cid,
+                        type,
+                        job = jid,
+                    });
                 }
-                consists.Add(new
-                {
-                    x1 = (float)Math.Round(a.x, 1), z1 = (float)Math.Round(a.z, 1),
-                    x2 = (float)Math.Round(b.x, 1), z2 = (float)Math.Round(b.z, 1),
-                    n = cars.Count, loco, jobId
-                });
+                if (carsOut.Count > 0) consists.Add(new { cars = carsOut });
             }
 
             int[] branches = null;
