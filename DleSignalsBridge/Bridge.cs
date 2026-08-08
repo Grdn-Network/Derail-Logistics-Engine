@@ -16,17 +16,55 @@ namespace DLE.Dispatch
     /// </summary>
     public static class SignalsBridge
     {
+        // The full read is EXPENSIVE (1154 signals through the API with position math),
+        // and the websocket push was paying it every second on the game thread: 43ms a
+        // tick on the owner's lag meter. The list is built once and kept fresh by the
+        // Signals mod's own change events instead, so a read is a cached list and an
+        // aspect change is an O(1) update.
+        private static List<SignalsLink.SignalInfo> _cache;
+        private static Dictionary<string, SignalsLink.SignalInfo> _byId;
+        private static bool _hooked;
+
         public static void Init()
         {
             SignalsLink.GetAllFn = GetAll;
             SignalsLink.SetAspectFn = SetAspect;
             SignalsLink.SetAutomaticFn = id => SetMode(id, SignalMode.Automatic);
             SignalsLink.SetManualFn = id => SetMode(id, SignalMode.Manual);
+            try
+            {
+                SignalsAPI.Loaded += () => { _cache = null; Hook(); };
+                SignalsAPI.Unloaded += () => { _cache = null; _hooked = false; };
+                if (SignalsAPI.Instance != null) Hook();
+            }
+            catch { }
+        }
+
+        private static void Hook()
+        {
+            if (_hooked || SignalsAPI.Instance == null) return;
+            _hooked = true;
+            SignalsAPI.Instance.SignalAspectChanged += st =>
+            {
+                if (st == null || _byId == null || !_byId.TryGetValue(st.Id, out var si)) return;
+                si.Aspect = st.CurrentAspectId;
+                si.IsOn = st.IsOn;
+                si.Manual = st.Mode == SignalMode.Manual;
+                SignalsLink.Version++;
+            };
+            SignalsAPI.Instance.SignalModeChanged += (id, mode) =>
+            {
+                if (_byId == null || !_byId.TryGetValue(id, out var si)) return;
+                si.Manual = mode == SignalMode.Manual;
+                SignalsLink.Version++;
+            };
         }
 
         private static List<SignalsLink.SignalInfo> GetAll()
         {
+            if (_cache != null) return _cache;
             var outp = new List<SignalsLink.SignalInfo>();
+            var byId = new Dictionary<string, SignalsLink.SignalInfo>(StringComparer.Ordinal);
             IReadOnlyList<SignalState> list;
             try { list = SignalsAPI.GetAllSignals(); }
             catch { return outp; }
@@ -36,7 +74,7 @@ namespace DLE.Dispatch
             {
                 if (s == null) continue;
                 var p = s.Position - move;
-                outp.Add(new SignalsLink.SignalInfo
+                var si = new SignalsLink.SignalInfo
                 {
                     Id = s.Id,
                     X = (float)Math.Round(p.x, 1),
@@ -49,8 +87,14 @@ namespace DLE.Dispatch
                     TrackId = s.TrackId,
                     YardId = s.YardId,
                     JunctionId = Convert.ToString(s.JunctionId),
-                });
+                };
+                outp.Add(si);
+                if (!byId.ContainsKey(si.Id)) byId[si.Id] = si;
             }
+            _cache = outp;
+            _byId = byId;
+            Hook();
+            SignalsLink.Version++;
             return outp;
         }
 

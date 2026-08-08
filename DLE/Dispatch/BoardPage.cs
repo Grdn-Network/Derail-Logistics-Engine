@@ -509,6 +509,9 @@ function unpaidPill(x){
  return x.unpaid&&!x.logi&&x.state!=='Available'&&x.loadedCars>0
   ?` <span class='pill pun' title='Relocating received goods; delivery pays nothing'>unpaid</span>`:''}
 // ── lens / surface switching: Lens > Surface > Inspector, one back ───────
+// The inspector dock shows in Logistics always, and in Clearance whenever a booklet
+// is open (owner ask: clicking a booklet from the clearance map pops it on the right).
+function dockVis(){$('dock').classList.toggle('hidden',lens!=='logi'&&!(lens==='rails'&&haulSel))}
 function setLens(l){lens=l;
  $('tabLogi').classList.toggle('on',l==='logi');
  $('tabRails').classList.toggle('on',l==='rails');
@@ -519,7 +522,7 @@ function setLens(l){lens=l;
  $('surfRails').classList.toggle('on',l==='rails');
  $('surfFleet').classList.toggle('on',l==='fleet');
  $('surfLog').classList.toggle('on',l==='log');
- $('dock').classList.toggle('hidden',l!=='logi');
+ dockVis();
  if(l==='rails')loadRails();
  renderStationBar();
  syncDock()}
@@ -1034,12 +1037,10 @@ function renderRailsDyn(){
   marks.push({kind:'jn',id:j.id,j,click:showSw,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
-  // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
-  // and the one on whichever branch the points are set to. Both branch signals drawn
-  // together is illegible and pointless, since a shallow turnout puts them within two
-  // pixels of each other and a road follows the points anyway, so the branch that is
-  // not set can carry no road.
-  if(j&&sg.leg>=0&&sg.leg!==j.branch)continue;
+  // EVERY mast draws (owner report: a real signal simply did not exist on the board).
+  // The old rule hid the unset branch's signal to fight overlap in the fan era; at
+  // true positions with zoom there is no overlap to fight, and a hidden mast is a
+  // road nobody can set.
   // True position (full RD): the signal is drawn where it stands; spread() below
   // nudges only what overlaps, so a click always has room.
   if(sg.x==null)continue;
@@ -1736,9 +1737,11 @@ const actions={
   if(![...sel.options].some(o=>o.value===v))return;
   sel.value=v;jmDestPicked=true;originChanged()},
  laneOpen:(id)=>{haulSel=haulSel===id?null:id;dockMode=haulSel?'haul':'hint';
-  if(surface==='yard'&&haulSel){setSurface('map')}
-  syncDock();renderDockHaul();drawNet();last.jobs=null;refresh()},
- dockClose:()=>{dockMode='hint';haulSel=null;netSel=null;drawNet();syncDock()},
+  // Opening a booklet from the yard returns to the Logistics map, but from Clearance
+  // it stays put: the dock slides in beside the railway instead (owner ask).
+  if(lens==='logi'&&surface==='yard'&&haulSel){setSurface('map')}
+  dockVis();syncDock();renderDockHaul();drawNet();last.jobs=null;refresh()},
+ dockClose:()=>{dockMode='hint';haulSel=null;netSel=null;drawNet();dockVis();syncDock()},
  ctc:async()=>{const r=await j('/api/v1/ctc','PUT',{enabled:!ctcOn});
   toast(r.message||(r.ok?'CTC changed':'CTC refused'),!r.ok);
   try{lastInter=await jget('/api/v1/interlocking')}catch(e){}
