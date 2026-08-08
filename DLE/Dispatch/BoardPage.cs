@@ -849,18 +849,12 @@ const RAIL_XS=1.0;
 // Set them once and then pan; nothing here changes while you work.
 let RAIL_MPP=+localStorage.getItem('dleRailMpp')||7.0;
 let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
-// Double track must read as TWO tracks. Nine pixels each way is eighteen apart, but
-// every rail carries a sixteen pixel casing, so the casings all but touched and a
-// double track section drew as one fat line with a hairline down it. Real spacing is
-// four metres, which is invisible at any scale a dispatcher can use, so the board
-// spreads it on purpose: geography decides WHERE the pair runs, this decides that you
-// can see and click both of them.
-const RAIL_FAN=()=>railSize(22);
-// Sizes are TRUE TO WORLD with a ceiling (owner ruling): zoomed out, glyphs shrink
-// with the world; zooming in they grow with it, but never past the size they have at
-// 1.0 m/px. Past that, the railway keeps opening up and the marks hold still, so a
-// yard at full zoom is space and thin lines instead of a wall of fat glyphs.
-function railSize(k){return k*RAIL_G/Math.max(1,RAIL_MPP)}
+
+// FULL RD (owner ruling, supersedes the true-to-world law): geometry is the world,
+// glyphs and line weights are the screen. Lines stay thin and crisp at every zoom,
+// marks hold one size, and ZOOM carries the legibility, the way the dispatch map this
+// board grew out of always worked. The GLYPHS dial scales all of it for taste.
+function railSize(k){return k*RAIL_G}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.3,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -906,23 +900,21 @@ function clampRails(){
  railsVB[1]=Math.min(Math.max(railsVB[1],-m),Math.max(-m,railsB.h-railsVB[3]+m))}
 function renderRailsStatic(){
  const g=$('railsStatic');if(!g||!railsGeo)return;
- buildJD();
  let h='';
- // Casing pass first, then the bright core, so every crossing reads cleanly.
- // Rails the server paired as double track carry a side and get fanned apart here,
- // in SCREEN space: the sideways stretch means a world perpendicular is not a screen
- // perpendicular, so the shift has to be computed after projection.
+ // Full RD: every rail at its true position, one thin crisp line each. Casing pass
+ // first, then the bright core, so every crossing reads cleanly.
  const paths=[];
  for(const ln of railsGeo.lines){
-  const a=ln.pts||ln,side=ln.side||0;
+  const a=ln.pts||ln;
   const w=[];
   for(let i=0;i<a.length;i+=2)w.push([a[i],a[i+1]]);
   const q=w.map(p=>rxy(p[0],p[1]));
-  paths.push({d:railPath(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
+  if(q.length<2)continue;
+  paths.push({d:railPath(q).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')});}
  for(const p of paths)
-  h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
+  h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(7)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
-  h+=`<polyline points='${p.d}' fill='none' stroke='${p.side?'#e4eaf8':'#aab4cd'}' stroke-width='${railSize(p.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`;
+  h+=`<polyline points='${p.d}' fill='none' stroke='#b9c1d6' stroke-width='${railSize(4.5)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  g.innerHTML=h;
  // No station bubbles (owner ruling): the whole railway is drawn now, yards included,
  // and a filled disc over a yard throat hides the very track you would be working. The
@@ -968,8 +960,8 @@ function renderRailsDyn(){
   for(const seg of (r.poly||[])){
    const q=[];
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
-   const d=railPath(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   const d=railPath(q).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // Occupied blocks paint red (owner ruling): where a train stands, the track shows it,
  // over the green of any road it is running down. Ids ride the geometry payload once;
  // the live poll only says which of them have cars on them right now.
@@ -980,13 +972,13 @@ function renderRailsDyn(){
    const q=[];
    for(let i=0;i<ln.pts.length;i+=2)q.push(rxy(ln.pts[i],ln.pts[i+1]));
    if(q.length<2)continue;
-   const d=railPath(q,ln.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   h+=`<polyline points='${d}' fill='none' stroke='#c25f5a' stroke-width='${railSize(ln.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   const d=railPath(q).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   h+=`<polyline points='${d}' fill='none' stroke='#c25f5a' stroke-width='${railSize(5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
 
- // Far out, switches are specks that cannot be worked and only bury the signals a
- // dispatcher IS there to click, so below a drawn size of five pixels they are not
- // drawn at all (owner ruling): green up paths across the map, zoom in for the points.
- const showSw=railSize(11)>=5;
+ // Far out, switch furniture only buries the signals a dispatcher IS there to click,
+ // so it appears once the zoom is close enough to work points (owner ruling): green up
+ // paths across the map, zoom in for the switches.
+ const showSw=RAIL_MPP<=2.5;
  // WHERE EVERY MARK GOES. True positions first, then one spreading pass over the lot,
  // because real geography puts switches on top of each other at map scale: on this
  // world 196 pairs of switches sit closer than 28px and the worst are 0.7px apart, so
@@ -998,9 +990,7 @@ function renderRailsDyn(){
  (il.junctions||[]).forEach((j,i)=>{
   // A plain track join is not a switch: nothing to throw, nothing to draw.
   if(j.branches<2)return;
-  // Display position: where the strongest track through this junction is drawn.
-  const e0=railJD&&railJD.byId[j.id];
-  const p=e0?[e0.tx+e0.dx,e0.ty+e0.dy]:rxy(j.x,j.z);
+  const p=rxy(j.x,j.z);
   marks.push({kind:'jn',id:j.id,j,click:showSw,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
@@ -1010,16 +1000,16 @@ function renderRailsDyn(){
   // pixels of each other and a road follows the points anyway, so the branch that is
   // not set can carry no road.
   if(j&&sg.leg>=0&&sg.leg!==j.branch)continue;
-  let q=null,u=[1,0];
+  // True position (full RD): the signal is drawn where it stands; spread() below
+  // nudges only what overlaps, so a click always has room.
+  if(sg.x==null)continue;
+  const q=rxy(sg.x,sg.z);
+  let u=[1,0];
   const leg=j&&(railLegs[j.id]||[]).find(l=>l.branch===sg.leg);
-  if(leg){
-   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
-   // Far enough out that the triangle clears the switch mark and its lock ring.
-   const w=walkAlong(railPath(pts,leg.side||0),railSize(52)+sg.slot*railSize(34));
-   if(w){q=w[0];u=w[1]}}
-  // A signal with no leg to stand on falls back to its own coordinates, which
-  // the server only sends in that case.
-  if(!q){if(sg.x==null)continue;q=rxy(sg.x,sg.z)}
+  if(leg&&leg.pts.length>=4){
+   const a2=rxy(leg.pts[0],leg.pts[1]),b2=rxy(leg.pts[2],leg.pts[3]);
+   const L=Math.hypot(b2[0]-a2[0],b2[1]-a2[1])||1;
+   u=[(b2[0]-a2[0])/L,(b2[1]-a2[1])/L]}
   if(sg.inbound)u=[-u[0],-u[1]];
   marks.push({kind:'sig',id:sg.id,sg,u,click:true,x:q[0],y:q[1],ax:q[0],ay:q[1]})}
  // A nudge, not a rearrangement: enough that two marks on one spot can both be hit,
@@ -1032,22 +1022,22 @@ function renderRailsDyn(){
  // a connection and exactly where it goes. The disc goes down first and the legs are
  // drawn over it, which is why this is in three passes rather than one.
  if(showSw)for(const m of jItems)
-  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(11)}' fill='#07080e' stroke='#454c5e' stroke-width='${railSize(1.5)}'/>`;
+  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(8)}' fill='#07080e' stroke='#454c5e' stroke-width='${railSize(1.5)}'/>`;
  if(showSw)for(const j of (il.junctions||[])){
   if(j.branches<2)continue;
   const legs=railLegs[j.id]||[];
   const toQ=l=>{const q=[];for(let i=0;i<l.pts.length;i+=2)q.push(rxy(l.pts[i],l.pts[i+1]));return q};
   // The arm is a length of TRACK, clamped in screen terms at both ends: never gone
   // when zoomed out, never a thicket when zoomed in.
-  const armPx=railSize(110);
+  const armPx=railSize(60);
   // Branches NOT set: dim, and PARTED from the switch by a gap, the way a panel shows
   // a route that is not made. They only appear once the zoom gives them room.
   for(const leg of legs){
    if(leg.branch<0||leg.branch===j.branch)continue;
    const q=toQ(leg);if(q.length<2)continue;
-   const cut=skipAlong(railPath(clip(q,railSize(80)),leg.side||0),railSize(14));
-   if(pathLen(cut)<railSize(9))continue;
-   h+=`<polyline points='${cut.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}' fill='none' stroke='#5f6880' stroke-width='${railSize(4.5)}' stroke-linecap='butt' stroke-linejoin='round'/>`}
+   const cut=skipAlong(railPath(clip(q,railSize(42))),railSize(12));
+   if(pathLen(cut)<railSize(8))continue;
+   h+=`<polyline points='${cut.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}' fill='none' stroke='#5f6880' stroke-width='${railSize(3)}' stroke-linecap='butt' stroke-linejoin='round'/>`}
   // The route that IS made: one bright line from the trunk THROUGH the switch onto the
   // set branch. That is the whole read: where the white goes, the train goes. A stub
   // sitting inside a ring said nothing; a line that bends through the points says it
@@ -1057,18 +1047,17 @@ function renderRailsDyn(){
   for(const leg of [trunk,setLeg]){
    if(!leg)continue;
    const q=toQ(leg);if(q.length<2)continue;
-   const d=railPath(clip(q,leg===setLeg?armPx:railSize(60)),leg.side||0)
+   const d=railPath(clip(q,leg===setLeg?armPx:railSize(34)))
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(7.5)}' stroke-linecap='round' stroke-linejoin='round'/>`}
+   h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(5)}' stroke-linecap='round' stroke-linejoin='round'/>`}
   // The dot (owner ask, corrected): it stands BESIDE the points, offset to the side
   // the switch branches towards, not somewhere along the arm where it read as an end
   // cap. A straight-through setting puts it opposite the branch that diverges, which
   // is still the side the traffic goes.
   if(setLeg){
-   const eJ=railJD&&railJD.byId[j.id];
-   const J=eJ?[eJ.tx+eJ.dx,eJ.ty+eJ.dy]:rxy(j.x,j.z);
-   const ws=walkAlong(railPath(clip(toQ(setLeg),armPx),setLeg.side||0),railSize(30));
-   const wt=trunk?walkAlong(railPath(clip(toQ(trunk),railSize(60)),trunk.side||0),railSize(30)):null;
+   const J=rxy(j.x,j.z);
+   const ws=walkAlong(railPath(clip(toQ(setLeg),armPx)),railSize(20));
+   const wt=trunk?walkAlong(railPath(clip(toQ(trunk),railSize(34))),railSize(20)):null;
    if(ws){
     // Through axis: into the junction along the trunk, or the set direction itself
     // when the junction has no trunk leg to speak of.
@@ -1081,18 +1070,18 @@ function renderRailsDyn(){
     let sum=0,n=0;
     for(const l of legs){
      if(l.branch<0||l.branch===j.branch)continue;
-     const wu=walkAlong(railPath(clip(toQ(l),railSize(60)),l.side||0),railSize(30));
+     const wu=walkAlong(railPath(clip(toQ(l),railSize(42))),railSize(20));
      if(wu){sum+=latOf(wu);n++}}
     const sgn=n?(latSet>=sum/n?1:-1):(latSet>=0?1:-1);
-    const dx2=J[0]+ax*railSize(24)-ay*sgn*railSize(15);
-    const dy2=J[1]+ay*railSize(24)+ax*sgn*railSize(15);
-    h+=`<circle cx='${dx2.toFixed(1)}' cy='${dy2.toFixed(1)}' r='${railSize(7)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2.5)}'/>`}}}
+    const dx2=J[0]+ax*railSize(16)-ay*sgn*railSize(10);
+    const dy2=J[1]+ay*railSize(16)+ax*sgn*railSize(10);
+    h+=`<circle cx='${dx2.toFixed(1)}' cy='${dy2.toFixed(1)}' r='${railSize(5)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2)}'/>`}}}
  if(showSw)for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(14)}' fill='transparent'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(13)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(2.5)}'/>`:''}
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
@@ -1104,9 +1093,9 @@ function renderRailsDyn(){
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
   const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.jid>=0?'':' - not standing at a switch this board knows'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
-   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
-   <polygon points='${triAt(q,u,sg.on?1:0.82)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(14)}' fill='transparent'/>
+   ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(12)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(2.5)}'/>`:''}
+   <polygon points='${triAt(q,u,sg.on?1:0.82)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(2)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -1120,7 +1109,7 @@ function renderRailsDyn(){
    h+=`<circle cx='${a[0].toFixed(1)}' cy='${a[1].toFixed(1)}' r='4' fill='${col}'><title>${n} car(s)</title></circle>`}
   else for(let i=0;i<n;i++){
    const x1=a[0]+dx*i,y1=a[1]+dy*i,x2=a[0]+dx*(i+0.82),y2=a[1]+dy*(i+0.82);
-   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='${railSize(15)}' stroke-linecap='butt'>
+   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='${railSize(9)}' stroke-linecap='butt'>
     <title>${n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`}
   if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
    h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
@@ -1197,9 +1186,7 @@ function nearestMark(e){
  if(!m)return null;
  const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
  const p=pt.matrixTransform(m.inverse());
- // Visuals are true to world, but a CLICK keeps a screen-sized floor, or greening a
- // path from across the map would mean hunting three-pixel triangles.
- const reach=Math.max(14,railSize(34));
+ const reach=railSize(26);
  let best=null,bd=reach*reach;
  for(const k of railMarks){
   if(!k.click)continue;
@@ -1212,93 +1199,10 @@ function nearestMark(e){
 // Geographic, and only geographic: real curves, real positions, nothing moved. The
 // schematic and the field that opened out throats are gone (owner ruling); zoom is what
 // makes a throat workable now, and it does not lie about where anything is.
-// Where each junction is DRAWN: its true position plus the fan of the strongest track
-// through it. A crossover junction on a double track corridor sits ON the displaced
-// corridor line, and the crossover diagonal stretches between the two displaced lines,
-// which is how a real panel draws it. Built from the leg geometry, so it needs nothing
-// but the map payload, and rebuilt with every static render.
-let railJD=null;
-function buildJD(){
- railJD={grid:new Map(),cell:Math.max(1,railSize(40)),byId:{}};
- for(const jid in railLegs){
-  const lg=railLegs[jid];
-  if(!lg||!lg.length||lg[0].pts.length<4)continue;
-  let a=null,am=-1;
-  for(const l of lg){
-   const m=(l.side||0)===0?0:(Math.abs(l.side)>1?8:22);
-   const pr=l.branch<0?0.5:0;
-   if(m+pr>am){am=m+pr;a=l}}
-  const q0=rxy(lg[0].pts[0],lg[0].pts[1]);
-  let dx=0,dy=0;
-  if(a&&a.side&&a.pts.length>=4){
-   const p1=rxy(a.pts[0],a.pts[1]),p2=rxy(a.pts[2],a.pts[3]);
-   let ux=p2[0]-p1[0],uy=p2[1]-p1[1];const L=Math.hypot(ux,uy)||1;ux/=L;uy/=L;
-   const mag=Math.abs(a.side)>1?railSize(8):RAIL_FAN();
-   const dir=a.side>0?1:-1;
-   dx=-uy*mag*dir;dy=ux*mag*dir}
-  const e={tx:q0[0],ty:q0[1],dx,dy};
-  railJD.byId[jid]=e;
-  const k=Math.floor(q0[0]/railJD.cell)+':'+Math.floor(q0[1]/railJD.cell);
-  let b=railJD.grid.get(k);if(!b)railJD.grid.set(k,b=[]);b.push(e)}}
-function jDispNear(x,y){
- if(!railJD)return null;
- const c=railJD.cell,cx=Math.floor(x/c),cy=Math.floor(y/c);
- // Wide enough to catch a line end the point thinning left a few metres short,
- // narrow enough never to grab a neighbouring ladder junction.
- const tol=railSize(14);
- let best=null,bd=tol*tol;
- for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
-  const b=railJD.grid.get((cx+ax)+':'+(cy+ay));if(!b)continue;
-  for(const e of b){const d=(e.tx-x)*(e.tx-x)+(e.ty-y)*(e.ty-y);if(d<bd){bd=d;best=e}}}
- return best}
-// EVERY rail drawing goes through here. The body is fanned by its own side; each END
-// then blends to the display position of the junction it meets, whatever track that
-// junction is anchored to. A corridor track meets its own displaced junction with no
-// correction at all; a plain connecting track is lifted so it spans displaced line to
-// displaced line instead of dangling between two centrelines nobody draws.
-function railPath(q,side){
- let f=railFan(q,side);
- const e=q.length-1;
- const c0=jDispNear(q[0][0],q[0][1]);
- const c1=jDispNear(q[e][0],q[e][1]);
- if(c0||c1){
-  const f0x=f[0][0]-q[0][0],f0y=f[0][1]-q[0][1];
-  const f1x=f[e][0]-q[e][0],f1y=f[e][1]-q[e][1];
-  const k0x=c0?c0.dx-f0x:0,k0y=c0?c0.dy-f0y:0;
-  const k1x=c1?c1.dx-f1x:0,k1y=c1?c1.dy-f1y:0;
-  if(k0x||k0y||k1x||k1y){
-   const cum=[0];
-   for(let i=1;i<f.length;i++)cum.push(cum[i-1]+Math.hypot(f[i][0]-f[i-1][0],f[i][1]-f[i-1][1]));
-   const total=cum[cum.length-1]||1,R=Math.min(railSize(55),total/2)||1;
-   f=f.map((pt,i)=>{
-    const t0=Math.max(0,1-cum[i]/R),t1=Math.max(0,1-(total-cum[i])/R);
-    return [pt[0]+k0x*t0+k1x*t1,pt[1]+k0y*t0+k1y*t1]})}}
- return smooth(f)}
-function railFan(q,side){
- if(!side||q.length<2)return q;
- // |side| carries the tier: 1 is open line and gets the wide double-track gap, 2 is a
- // named yard track and gets just enough air to tell neighbours apart (owner ruling).
- // The offset is CONSTANT along the line. The old version ramped to zero at the ends,
- // which necked every paired track down to its true centreline at each junction while
- // its partner sailed past still offset: that is the crossing, kissing mess the owner
- // photographed. Ends are reconciled against junction DISPLAY positions in railPath.
- const mag=Math.abs(side)>1?railSize(8):RAIL_FAN();
- const dir=side>0?1:-1;
- const out=[];
- for(let k=0;k<q.length;k++){
-  const a=q[Math.max(0,k-1)],b=q[Math.min(q.length-1,k+1)];
-  const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
-  out.push([q[k][0]-dy/L*mag*dir,q[k][1]+dx/L*mag*dir]);}
- return out}
-// A switch or signal standing on a fanned rail has to move with it, or it sits on the
-// centreline between the two tracks. The server sends the rail's heading in world
-// units; projecting it first keeps the offset square to what is drawn.
-function railPoint(x,z,side,dirX,dirZ){
- const q=rxy(x,z);
- if(!side)return q;
- const a=rxy(x,z),b=rxy(x+(dirX||1)*10,z+(dirZ||0)*10);
- const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
- return [q[0]-dy/L*RAIL_FAN()*side, q[1]+dx/L*RAIL_FAN()*side]}
+// EVERY rail on this map goes through here. Full RD: no artificial offsets, the
+// line IS the track. Smoothing only, so ten-metre curve sampling does not read as a
+// shiver along every curve.
+function railPath(q){return smooth(q)}
 // Signals come in groups at every junction (a trunk and one per branch), so at map
 // scale they land on top of each other. Slide a clashing mark ALONG its own rail until
 // it has room: it stays on the rail it belongs to, which keeps the picture honest while
@@ -1307,7 +1211,7 @@ function railPoint(x,z,side,dirX,dirZ){
 // reads without hovering (owner ruling, and how the reference panel does it).
 function triAt(q,u,k){
  const ux=u[0],uy=u[1],z=k||1;
- const px=-uy,py=ux,L=railSize(21)*z,W=railSize(13)*z;
+ const px=-uy,py=ux,L=railSize(16)*z,W=railSize(10)*z;
  return [[q[0]+ux*L,q[1]+uy*L],
          [q[0]-ux*railSize(5)*z+px*W,q[1]-uy*railSize(5)*z+py*W],
          [q[0]-ux*railSize(5)*z-px*W,q[1]-uy*railSize(5)*z-py*W]]
