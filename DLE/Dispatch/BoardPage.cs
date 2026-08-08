@@ -140,6 +140,8 @@ padding:6px 14px;border-top:1px solid var(--line);background:var(--panel)}
 margin-right:4px;vertical-align:-1px;font-style:normal}
 #strip{flex:none;display:flex;align-items:center;gap:3px;height:38px;padding:0 12px;
 border-top:1px solid var(--line);background:var(--panel);overflow-x:auto}
+#stationBar{flex:none;display:flex;align-items:center;gap:3px;height:38px;padding:0 12px;
+border-top:1px solid var(--line);background:var(--panel);overflow-x:auto}
 /* ── fleet + log surfaces ──────────────────────────────── */
 .surfpad{flex:1;overflow-y:auto;padding:16px 18px}
 .formrow{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
@@ -260,7 +262,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
  <div class='brand'>DLE</div>
  <div class='tbdiv'></div>
  <span class='tab on' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
- <span class='tab' id='tabRails' data-act='lens' data-id='rails'>Rails</span>
+ <span class='tab' id='tabRails' data-act='lens' data-id='rails'>Clearance</span>
  <span class='tab' id='tabFleet' data-act='lens' data-id='fleet'>Fleet</span>
  <span class='tab' id='tabLog' data-act='lens' data-id='log'>Log</span>
  <div class='spacer'></div>
@@ -317,7 +319,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <g id='railsStatic'></g><g id='railsDyn'></g><g id='railsTop'></g>
     </svg>
     <div class='maplegend'>
-     <span class='k'>Rails</span>
+     <span class='k'>Clearance</span>
      <span><i style='background:#d5dcec'></i>rail</span>
      <span><i style='background:#2f9e63;height:5px'></i>road set</span>
      <span><i style='background:#c98f6b;width:8px;height:8px;border-radius:50%'></i>switch, click to throw</span>
@@ -368,6 +370,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <div id='dlog' style='font-size:12px'></div>
    </div>
   </div>
+  <div id='stationBar' style='display:none'></div>
  </div>
  <aside id='dock'>
   <div class='dockpane on' id='dockHint'>
@@ -521,6 +524,7 @@ function setLens(l){lens=l;
  $('surfLog').classList.toggle('on',l==='log');
  $('dock').classList.toggle('hidden',l!=='logi');
  if(l==='rails')loadRails();
+ renderStationBar();
  syncDock()}
 function setSurface(s){surface=s;setLens('logi');
  if(s==='yard')pollYard(true)}
@@ -532,7 +536,11 @@ function openYard(y){
  const os=$('hOrigin');
  if(![...os.options].some(x=>x.value===y)){toast('station not on the board yet',true);return}
  os.value=y;originChanged();setSurface('yard')}
-function backToMap(){setSurface('map')}
+function backToMap(){
+ // Stepping out returns to wherever the yard was entered from: the Logistics map,
+ // or the Clearance map when the station bar there was used (owner ruling).
+ if(yardReturn==='rails'){yardReturn='map';surface='map';setLens('rails')}
+ else setSurface('map')}
 // ── refresh cycle ────────────────────────────────────────────────────────
 function snapshotCrew(){const m={};document.querySelectorAll('.crew').forEach(i=>{if(i.value)m[i.id]=i.value});
  const f=document.activeElement;return{m,focus:f&&f.classList&&f.classList.contains('crew')?f.id:null}}
@@ -589,7 +597,7 @@ async function refresh(){
   jobs.filter(x=>!x.logi&&x.cargo&&x.cargo.indexOf(' ')<0).map(x=>x.cargo)))].sort()));
  lastEconData=econ;
  const stripKey=[...new Set(econ.map(e=>e.yardId))].sort().join();
- if(last.strip!==stripKey){last.strip=stripKey;renderStrip()}
+ if(last.strip!==stripKey){last.strip=stripKey;renderStrip();renderStationBar()}
  const netKey=JSON.stringify(options)+JSON.stringify(econ)+'|'+haulSel+'|'+JSON.stringify(lastJobs.map(x=>x.id));
  if(last.net!==netKey){last.net=netKey;drawNet()}
  const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+[...accSel].join()+'|'+[...accHidden].join()+'|'+haulSel+'|'+lastEconData.length;
@@ -837,7 +845,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsWs=null,railsWsOk=false,railsWsDraw=null,railsGeo=null,railsPollKey=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let yardReturn='map',railsWs=null,railsWsOk=false,railsWsDraw=null,railsGeo=null,railsPollKey=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -1133,21 +1141,36 @@ function renderRailsDyn(){
    <polygon points='${triAt(q,u,sg.on?1:0.82)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(2)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
- // A consist is drawn car by car at true length, so a train reads as a train.
+ // Rolling stock the RD way (owner ruling): every car drawn AT ITS OWN SIZE, in its
+ // own place, on its own heading. A loco gets a nose so power reads at a glance, a
+ // car on a job carries the job colour, and hovering names the vehicle exactly.
  for(const c of (tr.consists||[])){
-  const a=rxy(c.x1,c.z1),b=rxy(c.x2,c.z2);
-  const n=Math.max(1,c.n||1);
-  const col=c.jobId?'#e09b95':(c.loco?'#8fb8e0':'#9397ab');
-  const dx=(b[0]-a[0])/n,dy=(b[1]-a[1])/n;
-  const short=Math.hypot(b[0]-a[0],b[1]-a[1])<4;
-  if(short){
-   h+=`<circle cx='${a[0].toFixed(1)}' cy='${a[1].toFixed(1)}' r='4' fill='${col}'><title>${n} car(s)</title></circle>`}
-  else for(let i=0;i<n;i++){
-   const x1=a[0]+dx*i,y1=a[1]+dy*i,x2=a[0]+dx*(i+0.82),y2=a[1]+dy*(i+0.82);
-   h+=`<line x1='${x1.toFixed(1)}' y1='${y1.toFixed(1)}' x2='${x2.toFixed(1)}' y2='${y2.toFixed(1)}' stroke='${col}' stroke-width='${railSize(9)}' stroke-linecap='butt'>
-    <title>${n} car(s)${c.loco?' with power':''}${c.jobId?' · '+esc(c.jobId):''}</title></line>`}
-  if(c.jobId){const x=lastJobs.find(v=>v.id===c.jobId);
-   h+=`<text x='${a[0].toFixed(1)}' y='${(a[1]-11).toFixed(1)}' font-size='12' font-weight='700' fill='#d9b47a'>${esc(c.jobId)}${x&&x.assignedTo?' · '+esc(x.assignedTo):''}</text>`}}
+  let labeled=false;
+  for(const car of (c.cars||[])){
+   const q=rxy(car.x,car.z);
+   const [ux,uy]=screenDir(car.x,car.z,car.dx,car.dz);
+   const px2=-uy,py2=ux;
+   const hl=Math.max(railSize(4),(car.len||20)/RAIL_MPP/2);
+   const hw=Math.max(railSize(2.2),1.5/RAIL_MPP);
+   const col=car.job?'#e09b95':(car.loco?'#7fb3e8':'#9aa0ae');
+   let pg;
+   if(car.loco){
+    pg=[[q[0]+ux*hl,q[1]+uy*hl],
+     [q[0]+ux*hl*0.45+px2*hw,q[1]+uy*hl*0.45+py2*hw],
+     [q[0]-ux*hl+px2*hw,q[1]-uy*hl+py2*hw],
+     [q[0]-ux*hl-px2*hw,q[1]-uy*hl-py2*hw],
+     [q[0]+ux*hl*0.45-px2*hw,q[1]+uy*hl*0.45-py2*hw]]}
+   else{
+    pg=[[q[0]+ux*hl+px2*hw,q[1]+uy*hl+py2*hw],
+     [q[0]-ux*hl+px2*hw,q[1]-uy*hl+py2*hw],
+     [q[0]-ux*hl-px2*hw,q[1]-uy*hl-py2*hw],
+     [q[0]+ux*hl-px2*hw,q[1]+uy*hl-py2*hw]]}
+   const d=pg.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   const t=`${car.id||'car'}${car.type?' · '+car.type:''}${car.loco?' · power':''}${car.job?' · '+car.job:''}`;
+   h+=`<polygon points='${d}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(1.2)}' stroke-linejoin='round'><title>${esc(t)}</title></polygon>`;
+   if(car.job&&!labeled){labeled=true;
+    const x2=lastJobs.find(v=>v.id===car.job);
+    h+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-railSize(9)).toFixed(1)}' font-size='${(12*RAIL_G).toFixed(1)}' font-weight='700' fill='#d9b47a' stroke='#0d0f1a' stroke-width='${(3*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(car.job)}${x2&&x2.assignedTo?' · '+esc(x2.assignedTo):''}</text>`}}}
  g.innerHTML=h}
 // A world heading is not a screen heading here, because the map is stretched sideways;
 // project two points and measure the result instead of rotating the raw vector.
@@ -1595,6 +1618,19 @@ function renderYard(){
   :total+' cars on sheet '+(jmSheet==='~'?'sidings':jmSheet);
  if(selDropped){toast(selDropped+' picked car(s) are no longer free; dropped',true);syncSelUi()}
 }
+// The persistent station bar (owner ruling): always at the bottom of the Logistics
+// map, the yard view and the Clearance map. Click a station to step into its yard;
+// click the lit one to step back out to wherever you came from.
+function renderStationBar(){
+ const box=$('stationBar');if(!box)return;
+ const show=(lens==='logi'&&(surface==='map'||surface==='yard'))||lens==='rails';
+ box.style.display=show?'flex':'none';
+ if(!show)return;
+ const ys=[...new Set((lastEconData||[]).map(e=>e.yardId))].sort();
+ if(!ys.length){box.innerHTML='';return}
+ const cur=(lens==='logi'&&surface==='yard')?$('hOrigin').value:null;
+ box.innerHTML=ys.map(y=>scChip(y,y===cur,'stBar')).join('')
+  +`<div class='spacer'></div><span class='k' style='white-space:nowrap'>${cur?'click the lit station to step back out':'click a station to open its yard'}</span>`}
 function renderStrip(){
  const box=$('strip');if(!box)return;
  const ys=[...new Set(lastEconData.map(e=>e.yardId))].sort();
@@ -1673,6 +1709,10 @@ const actions={
   try{lastInter=await jget('/api/v1/interlocking')}catch(e){}
   renderRailsDyn()},
  stripJump:(id,el)=>{openYard(el.dataset.id)},
+ stBar:(id,el)=>{const y=el.dataset.id;
+  if(lens==='logi'&&surface==='yard'&&$('hOrigin').value===y){backToMap();renderStationBar();return}
+  yardReturn=lens==='rails'?'rails':'map';
+  openYard(y);renderStationBar()},
  destPick:(id,el)=>{const v=el.dataset.id;const sel=$('hDest');
   if(jmLines.length&&jmDest)return;
   if(![...sel.options].some(o=>o.value===v))return;

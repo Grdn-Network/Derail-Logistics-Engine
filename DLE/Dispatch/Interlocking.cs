@@ -730,6 +730,20 @@ namespace DLE.Dispatch
                     pts.Add((float)Math.Round(p.z, 1));
                     lx = p.x; lz = p.z; have = true;
                 }
+                // The final curve point always goes in: wye connectors are shorter
+                // than the thinning distance, and without this their piece of a cleared
+                // road had one point and drew NOTHING. The light went green and the
+                // board showed no road into the wye (owner report).
+                var endBp = t.curve[t.curve.pointCount - 1];
+                if (endBp != null && have)
+                {
+                    var ep = endBp.position - move;
+                    if ((ep.x - lx) * (ep.x - lx) + (ep.z - lz) * (ep.z - lz) > 0.01f)
+                    {
+                        pts.Add((float)Math.Round(ep.x, 1));
+                        pts.Add((float)Math.Round(ep.z, 1));
+                    }
+                }
                 if (pts.Count >= 4)
                     outp.Add(new { pts = pts.ToArray() });
             }
