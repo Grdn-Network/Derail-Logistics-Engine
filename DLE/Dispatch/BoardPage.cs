@@ -846,7 +846,13 @@ const RAIL_XS=2.0;
 // Set them once and then pan; nothing here changes while you work.
 let RAIL_MPP=+localStorage.getItem('dleRailMpp')||7.0;
 let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
-const RAIL_FAN=()=>9*RAIL_G;
+// Double track must read as TWO tracks. Nine pixels each way is eighteen apart, but
+// every rail carries a sixteen pixel casing, so the casings all but touched and a
+// double track section drew as one fat line with a hairline down it. Real spacing is
+// four metres, which is invisible at any scale a dispatcher can use, so the board
+// spreads it on purpose: geography decides WHERE the pair runs, this decides that you
+// can see and click both of them.
+const RAIL_FAN=()=>22*RAIL_G;
 function railSize(k){return k*RAIL_G}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
@@ -974,7 +980,7 @@ function renderRailsDyn(){
  // a connection and exactly where it goes. The disc goes down first and the legs are
  // drawn over it, which is why this is in three passes rather than one.
  for(const m of jItems)
-  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(14)}' fill='#07080e'/>`;
+  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(11)}' fill='#07080e'/>`;
  for(const j of (il.junctions||[])){
   for(const leg of (railLegs[j.id]||[])){
    const q=[];
@@ -983,14 +989,14 @@ function renderRailsDyn(){
    const d=smooth(railFan(q,leg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    // The trunk is leg -1 and is always connected; only the branches take turns.
    const set=leg.branch<0||leg.branch===j.branch;
-   h+=`<polyline points='${d}' fill='none' stroke='${set?'#f2f6ff':'#4a5064'}' stroke-width='${railSize(set?10:7)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#333949'}' stroke-width='${railSize(set?12:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(21)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(14)}' fill='none' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(3)}'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3)}'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(11)}' fill='none' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(2.5)}'/>
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.

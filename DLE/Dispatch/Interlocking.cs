@@ -74,6 +74,11 @@ namespace DLE.Dispatch
         // claiming the whole section.
         private const float StubMeters = 500f;
         private const float StubThin = 12f;      // drop points closer together than this
+        // How many switches one road may hold. Stretches of this railway run junction after
+        // junction with no signal between them, and a road that runs to the next signal can
+        // therefore lock a very long way; one dispatcher's click should not take the
+        // railway away from everybody else.
+        private const int MaxLocked = 10;
         private static string _builtHash;
         private static string _facingReport = "";
 
@@ -519,6 +524,7 @@ namespace DLE.Dispatch
             var route = new Route { SignalId = signalId };
             var occupied = OccupiedTracks();
             var seen = new HashSet<int>();
+            bool capped = false;
             RailTrack track;
             bool towardOut;
 
@@ -556,6 +562,10 @@ namespace DLE.Dispatch
                 if (arrive == -2) break;
                 // A signal facing this move ends the road, exactly like a real green.
                 if (_inboundAt.TryGetValue(LegKey(njid, arrive), out var stop) && stop.Id != signalId) break;
+                // A road runs signal to signal, but stretches of this railway carry no
+                // signal for junction after junction, and one click should never lock half
+                // the map away from everybody else. The road ends here instead.
+                if (route.Locked.Count >= MaxLocked) { capped = true; break; }
                 var exit = ExitFrom(nj, arrive, out _);
                 if (exit?.track == null) break;                // set against the move
                 if (Held(njid, out var by)) return (false, by);
@@ -576,6 +586,7 @@ namespace DLE.Dispatch
             }
             catch (Exception ex) { Main.Log($"[Interlocking] aspect set failed: {ex.Message}"); }
             return (true, $"{signalId} off: {route.Path.Count} track(s), {route.Locked.Count} switch(es) locked"
+                + (capped ? $" (stopped at {MaxLocked}, the limit for one road)" : "")
                 + (shown ? "" : " (the signal itself would not clear; check the Signals mod)"));
         }
 
@@ -615,7 +626,10 @@ namespace DLE.Dispatch
             foreach (var r in _routes.Values)
                 if (r.Locked.Contains(junctionId))
                 {
-                    message = $"switch {junctionId} is locked by the road off {r.SignalId}";
+                    // Say what to do about it. A dispatcher reading this needs the way out,
+                    // not just the diagnosis.
+                    message = $"switch {junctionId} is locked by the road off {r.SignalId}; "
+                        + $"click {r.SignalId} to drop that road first";
                     return true;
                 }
             message = null;
