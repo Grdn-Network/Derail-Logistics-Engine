@@ -615,7 +615,8 @@ async function refresh(){
    // if the two payloads ever disagree about it for a reason we did not foresee.
    railsEpochSeen=lastInter.epoch;
    railsGeo=null;railLegs={};railMarks=[];loadRails();return}
-  renderRailsDyn()}
+  const pollKey=JSON.stringify(lastInter)+'|'+JSON.stringify(lastTraffic);
+  if(pollKey!==railsPollKey){railsPollKey=pollKey;renderRailsDyn()}}
 }
 // ── haul lane: the whole board in one strip, filter chips included ───────
 function laneCard(x){
@@ -834,7 +835,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsGeo=null,railsPollKey=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -861,6 +862,7 @@ function setRailScale(mpp,glyph){
  localStorage.setItem('dleRailMpp',RAIL_MPP);
  localStorage.setItem('dleRailGlyph',RAIL_G);
  if(!railsGeo)return;
+ railsPollKey=null;
  railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS+railSize(260);
  railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP+railSize(260);
  renderRailsStatic();centreRails();renderRailsTop();renderRailsDyn();
@@ -917,13 +919,10 @@ function renderRailsStatic(){
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#b9c1d6' stroke-width='${railSize(4.5)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  g.innerHTML=h}
-// Is a point worth drawing at all? The board used to draw every label and every mark
-// on the whole railway no matter where the camera was, and then do it all again on
-// every zoom settle: that is the whole of the lag. Anything outside the view plus a
-// margin simply does not exist this frame; a pan or settle redraws the cheap layers.
-function inView(x,y,m){
- if(!railsVB)return true;
- return x>=railsVB[0]-m&&x<=railsVB[0]+railsVB[2]+m&&y>=railsVB[1]-m&&y<=railsVB[1]+railsVB[3]+m}
+// Everything stays loaded (owner ruling): the full railway, every mark, every label,
+// drawn once per zoom settle and untouched while the camera pans. The one rebuild
+// after the wheel stops costs a few tens of milliseconds; nothing ever pops out of
+// existence, and nothing waits for a poll to come back.
 function renderRailsTop(){
  const g=$('railsTop');if(!g||!railsGeo)return;
  let tp='';
@@ -937,7 +936,6 @@ function renderRailsTop(){
   const m=q.length>>1;
   const a=q[Math.max(0,m-1)],b=q[Math.min(q.length-1,m)];
   const cx2=(a[0]+b[0])/2,cy2=(a[1]+b[1])/2;
-  if(!inView(cx2,cy2,200))continue;
   let ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
   if(ang>90)ang-=180;if(ang<-90)ang+=180;
   let nm=ln.id;
@@ -948,7 +946,6 @@ function renderRailsTop(){
    stroke='#0d0f1a' stroke-width='${(3*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(nm)}</text>`}
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
-  if(!inView(q[0],q[1],400))continue;
   tp+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-10).toFixed(1)}' text-anchor='middle'
    font-size='${(26*RAIL_G).toFixed(1)}' font-weight='700' fill='${SC[s.id]||'#7f879c'}'
    stroke='#0d0f1a' stroke-width='${(4*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(s.id)}</text>`}
@@ -998,7 +995,6 @@ function renderRailsDyn(){
   // A plain track join is not a switch: nothing to throw, nothing to draw.
   if(j.branches<2)return;
   const p=rxy(j.x,j.z);
-  if(!inView(p[0],p[1],300))return;
   marks.push({kind:'jn',id:j.id,j,click:showSw,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
@@ -1012,7 +1008,6 @@ function renderRailsDyn(){
   // nudges only what overlaps, so a click always has room.
   if(sg.x==null)continue;
   const q=rxy(sg.x,sg.z);
-  if(!inView(q[0],q[1],300))continue;
   let u=[1,0];
   const leg=j&&(railLegs[j.id]||[]).find(l=>l.branch===sg.leg);
   if(leg&&leg.pts.length>=4){
@@ -1034,7 +1029,6 @@ function renderRailsDyn(){
   h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(8)}' fill='#07080e' stroke='#454c5e' stroke-width='${railSize(1.5)}'/>`;
  if(showSw)for(const j of (il.junctions||[])){
   if(j.branches<2)continue;
-  {const p0=rxy(j.x,j.z);if(!inView(p0[0],p0[1],300))continue}
   const legs=railLegs[j.id]||[];
   const toQ=l=>{const q=[];for(let i=0;i<l.pts.length;i+=2)q.push(rxy(l.pts[i],l.pts[i+1]));return q};
   // The arm is a length of TRACK, clamped in screen terms at both ends: never gone
@@ -1950,11 +1944,7 @@ document.addEventListener('keydown',e=>{
    const [vw,vh]=railsViewport();
    railsVB=[keepX*ratio,keepY*ratio,vw,vh];
    clampRails();applyRailsVB()},170)},{passive:false});
- window.addEventListener('mouseup',()=>{
-  // A finished drag redraws the culled layers, so ground revealed by the pan
-  // gets its labels and marks without waiting for the next poll.
-  if(panning&&moved>6){renderRailsTop();renderRailsDyn()}
-  panning=false;svg.style.cursor='grab'});
+ window.addEventListener('mouseup',()=>{panning=false;svg.style.cursor='grab'});
  window.addEventListener('mousemove',e=>{
   if(!panning||!railsVB)return;
   railsVB[0]-=(e.clientX-px);
