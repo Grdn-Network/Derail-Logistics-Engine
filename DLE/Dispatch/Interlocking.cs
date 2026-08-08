@@ -57,7 +57,6 @@ namespace DLE.Dispatch
         private static readonly Dictionary<string, Route> _routes = new Dictionary<string, Route>(StringComparer.Ordinal);
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
-        private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
 
         /// <summary>Everything about a drawn switch that the world decides once: where it
@@ -91,7 +90,7 @@ namespace DLE.Dispatch
         public static void Reset()
         {
             _signals.Clear(); _inboundAt.Clear(); _routes.Clear();
-            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _stubs.Clear();
+            _jIds.Clear(); _junctions.Clear(); _stubs.Clear();
             _jGeo.Clear(); _trackIds.Clear(); _builtHash = null;
         }
 
@@ -141,10 +140,10 @@ namespace DLE.Dispatch
 
         /// <summary>
         /// One scan per world: number the junctions, then hang every main signal off the
-        /// junction and leg it belongs to. Junctions inside a station belong to that
-        /// yard's own view, so they are numbered but not drawn.
+        /// junction and leg it belongs to. Yards included: main signals show everywhere
+        /// (owner ruling), and there is no separate station view any more.
         /// </summary>
-        public static void Build(IReadOnlyList<Vector2> stationPositions, float yardRadius)
+        public static void Build()
         {
             string hash = null;
             try { hash = SingletonBehaviour<RailTrackRegistryBase>.Instance?.TracksHash; } catch { }
@@ -162,19 +161,6 @@ namespace DLE.Dispatch
             try { all = RailTrackRegistry.Instance.TrackRootParent.GetComponentsInChildren<Junction>(); }
             catch { return; }
 
-            // Signal positions arrive already shifted from the bridge, junction positions
-            // do not, so the yard test comes in both flavours rather than one of them
-            // being quietly wrong.
-            bool InYardShifted(float x, float z)
-            {
-                foreach (var s in stationPositions)
-                {
-                    float dx = x - s.x, dz = z - s.y;
-                    if (dx * dx + dz * dz < yardRadius * yardRadius) return true;
-                }
-                return false;
-            }
-
             var jgrid = new Dictionary<long, List<int>>();
             long GKey(float x, float z) =>
                 ((long)Mathf.FloorToInt(x / AnchorCell) << 32) ^ (uint)Mathf.FloorToInt(z / AnchorCell);
@@ -183,9 +169,6 @@ namespace DLE.Dispatch
                 var j = all[i];
                 if (j == null) continue;
                 var p = j.position - move;
-                // Yard junctions keep their number, since a road can still run through
-                // one, but they are not drawn: their station's own view owns them.
-                if (InYardShifted(p.x, p.z)) _inYard.Add(_junctions.Count);
                 var key = GKey(p.x, p.z);
                 if (!jgrid.TryGetValue(key, out var l)) jgrid[key] = l = new List<int>();
                 l.Add(_junctions.Count);
@@ -225,11 +208,6 @@ namespace DLE.Dispatch
                 // would clutter the panel and, worse, stop a road short at something
                 // that never was a block boundary.
                 if (!IsBlockSignal(info.Type)) { skipped++; continue; }
-                // A signal standing inside a station belongs to that yard's own view,
-                // exactly like the switches there. Drawing it here piles marks onto the
-                // bubble and mangles the station's own name.
-                if (InYardShifted(info.X, info.Z)) { skipped++; continue; }
-
                 var key = info.Direction ?? "None";
                 dirs.TryGetValue(key, out var dc); dirs[key] = dc + 1;
 
@@ -283,9 +261,10 @@ namespace DLE.Dispatch
 
             // Leg geometry never moves, so it is worked out once here and only the
             // selected index changes from poll to poll.
+            // Every junction, yards included (owner ruling): main signals and switches
+            // show everywhere, and the yard IS the map now.
             for (int i = 0; i < _junctions.Count; i++)
             {
-                if (_inYard.Contains(i)) continue;
                 var j = _junctions[i];
                 if (j == null) continue;
                 var list = new List<object>();
