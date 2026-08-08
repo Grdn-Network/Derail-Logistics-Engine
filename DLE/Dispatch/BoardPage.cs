@@ -605,6 +605,8 @@ async function refresh(){
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
  if(lens==='rails'&&railsGeo){
+  openRailsWs();
+  if(railsWsOk)return;
   try{[lastTraffic,lastInter]=await Promise.all([jget('/api/v1/traffic'),jget('/api/v1/interlocking')])}catch(e){}
   // The map is fetched once and kept. Loading a second save rebuilds the same railway
   // under a possibly different world origin, so the copy in hand can be stale while
@@ -835,7 +837,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railsPollKey=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsWs=null,railsWsOk=false,railsWsDraw=null,railsGeo=null,railsPollKey=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -869,6 +871,35 @@ function setRailScale(mpp,glyph){
  const l=$('railScaleLabel');
  if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x';}
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
+// The live feed (owner: steal the websocket from our RD fork). The host pushes the
+// rails payloads the moment they change, so a thrown switch or a moving train shows in
+// about a second instead of on the next five second poll. Polling stays as the
+// fallback and goes quiet while the socket is up. Browsers cannot set headers on a
+// WebSocket, so the board password rides the query string to the same auth check.
+function openRailsWs(){
+ if(railsWs||!('WebSocket' in window))return;
+ const k=localStorage.getItem('dleKey');
+ const u=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/v1/ws'+(k?'?key='+encodeURIComponent(k):'');
+ let w;
+ try{w=new WebSocket(u)}catch(e){return}
+ railsWs=w;
+ w.onopen=()=>{railsWsOk=true};
+ w.onmessage=e=>{
+  let m;try{m=JSON.parse(e.data)}catch(err){return}
+  if(m.ch==='interlocking'){
+   lastInter=m.data;
+   // Same staleness rule as the poll: a rebuilt world means refetch the map.
+   if(railsGeo&&railsGeo.epoch!=null&&m.data.epoch!=null
+    &&m.data.epoch!==railsGeo.epoch&&m.data.epoch!==railsEpochSeen){
+    railsEpochSeen=m.data.epoch;
+    railsGeo=null;railLegs={};railMarks=[];loadRails();return}}
+  else if(m.ch==='traffic')lastTraffic=m.data;
+  else return;
+  // The pair often arrives back to back; one redraw covers both.
+  clearTimeout(railsWsDraw);
+  railsWsDraw=setTimeout(()=>{if(lens==='rails'&&railsGeo)renderRailsDyn()},40)};
+ w.onclose=()=>{railsWsOk=false;railsWs=null;setTimeout(openRailsWs,4000)};
+ w.onerror=()=>{try{w.close()}catch(e){}}}
 async function loadRails(){
  if(railsGeo||railsLoading)return;
  railsLoading=true;
