@@ -23,6 +23,13 @@ namespace DLE.Dispatch
 
         private static byte[] _geometryBytes;
         private static string _geometryHash;
+
+        /// <summary>Counts how many times this map has been built. The board keeps the
+        /// geometry it fetched, so it needs something that changes when that copy goes
+        /// stale, and the track hash cannot do it: loading a second save rebuilds the same
+        /// railway with the same hash, but the game may place the world at a different
+        /// origin, which this payload bakes in.</summary>
+        internal static int Epoch { get; private set; }
         private static Junction[] _junctions = Array.Empty<Junction>();
 
         public static byte[] GeometryBytes()
@@ -151,9 +158,11 @@ namespace DLE.Dispatch
             object legs = null;
             try { legs = Interlocking.LegsPayload(); } catch { }
 
+            Epoch++;
             var payload = new
             {
                 hash,
+                epoch = Epoch,
                 lines = lineOut,
                 junctions = js,
                 stations,

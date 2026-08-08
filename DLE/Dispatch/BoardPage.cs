@@ -606,6 +606,15 @@ async function refresh(){
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
  if(lens==='rails'&&railsGeo){
   try{[lastTraffic,lastInter]=await Promise.all([jget('/api/v1/traffic'),jget('/api/v1/interlocking')])}catch(e){}
+  // The map is fetched once and kept. Loading a second save rebuilds the same railway
+  // under a possibly different world origin, so the copy in hand can be stale while
+  // every id still matches. The server counts its rebuilds; a change means refetch.
+  if(lastInter&&railsGeo.epoch!=null&&lastInter.epoch!=null
+   &&lastInter.epoch!==railsGeo.epoch&&lastInter.epoch!==railsEpochSeen){
+   // Remembering which epoch was chased stops a refetch every five seconds forever
+   // if the two payloads ever disagree about it for a reason we did not foresee.
+   railsEpochSeen=lastInter.epoch;
+   railsGeo=null;railLegs={};railMarks=[];loadRails();return}
   renderRailsDyn()}
 }
 // ── haul lane: the whole board in one strip, filter chips included ───────
@@ -825,7 +834,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsGeo=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
