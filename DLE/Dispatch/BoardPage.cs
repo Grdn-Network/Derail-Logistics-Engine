@@ -332,7 +332,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span class='k'>Size</span>
      <button class='mini' data-act='railZoom' data-id='out' title='fit more railway on screen'>&minus;</button>
      <button class='mini' data-act='railZoom' data-id='in' title='fewer kilometres, everything bigger'>+</button>
-     <button class='mini' data-act='railSchem' id='bSchem' title='Straighten the railway into 45 degree pieces, or show its true curves'>45s</button>
+     <button class='mini' data-act='railSchem' id='bSchem' title='Switch between the real railway and a straightened, opened out one'>&hellip;</button>
      <span class='k' style='margin-left:6px'>Glyphs</span>
      <button class='mini' data-act='railGlyph' data-id='down' title='smaller marks'>&minus;</button>
      <button class='mini' data-act='railGlyph' data-id='up' title='bigger marks'>+</button>
@@ -859,9 +859,9 @@ let RAIL_SCHEM=localStorage.getItem('dleRailSchem')!=='0';
 // can see and click both of them.
 const RAIL_FAN=()=>22*RAIL_G;
 function railSize(k){return k*RAIL_G}
-function syncSchemBtn(){const b=$('bSchem');if(b){b.textContent=RAIL_SCHEM?'45s':'real';
- b.title=RAIL_SCHEM?'Showing the railway straightened into 45 degree pieces; click for true curves'
-  :'Showing true track curves; click to straighten into 45 degree pieces'}}
+function syncSchemBtn(){const b=$('bSchem');if(b){b.textContent=RAIL_SCHEM?'schematic':'geographic';
+ b.title=RAIL_SCHEM?'Straightened into 45s and opened out at the switches; click for the real railway'
+  :'Real curves, real positions, nothing moved; zoom in to work a throat'}}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -974,7 +974,7 @@ function renderRailsDyn(){
   // The warp was built from these, so this IS where the railway now bends to.
   const n=railNodes[i];
   const p=n?[n.x,n.y]:railPoint(j.x,j.z,j.side,j.dx,j.dz);
-  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,fix:true,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
+  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,fix:RAIL_SCHEM,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
   // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
@@ -1189,7 +1189,11 @@ function octi(q){
 // is left exactly where it was; only the crowded places open up.
 let railWarp=null;
 function buildWarp(){
- railWarp=null;
+ railWarp=null;railNodes=[];
+ // Geographic mode means GEOGRAPHIC. Real curves, real positions, nothing shifted, so
+ // the picture can be trusted for routing, distances and eventually speeds and grades.
+ // Zoom is what makes a throat workable there, not moving the railway about.
+ if(!RAIL_SCHEM)return;
  const il=lastInter;
  if(!il||!il.junctions||!il.junctions.length||!railsB)return;
  const nodes=il.junctions.map(j=>{const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
@@ -1251,7 +1255,7 @@ function railPoint(x,z,side,dirX,dirZ){
 // reads without hovering (owner ruling, and how the reference panel does it).
 function triAt(q,u,k){
  const ux=u[0],uy=u[1],z=k||1;
- const px=-uy,py=ux,L=railSize(14)*z,W=railSize(9)*z;
+ const px=-uy,py=ux,L=railSize(18)*z,W=railSize(11)*z;
  return [[q[0]+ux*L,q[1]+uy*L],
          [q[0]-ux*railSize(5)*z+px*W,q[1]-uy*railSize(5)*z+py*W],
          [q[0]-ux*railSize(5)*z-px*W,q[1]-uy*railSize(5)*z-py*W]]
@@ -1949,6 +1953,30 @@ document.addEventListener('keydown',e=>{
  const svg=$('railsSvg');if(!svg)return;
  let panning=false,px=0,py=0,moved=0;
  svg.addEventListener('mousedown',e=>{panning=true;moved=0;px=e.clientX;py=e.clientY;svg.style.cursor='grabbing'});
+ // Zoom answers on the frame it is asked. Redrawing the railway at a new scale costs
+ // tens of milliseconds, and doing that per wheel notch is exactly the stutter the old
+ // dispatch map had, so the viewBox moves at once and the redraw follows once the wheel
+ // stops. Nothing is uncached and rebuilt mid-gesture.
+ let pend=1,settle=null;
+ svg.addEventListener('wheel',e=>{
+  if(!railsVB)return;
+  e.preventDefault();
+  const k=e.deltaY<0?1.15:1/1.15;
+  const r=svg.getBoundingClientRect();
+  const cx=railsVB[0]+(e.clientX-r.left)/r.width*railsVB[2];
+  const cy=railsVB[1]+(e.clientY-r.top)/r.height*railsVB[3];
+  railsVB[0]=cx-(cx-railsVB[0])/k;railsVB[1]=cy-(cy-railsVB[1])/k;
+  railsVB[2]/=k;railsVB[3]/=k;
+  applyRailsVB();
+  pend*=k;
+  clearTimeout(settle);
+  settle=setTimeout(()=>{
+   const f=pend;pend=1;
+   const keepX=railsVB[0],keepY=railsVB[1];
+   setRailScale(RAIL_MPP/f,RAIL_G);
+   const [vw,vh]=railsViewport();
+   railsVB=[keepX*f,keepY*f,vw,vh];
+   clampRails();applyRailsVB()},170)},{passive:false});
  window.addEventListener('mouseup',()=>{panning=false;svg.style.cursor='grab'});
  window.addEventListener('mousemove',e=>{
   if(!panning||!railsVB)return;
