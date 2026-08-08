@@ -92,6 +92,10 @@ namespace DLE.Dispatch
 
         private static long LegKey(int junction, int leg) => ((long)junction << 8) ^ (uint)(leg + 8);
 
+        /// <summary>Unity flags a destroyed object as fake-null, so a dead first junction
+        /// means the whole set belongs to a world that has been unloaded.</summary>
+        private static bool JunctionsAlive() => _junctions.Count == 0 || _junctions[0] != null;
+
         /// <summary>
         /// Which of the Signals mod's types actually bound a block, and so belong on a
         /// dispatcher's panel. Distants only repeat what the next main signal is already
@@ -139,7 +143,12 @@ namespace DLE.Dispatch
         {
             string hash = null;
             try { hash = SingletonBehaviour<RailTrackRegistryBase>.Instance?.TracksHash; } catch { }
-            if (_builtHash == hash && _signals.Count > 0) return;
+            // Loading a second save in one session destroys every Junction and then builds
+            // the SAME railway again, so the track hash is identical and the hash alone
+            // would wave through a set of references to objects that no longer exist. The
+            // map payload has always tested this; this did not, and would have gone on
+            // holding dead switches until the game was restarted.
+            if (_builtHash == hash && _signals.Count > 0 && JunctionsAlive()) return;
             Reset();
             _builtHash = hash;
 
@@ -396,6 +405,11 @@ namespace DLE.Dispatch
 
         public static object Payload()
         {
+            // A world reload leaves this holding switches that no longer exist. Rebuilding
+            // the map rebuilds this with it, and the map's own guard makes the call cheap
+            // when nothing has changed, so the board heals itself instead of showing an
+            // empty railway until somebody reloads the page.
+            if (!JunctionsAlive()) { try { TrackMap.GeometryBytes(); } catch { } }
             var move = WorldMover.currentMove;
             // Aspects are read live so the board shows what the world actually shows,
             // including changes the Signals mod makes on its own.
@@ -459,7 +473,11 @@ namespace DLE.Dispatch
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
-            return new { signals = sigs, junctions = jn, routes = rts, ctc = Ctc };
+            // The map is fetched once and kept, so it needs a way to know it has gone
+            // stale. The track hash cannot do it: loading a second save rebuilds the SAME
+            // railway, hash and all, but the game may place the world at a different
+            // origin, and the map bakes that origin in. This counts rebuilds instead.
+            return new { signals = sigs, junctions = jn, routes = rts, ctc = Ctc, epoch = TrackMap.Epoch };
         }
 
         /// <summary>Throw a switch from the board. The game's own event carries it to
