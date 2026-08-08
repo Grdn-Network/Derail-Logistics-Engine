@@ -59,6 +59,14 @@ namespace DLE.Dispatch
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static readonly HashSet<int> _inYard = new HashSet<int>();
         private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
+
+        /// <summary>Everything about a drawn switch that the world decides once: where it
+        /// stands, which way its approach runs, and which side of a double track it is on.
+        /// Held in world coordinates, because the game shifts the world origin under us and
+        /// only the live subtraction stays honest across that.</summary>
+        private class JGeo { public Vector3 World; public float Dx, Dz; public int Side; }
+        private static readonly Dictionary<int, JGeo> _jGeo = new Dictionary<int, JGeo>();
+        private static readonly Dictionary<RailTrack, string> _trackIds = new Dictionary<RailTrack, string>();
         // How far each leg of a switch is drawn. This is the ONLY thing on the board that
         // says which way a switch is set, so it has to be long enough to read without
         // winding the zoom up: 120m is seventeen pixels at the default scale, which is
@@ -78,7 +86,8 @@ namespace DLE.Dispatch
         public static void Reset()
         {
             _signals.Clear(); _inboundAt.Clear(); _routes.Clear();
-            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _stubs.Clear(); _builtHash = null;
+            _jIds.Clear(); _junctions.Clear(); _inYard.Clear(); _stubs.Clear();
+            _jGeo.Clear(); _trackIds.Clear(); _builtHash = null;
         }
 
         private static long LegKey(int junction, int leg) => ((long)junction << 8) ^ (uint)(leg + 8);
@@ -248,14 +257,39 @@ namespace DLE.Dispatch
             _facingReport = string.Join(", ", facing.OrderBy(kv => kv.Key)
                 .Select(kv => kv.Key + "=" + kv.Value).ToArray());
 
+            // A rail's display id is looked up by object once here. Finding it used to mean
+            // walking the whole track registry, and the live payload did that for every
+            // drawn junction on every poll.
+            try
+            {
+                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
+                    if (kv.Value != null && kv.Key?.ID != null) _trackIds[kv.Value] = kv.Key.ID.FullDisplayID;
+            }
+            catch { }
+
             // Leg geometry never moves, so it is worked out once here and only the
             // selected index changes from poll to poll.
             for (int i = 0; i < _junctions.Count; i++)
             {
                 if (_inYard.Contains(i)) continue;
+                var j = _junctions[i];
+                if (j == null) continue;
                 var list = new List<object>();
-                try { BuildStubs(_junctions[i], list); } catch { }
+                try { BuildStubs(j, list); } catch { }
                 if (list.Count > 0) _stubs[i] = list;
+
+                // Stand the mark on the same side its rail is drawn, or a crossover puts
+                // two switches on one spot between the tracks.
+                var geo = new JGeo { World = j.position, Dx = 1f, Dz = 0f };
+                var approach = j.inBranch?.track;
+                if (approach != null)
+                {
+                    geo.Side = TrackMap.SideOfTrack(TrackIdOf(approach));
+                    Heading(approach, j.inBranch.first, out var hdx, out var hdz);
+                    geo.Dx = (float)Math.Round(hdx, 3);
+                    geo.Dz = (float)Math.Round(hdz, 3);
+                }
+                _jGeo[i] = geo;
             }
             var dirText = string.Join(", ", dirs.Select(kv => kv.Key + "=" + kv.Value).ToArray());
             Main.LogAlways($"[Interlocking] {_signals.Count} main signal(s) kept ({placed} standing at a known switch, "
@@ -372,13 +406,19 @@ namespace DLE.Dispatch
             {
                 live.TryGetValue(s.Id, out var now);
                 var info = now ?? s.Info;
+                // Placed means the board can draw it on its own leg; anything else falls
+                // back to its own coordinates, including a signal whose junction sits
+                // inside a yard and so has no legs on this view.
+                bool loose = s.J < 0 || !_stubs.ContainsKey(s.J);
                 sigs.Add(new
                 {
                     id = s.Id,
-                    // The board draws a placed signal on its own leg, a fixed step off the
-                    // junction, so these are only the fallback for a loose one.
-                    x = info.X,
-                    z = info.Z,
+                    // A placed signal is drawn on its own leg a fixed step off the switch,
+                    // so its own coordinates are only ever needed for a loose one. Type and
+                    // direction are diagnosis, and they belong in the log, not in a payload
+                    // that goes down the wire every five seconds.
+                    x = loose ? (float?)info.X : null,
+                    z = loose ? (float?)info.Z : null,
                     jid = s.J,
                     leg = s.Leg,
                     slot = s.Slot,
@@ -386,29 +426,25 @@ namespace DLE.Dispatch
                     aspect = info.Aspect,
                     on = info.IsOn,
                     manual = info.Manual,
-                    type = info.Type,
-                    dir = info.Direction,
                     road = _routes.ContainsKey(s.Id),
-                    routable = s.J >= 0,
                 });
             }
             var locked = new HashSet<int>();
             foreach (var r in _routes.Values) foreach (var j in r.Locked) locked.Add(j);
             var jn = new List<object>();
-            for (int i = 0; i < _junctions.Count; i++)
+            // Where a switch stands, which way its approach runs and which side of a
+            // double track it sits on are all fixed when the world is built. Only the set
+            // branch and the lock change from poll to poll, so only those are read here.
+            // This used to work all of it out every poll, and finding a rail's id meant
+            // walking the whole track registry, so a single poll did 221 full registry
+            // scans to re-answer questions whose answers cannot change.
+            foreach (var kv in _jGeo)
             {
+                int i = kv.Key;
+                var g = kv.Value;
                 var j = _junctions[i];
-                if (j == null || _inYard.Contains(i)) continue;
-                var p = j.position - move;
-                // Stand the mark on the same side its rail is drawn, or a crossover puts
-                // two switches on one spot between the tracks.
-                var approach = j.inBranch?.track;
-                int side = 0; float dx = 1f, dz = 0f;
-                if (approach != null)
-                {
-                    side = TrackMap.SideOfTrack(TrackIdOf(approach));
-                    Heading(approach, j.inBranch.first, out dx, out dz);
-                }
+                if (j == null) continue;
+                var p = g.World - move;
                 jn.Add(new
                 {
                     id = i,
@@ -417,9 +453,9 @@ namespace DLE.Dispatch
                     branch = (int)j.selectedBranch,
                     branches = j.outBranches?.Count ?? 0,
                     locked = locked.Contains(i),
-                    side,
-                    dx = (float)Math.Round(dx, 3),
-                    dz = (float)Math.Round(dz, 3),
+                    side = g.Side,
+                    dx = g.Dx,
+                    dz = g.Dz,
                 });
             }
             var rts = _routes.Values.Select(r => new { signal = r.SignalId, poly = r.Poly }).ToList();
@@ -614,6 +650,8 @@ namespace DLE.Dispatch
         /// <summary>The rail's id as the map keys it, for the fan-side lookup.</summary>
         private static string TrackIdOf(RailTrack t)
         {
+            if (t == null) return null;
+            if (_trackIds.TryGetValue(t, out var id)) return id;
             try
             {
                 foreach (var kv in RailTrackRegistry.LogicToRailTrack)

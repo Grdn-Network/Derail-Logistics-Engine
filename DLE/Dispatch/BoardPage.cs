@@ -952,7 +952,9 @@ function renderRailsDyn(){
    // Far enough out that the triangle clears the switch mark and its lock ring.
    const w=walkAlong(smooth(railFan(pts,leg.side||0)),railSize(52)+sg.slot*railSize(34));
    if(w){q=w[0];u=w[1]}}
-  if(!q)q=rxy(sg.x,sg.z);
+  // A signal with no leg to stand on falls back to its own coordinates, which
+  // the server only sends in that case.
+  if(!q){if(sg.x==null)continue;q=rxy(sg.x,sg.z)}
   if(sg.inbound)u=[-u[0],-u[1]];
   marks.push({kind:'sig',id:sg.id,sg,u,click:true,x:q[0],y:q[1],ax:q[0],ay:q[1]})}
  spread(marks,railSize(26),railSize(34));
@@ -989,7 +991,7 @@ function renderRailsDyn(){
   const a=sg.aspect||'';
   const col=!sg.on?'#5c6172':a==='S2'?'#57c78e':(a==='S6'||a==='S4')?'#d9b47a':'#c25f5a';
   const nm=a==='S2'?'clear':a==='S6'?'caution':a==='S4'?'expect caution':a?'stop':'off';
-  const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.routable?'':' - not standing at a switch this board knows'}`;
+  const t=`${sg.id}: ${nm}${sg.manual?' (manual)':''}${sg.road?' - road set by dispatch':''}${sg.jid>=0?'':' - not standing at a switch this board knows'}`;
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
    ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
