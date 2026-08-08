@@ -856,13 +856,11 @@ let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
 // spreads it on purpose: geography decides WHERE the pair runs, this decides that you
 // can see and click both of them.
 const RAIL_FAN=()=>railSize(22);
-// Sizes are TRUE TO WORLD (owner ruling): everything is drawn the size it has at
-// 1.0 m/px with glyphs 1.0x, and that size belongs to the railway, not the screen.
-// Zoom is just a camera. Pull away and the marks shrink with the world; close in and
-// they grow with it; nothing ever changes size relative to the track it stands on.
-// Screen-anchored glyphs were the scaling the owner kept seeing: zoom out and every
-// icon ballooned against the shrinking world until the map was nothing but icons.
-function railSize(k){return k*RAIL_G/RAIL_MPP}
+// Sizes are TRUE TO WORLD with a ceiling (owner ruling): zoomed out, glyphs shrink
+// with the world; zooming in they grow with it, but never past the size they have at
+// 1.0 m/px. Past that, the railway keeps opening up and the marks hold still, so a
+// yard at full zoom is space and thin lines instead of a wall of fat glyphs.
+function railSize(k){return k*RAIL_G/Math.max(1,RAIL_MPP)}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.3,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -929,6 +927,26 @@ function renderRailsStatic(){
  // and a filled disc over a yard throat hides the very track you would be working. The
  // name stays as a plain label so you still know where you are.
  let tp='';
+ // Signage (owner ask): a yardmaster has to know which track is which, so every named
+ // track carries its name once the zoom gives it room. Labels are screen-sized and
+ // rotated along their track; the station prefix is dropped because the yard you are
+ // standing in is not news.
+ for(const ln of (railsGeo.lines||[])){
+  if(!ln.id||ln.id[0]==='#')continue;
+  const q=[];
+  for(let i=0;i<ln.pts.length;i+=2)q.push(rxy(ln.pts[i],ln.pts[i+1]));
+  if(q.length<2||pathLen(q)<70)continue;
+  const m=q.length>>1;
+  const a=q[Math.max(0,m-1)],b=q[Math.min(q.length-1,m)];
+  const cx2=(a[0]+b[0])/2,cy2=(a[1]+b[1])/2;
+  let ang=Math.atan2(b[1]-a[1],b[0]-a[0])*180/Math.PI;
+  if(ang>90)ang-=180;if(ang<-90)ang+=180;
+  let nm=ln.id;
+  const dash=nm.indexOf('-');
+  if(dash>0&&SC[nm.slice(0,dash)]!==undefined)nm=nm.slice(dash+1);
+  tp+=`<text transform='translate(${cx2.toFixed(1)},${cy2.toFixed(1)}) rotate(${ang.toFixed(1)})' dy='-6'
+   text-anchor='middle' font-size='${(11*RAIL_G).toFixed(1)}' font-weight='600' fill='#9aa1b5'
+   stroke='#0d0f1a' stroke-width='${(3*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(nm)}</text>`}
  for(const s of (railsGeo.stations||[])){
   const q=rxy(s.x,s.z);
   tp+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-10).toFixed(1)}' text-anchor='middle'
@@ -1040,13 +1058,27 @@ function renderRailsDyn(){
    const d=railPath(clip(q,leg===setLeg?armPx:railSize(60)),leg.side||0)
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(7.5)}' stroke-linecap='round' stroke-linejoin='round'/>`}
-  // The dot (owner ask): one green dot ON the branch the switch is set to, just off
-  // the points. Whatever else the eye misses, the dot names the side.
+  // The dot (owner ask, corrected): it stands BESIDE the points, offset to the side
+  // the switch branches towards, not somewhere along the arm where it read as an end
+  // cap. A straight-through setting puts it opposite the branch that diverges, which
+  // is still the side the traffic goes.
   if(setLeg){
-   const qd=toQ(setLeg);
-   if(qd.length>1){
-    const w=walkAlong(railPath(clip(qd,armPx),setLeg.side||0),railSize(34));
-    if(w)h+=`<circle cx='${w[0][0].toFixed(1)}' cy='${w[0][1].toFixed(1)}' r='${railSize(7)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2.5)}'/>`}}}
+   const J=rxy(j.x,j.z);
+   const ws=walkAlong(railPath(clip(toQ(setLeg),armPx),setLeg.side||0),railSize(30));
+   const wt=trunk?walkAlong(railPath(clip(toQ(trunk),railSize(60)),trunk.side||0),railSize(30)):null;
+   if(ws){
+    // Through axis: into the junction along the trunk, or the set direction itself
+    // when the junction has no trunk leg to speak of.
+    const ax=wt?-wt[1][0]:ws[1][0], ay=wt?-wt[1][1]:ws[1][1];
+    let cr=ax*ws[1][1]-ay*ws[1][0];
+    if(Math.abs(cr)<0.10){
+     const un=legs.find(l=>l.branch>=0&&l.branch!==j.branch);
+     if(un){const wu=walkAlong(railPath(clip(toQ(un),railSize(60)),un.side||0),railSize(30));
+      if(wu)cr=-(ax*wu[1][1]-ay*wu[1][0])}}
+    const sgn=cr>=0?1:-1;
+    const dx2=J[0]+ax*railSize(24)-ay*sgn*railSize(15);
+    const dy2=J[1]+ay*railSize(24)+ax*sgn*railSize(15);
+    h+=`<circle cx='${dx2.toFixed(1)}' cy='${dy2.toFixed(1)}' r='${railSize(7)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2.5)}'/>`}}}
  if(showSw)for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`;
