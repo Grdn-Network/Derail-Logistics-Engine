@@ -913,10 +913,22 @@ function renderRailsStatic(){
  // in SCREEN space: the sideways stretch means a world perpendicular is not a screen
  // perpendicular, so the shift has to be computed after projection.
  const paths=[];
+ // Rails stop at the yard boundary, which left every station bubble floating in open
+ // ground with its approaches ending in mid air. Run each approach into its bubble
+ // instead: the bubble is drawn over the top, so the join is hidden and the railway
+ // reads as one connected thing rather than fragments around a dot.
+ const ST=railsGeo.stations||[];
+ const nearSt=(x,z)=>{let b=null,bd=680*680;
+  for(const s of ST){const d=(s.x-x)*(s.x-x)+(s.z-z)*(s.z-z);if(d<bd){bd=d;b=s}}
+  return b};
  for(const ln of railsGeo.lines){
   const a=ln.pts||ln,side=ln.side||0;
-  const q=[];
-  for(let i=0;i<a.length;i+=2)q.push(rxy(a[i],a[i+1]));
+  const w=[];
+  for(let i=0;i<a.length;i+=2)w.push([a[i],a[i+1]]);
+  if(w.length>1){
+   const s0=nearSt(w[0][0],w[0][1]);if(s0)w.unshift([s0.x,s0.z]);
+   const s1=nearSt(w[w.length-1][0],w[w.length-1][1]);if(s1)w.push([s1.x,s1.z])}
+  const q=w.map(p=>rxy(p[0],p[1]));
   paths.push({d:railPath(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
@@ -994,10 +1006,16 @@ function renderRailsDyn(){
    const q=[];
    for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
-   const d=railPath(q,leg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    // The trunk is leg -1 and is always connected; only the branches take turns.
    const set=leg.branch<0||leg.branch===j.branch;
-   h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#333949'}' stroke-width='${railSize(set?12:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   // A SHORT arm at the switch, not half a kilometre of it. Legs used to run 500m, and
+   // with two or three of them on each of 221 junctions that drew the entire railway a
+   // second time in bright white on top of itself: the map turned into a thicket where
+   // no line could be followed. The arm only has to say which way the points lie, and
+   // it has to be long enough to still carry this switch's signals.
+   const d=railPath(clip(q,set?railSize(118):railSize(74)),leg.side||0)
+    .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#39404f'}' stroke-width='${railSize(set?9:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
@@ -1062,6 +1080,15 @@ function smooth(q){
 // A leg stub is a couple of hundred metres, which is only a few pixels at map scale,
 // so a line that runs out is CARRIED ON in the direction it was going. Without that
 // every mark clamped to the end of its stub and piled back onto the switch.
+// Cut a projected path back to a given number of screen pixels.
+function clip(q,maxPx){
+ if(q.length<2)return q;
+ const out=[q[0]];let run=0;
+ for(let i=1;i<q.length;i++){
+  const dx=q[i][0]-q[i-1][0],dy=q[i][1]-q[i-1][1],L=Math.hypot(dx,dy);
+  if(run+L>=maxPx){const t=(maxPx-run)/L;out.push([q[i-1][0]+dx*t,q[i-1][1]+dy*t]);return out}
+  out.push(q[i]);run+=L}
+ return out}
 function walkAlong(q,dist){
  if(!q||q.length<2)return null;
  let run=0;
