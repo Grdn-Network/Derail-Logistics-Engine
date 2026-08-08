@@ -277,7 +277,6 @@ namespace DLE.Dispatch
                 var approach = j.inBranch?.track;
                 if (approach != null)
                 {
-                    geo.Side = TrackMap.SideOfTrack(TrackIdOf(approach));
                     Heading(approach, j.inBranch.first, out var hdx, out var hdz);
                     geo.Dx = (float)Math.Round(hdx, 3);
                     geo.Dz = (float)Math.Round(hdz, 3);
@@ -404,19 +403,13 @@ namespace DLE.Dispatch
             {
                 live.TryGetValue(s.Id, out var now);
                 var info = now ?? s.Info;
-                // Placed means the board can draw it on its own leg; anything else falls
-                // back to its own coordinates, including a signal whose junction sits
-                // inside a yard and so has no legs on this view.
-                bool loose = s.J < 0 || !_stubs.ContainsKey(s.J);
                 sigs.Add(new
                 {
                     id = s.Id,
-                    // A placed signal is drawn on its own leg a fixed step off the switch,
-                    // so its own coordinates are only ever needed for a loose one. Type and
-                    // direction are diagnosis, and they belong in the log, not in a payload
-                    // that goes down the wire every five seconds.
-                    x = loose ? (float?)info.X : null,
-                    z = loose ? (float?)info.Z : null,
+                    // True position, always (full RD ruling): the board draws a signal
+                    // where it stands and nudges only for click room.
+                    x = info.X,
+                    z = info.Z,
                     jid = s.J,
                     leg = s.Leg,
                     slot = s.Slot,
@@ -729,7 +722,7 @@ namespace DLE.Dispatch
                     lx = p.x; lz = p.z; have = true;
                 }
                 if (pts.Count >= 4)
-                    outp.Add(new { side = TrackMap.SideOfTrack(TrackIdOf(t)), pts = pts.ToArray() });
+                    outp.Add(new { pts = pts.ToArray() });
             }
             return outp;
         }
@@ -777,17 +770,9 @@ namespace DLE.Dispatch
             }
             if (pts.Count >= 4)
             {
-                // The fan offset flips with travel direction, and a leg walks OUTWARD
-                // from its junction, which for half of all legs is the reverse of the
-                // direction the track's own line is drawn in. The side flips for those,
-                // or the leg lands mirrored across its line instead of on it: with the
-                // constant fan that mirrored every affected switch arm on the board.
-                int side = TrackMap.SideOfTrack(TrackIdOf(br.track));
-                if (!br.first) side = -side;
                 into.Add(new
                 {
                     branch = leg,
-                    side,
                     pts = pts.ToArray(),
                 });
             }

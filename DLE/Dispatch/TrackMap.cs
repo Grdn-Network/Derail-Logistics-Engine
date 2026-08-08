@@ -146,15 +146,12 @@ namespace DLE.Dispatch
             // the board can fan them apart on screen. This works on whole polylines,
             // unlike the earlier per-segment clustering that mistook one track's own
             // consecutive pieces for neighbours and drew combs.
-            var sides = DetectParallel(lines, lineTrack);
-            _sideByTrack.Clear();
-            for (int i = 0; i < lines.Count; i++)
-                if (sides[i] != 0 && lineTrack[i] != null) _sideByTrack[lineTrack[i]] = sides[i];
             var lineOut = new List<object>(lines.Count);
-            // Each line carries its track id so the board can paint occupied blocks red:
-            // the live poll already says which tracks have cars, and the id is the join.
+            // Full RD (owner ruling): no artificial double-track spread, no sides. The
+            // line is the track, exactly where it is; zoom resolves parallels. Each line
+            // keeps its id so occupied blocks paint red and named tracks label themselves.
             for (int i = 0; i < lines.Count; i++)
-                lineOut.Add(new { id = lineTrack[i], side = sides[i], pts = lines[i] });
+                lineOut.Add(new { id = lineTrack[i], pts = lines[i] });
 
             // Every junction and every signal, since the map now draws every rail.
             try { Interlocking.Build(); }
@@ -178,107 +175,9 @@ namespace DLE.Dispatch
             };
             _geometryBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
             _geometryHash = hash;
-            Main.LogAlways($"[TrackMap] network built: {lines.Count} rail line(s) ({sides.Count(v => v != 0)} paired as double track), {js.Count} junction(s), "
+            Main.LogAlways($"[TrackMap] network built: {lines.Count} rail line(s), {js.Count} junction(s), "
                 + $"{stations.Count} station(s), {_geometryBytes.Length / 1024}KB; the whole railway, yards included.");
             return _geometryBytes;
-        }
-
-        /// <summary>Which way a rail is offset on screen, so junctions and signals
-        /// standing on it shift the same way instead of stacking on the centreline.
-        /// Zero when the rail is single track.</summary>
-        internal static int SideOfTrack(string trackId) =>
-            trackId != null && _sideByTrack.TryGetValue(trackId, out var s) ? s : 0;
-
-        private static readonly Dictionary<string, int> _sideByTrack =
-            new Dictionary<string, int>(StringComparer.Ordinal);
-
-        /// <summary>
-        /// Find rails that genuinely run alongside each other and put them on opposite
-        /// sides. Two polylines only pair when many of their points sit within a track
-        /// spacing AND their headings agree, which is what stops a curve pairing with
-        /// itself. Antiparallel pairs flip the second side so both push apart rather than
-        /// both the same way.
-        /// </summary>
-        private static int[] DetectParallel(List<float[]> lines, List<string> lineTrack)
-        {
-            const float cell = 20f, near = 14f;
-            var side = new int[lines.Count];
-            var grid = new Dictionary<long, List<int>>();
-            long Key(int cx, int cz) => ((long)cx << 32) ^ (uint)cz;
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var p = lines[i];
-                for (int k = 0; k + 1 < p.Length; k += 2)
-                {
-                    var key = Key((int)Math.Floor(p[k] / cell), (int)Math.Floor(p[k + 1] / cell));
-                    if (!grid.TryGetValue(key, out var l)) grid[key] = l = new List<int>();
-                    l.Add((i << 12) | (k >> 1));
-                }
-            }
-            void DirAt(float[] p, int idx, out float ox, out float oz)
-            {
-                int n = p.Length / 2;
-                int a = Math.Max(0, idx - 1), b = Math.Min(n - 1, idx + 1);
-                float dx = p[b * 2] - p[a * 2], dz = p[b * 2 + 1] - p[a * 2 + 1];
-                float len = Mathf.Sqrt(dx * dx + dz * dz);
-                if (len < 0.001f) { ox = 1f; oz = 0f; } else { ox = dx / len; oz = dz / len; }
-            }
-            var counts = new Dictionary<long, int>();
-            var lats = new Dictionary<long, (float li, float lj)>();
-            for (int i = 0; i < lines.Count; i++)
-            {
-                var p = lines[i];
-                for (int k = 0; k + 1 < p.Length; k += 2)
-                {
-                    int cx = (int)Math.Floor(p[k] / cell), cz = (int)Math.Floor(p[k + 1] / cell);
-                    for (int dx = -1; dx <= 1; dx++)
-                        for (int dz = -1; dz <= 1; dz++)
-                        {
-                            if (!grid.TryGetValue(Key(cx + dx, cz + dz), out var bucket)) continue;
-                            foreach (var packed in bucket)
-                            {
-                                int j = packed >> 12, m = packed & 0xFFF;
-                                if (j <= i) continue;
-                                var q = lines[j];
-                                if (m * 2 + 1 >= q.Length) continue;
-                                float ddx = q[m * 2] - p[k], ddz = q[m * 2 + 1] - p[k + 1];
-                                float d = Mathf.Sqrt(ddx * ddx + ddz * ddz);
-                                if (d > near || d < 0.5f) continue;
-                                DirAt(p, k >> 1, out var ix, out var iz);
-                                DirAt(q, m, out var jx, out var jz);
-                                float dot = ix * jx + iz * jz;
-                                if (Math.Abs(dot) < 0.94f) continue;
-                                long pk = ((long)i << 32) | (uint)j;
-                                counts.TryGetValue(pk, out var c); counts[pk] = c + 1;
-                                // Which SIDE the partner lies on, in each line's own frame.
-                                // The old code never knew, so half the time a pair was
-                                // pushed toward each other and the tracks swapped places,
-                                // which is what rearranged the yard ladders.
-                                lats.TryGetValue(pk, out var lv);
-                                lats[pk] = (lv.li + (-iz * ddx + ix * ddz), lv.lj + (jz * ddx - jx * ddz));
-                            }
-                        }
-                }
-            }
-            foreach (var kv in counts.OrderByDescending(kv => kv.Value))
-            {
-                int i = (int)(kv.Key >> 32), j = (int)(kv.Key & 0xFFFFFFFF);
-                int need = Math.Max(2, (int)(0.35f * Math.Min(lines[i].Length, lines[j].Length) / 2));
-                if (kv.Value < need) continue;
-                // Each line moves AWAY from where its partner actually is. The lateral
-                // sums carry that per line in its own frame, so orientation stops
-                // mattering and a pair can never be pushed into a swap.
-                var (li, lj) = lats[kv.Key];
-                if (side[i] == 0) side[i] = li >= 0 ? -1 : 1;
-                if (side[j] == 0) side[j] = lj >= 0 ? -1 : 1;
-            }
-            // Two spread tiers, encoded in the magnitude: open line stays 1 and gets the
-            // wide double-track gap; named yard tracks become 2 and get just enough air
-            // to tell neighbours apart without redrawing the ladder somewhere else.
-            for (int i = 0; i < lines.Count; i++)
-                if (side[i] != 0 && lineTrack[i] != null && lineTrack[i].Length > 0 && lineTrack[i][0] != '#')
-                    side[i] *= 2;
-            return side;
         }
 
         private static bool JunctionsAlive()
