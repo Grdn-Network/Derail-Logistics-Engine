@@ -840,7 +840,10 @@ let railsGeo=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastT
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
 // with a dark casing under a bright core, so crossings read and parallel track just
 // looks like heavier line work instead of the comb an earlier fan attempt drew.
-const RAIL_XS=2.0;
+// 1:1 (owner ruling): distances and angles read true in every direction, which the
+// routing and ETA work depends on. The old 2x sideways stretch was a leftover from
+// the no-zoom era, when the railway had to fill a widescreen monitor on its own.
+const RAIL_XS=1.0;
 // Scale and glyph size are DIALS, not constants. I cannot see the board, so rather than
 // guessing sizes on someone's behalf these are set on screen and remembered per browser.
 // Set them once and then pan; nothing here changes while you work.
@@ -948,6 +951,23 @@ function renderRailsDyn(){
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
    const d=railPath(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+ // Occupied blocks paint red (owner ruling): where a train stands, the track shows it,
+ // over the green of any road it is running down. Ids ride the geometry payload once;
+ // the live poll only says which of them have cars on them right now.
+ if(tr&&tr.occupied&&tr.occupied.length){
+  const occ=new Set(tr.occupied);
+  for(const ln of (railsGeo.lines||[])){
+   if(!ln.id||!occ.has(ln.id))continue;
+   const q=[];
+   for(let i=0;i<ln.pts.length;i+=2)q.push(rxy(ln.pts[i],ln.pts[i+1]));
+   if(q.length<2)continue;
+   const d=railPath(q,ln.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   h+=`<polyline points='${d}' fill='none' stroke='#c25f5a' stroke-width='${railSize(ln.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+
+ // Far out, switches are specks that cannot be worked and only bury the signals a
+ // dispatcher IS there to click, so below a drawn size of five pixels they are not
+ // drawn at all (owner ruling): green up paths across the map, zoom in for the points.
+ const showSw=railSize(11)>=5;
  // WHERE EVERY MARK GOES. True positions first, then one spreading pass over the lot,
  // because real geography puts switches on top of each other at map scale: on this
  // world 196 pairs of switches sit closer than 28px and the worst are 0.7px apart, so
@@ -961,7 +981,7 @@ function renderRailsDyn(){
   if(j.branches<2)return;
   // True position: the fan ramps to zero at a junction, so the rails arrive HERE.
   const p=rxy(j.x,j.z);
-  marks.push({kind:'jn',id:j.id,j,click:true,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
+  marks.push({kind:'jn',id:j.id,j,click:showSw,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
   // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
@@ -991,9 +1011,9 @@ function renderRailsDyn(){
  // leg it is set to solid white and the others greyed so a dispatcher can see there IS
  // a connection and exactly where it goes. The disc goes down first and the legs are
  // drawn over it, which is why this is in three passes rather than one.
- for(const m of jItems)
+ if(showSw)for(const m of jItems)
   h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(11)}' fill='#07080e' stroke='#454c5e' stroke-width='${railSize(1.5)}'/>`;
- for(const j of (il.junctions||[])){
+ if(showSw)for(const j of (il.junctions||[])){
   if(j.branches<2)continue;
   const legs=railLegs[j.id]||[];
   const toQ=l=>{const q=[];for(let i=0;i<l.pts.length;i+=2)q.push(rxy(l.pts[i],l.pts[i+1]));return q};
@@ -1026,8 +1046,8 @@ function renderRailsDyn(){
    const qd=toQ(setLeg);
    if(qd.length>1){
     const w=walkAlong(railPath(clip(qd,armPx),setLeg.side||0),railSize(34));
-    if(w)h+=`<circle cx='${w[0][0].toFixed(1)}' cy='${w[0][1].toFixed(1)}' r='${railSize(7)}' fill='#57c78e' stroke='#0d0f1a' stroke-width='${railSize(2)}'/>`}}}
- for(const m of jItems){
+    if(w)h+=`<circle cx='${w[0][0].toFixed(1)}' cy='${w[0][1].toFixed(1)}' r='${railSize(7)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2.5)}'/>`}}}
+ if(showSw)for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
   const t=`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:pointer'>
@@ -1137,7 +1157,9 @@ function nearestMark(e){
  if(!m)return null;
  const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;
  const p=pt.matrixTransform(m.inverse());
- const reach=railSize(34);
+ // Visuals are true to world, but a CLICK keeps a screen-sized floor, or greening a
+ // path from across the map would mean hunting three-pixel triangles.
+ const reach=Math.max(14,railSize(34));
  let best=null,bd=reach*reach;
  for(const k of railMarks){
   if(!k.click)continue;
