@@ -17,7 +17,12 @@ namespace DLE.Dispatch
     /// </summary>
     internal static class TrackMap
     {
-        private const float YardRadius = 500f;    // inside this, the yard owns the picture
+        // The whole railway is drawn, yards included (owner ruling). This used to cut
+        // out everything within 500m of a station, which on the live world hid 420 of
+        // the 641 switches and 58 percent of all track: that is why the map looked like
+        // it had holes in it and switches missing. It did. Zoom is what makes a yard
+        // workable now, so nothing is hidden and the picture is the actual railway.
+        private const float YardRadius = 0f;
         private const float ThinMeters = 10f;     // drop points closer than this together
         private const float JunctionCell = 60f;   // junction thinning cell, metres
 
@@ -47,7 +52,8 @@ namespace DLE.Dispatch
             }
             catch { }
 
-            // Station anchors first: they decide what counts as yard interior.
+            // Station anchors, kept as labels on the map and as the yard test the
+            // interlocking still takes (now zero, so it excludes nothing).
             var stations = new List<object>();
             var stPos = new List<Vector2>();
             foreach (var f in Economy.EconomyState.Instance.Facilities.Values.ToList())
@@ -58,19 +64,8 @@ namespace DLE.Dispatch
                 stations.Add(new { id = f.YardId, x = (float)Math.Round(p.x, 1), z = (float)Math.Round(p.z, 1) });
                 stPos.Add(new Vector2(p.x, p.z));
             }
-            bool InYard(float x, float z)
-            {
-                for (int i = 0; i < stPos.Count; i++)
-                {
-                    float dx = x - stPos[i].x, dz = z - stPos[i].y;
-                    if (dx * dx + dz * dz < YardRadius * YardRadius) return true;
-                }
-                return false;
-            }
-
-            // Only open rail is drawn on the network view (owner ruling): yard interiors
-            // belong to the station's own view, so the approach rails just run into the
-            // bubble and stop. The rails go out as their REAL polylines. An earlier build
+            // EVERY rail goes out, as its REAL polyline: yards, sidings, the lot. An
+            // earlier build drew only open line and left the map full of holes. Another
             // tried merging parallel rails into fanned corridors and it drew combs: the
             // clustering counted sequential pieces of one track as parallel neighbours,
             // so a single curve claimed fifteen tracks. Real geometry, drawn heavy, reads
@@ -88,8 +83,7 @@ namespace DLE.Dispatch
             foreach (var rt in SingletonBehaviour<RailTrackRegistryBase>.Instance.OrderedRailtracks)
             {
                 if (rt == null || rt.curve == null || rt.curve.pointCount < 2) continue;
-                if (names.TryGetValue(rt, out var id) && id != null && id.Length > 0 && id[0] != '#')
-                    continue; // named track = yard interior
+                names.TryGetValue(rt, out var id);
                 run.Clear();
                 runTrack = id;
                 float lx = 0f, lz = 0f; bool have = false;
@@ -98,7 +92,6 @@ namespace DLE.Dispatch
                     var bp = rt.curve[i];
                     if (bp == null) continue;
                     var p = bp.position - move;
-                    if (InYard(p.x, p.z)) { Flush(); have = false; continue; }
                     // Thin the jitter: anything inside ThinMeters of the last kept point
                     // adds noise and payload without changing the drawn shape.
                     if (have && (p.x - lx) * (p.x - lx) + (p.z - lz) * (p.z - lz) < ThinMeters * ThinMeters) continue;
@@ -121,15 +114,13 @@ namespace DLE.Dispatch
                 _junctions = root != null ? root.GetComponentsInChildren<Junction>() : Array.Empty<Junction>();
             }
             catch { _junctions = Array.Empty<Junction>(); }
-            // Junctions inside a yard live in that station's view; the rest are thinned
-            // to one per cell so they read as marks instead of a blob.
+            // Thinned to one per cell so a ladder reads as marks instead of a blob.
             var js = new List<float[]>();
             var jseen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var j in _junctions)
             {
                 if (j == null) continue;
                 var p = j.transform.position - move;
-                if (InYard(p.x, p.z)) continue;
                 var k = Mathf.FloorToInt(p.x / JunctionCell) + ":" + Mathf.FloorToInt(p.z / JunctionCell);
                 if (!jseen.Add(k)) continue;
                 js.Add(new[] { (float)Math.Round(p.x, 1), (float)Math.Round(p.z, 1) });
@@ -149,7 +140,7 @@ namespace DLE.Dispatch
             for (int i = 0; i < lines.Count; i++)
                 lineOut.Add(new { side = sides[i], pts = lines[i] });
 
-            // Signals hang off the same non-yard junctions this map draws.
+            // Every junction and every signal, since the map now draws every rail.
             try { Interlocking.Build(stPos, YardRadius); }
             catch (Exception ex) { Main.LogAlways($"[Interlocking] build failed: {ex.GetType().Name}: {ex.Message}"); }
 
@@ -172,7 +163,7 @@ namespace DLE.Dispatch
             _geometryBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(payload));
             _geometryHash = hash;
             Main.LogAlways($"[TrackMap] network built: {lines.Count} rail line(s) ({sides.Count(v => v != 0)} paired as double track), {js.Count} junction(s), "
-                + $"{stations.Count} station(s), {_geometryBytes.Length / 1024}KB; yard interiors excluded.");
+                + $"{stations.Count} station(s), {_geometryBytes.Length / 1024}KB; the whole railway, yards included.");
             return _geometryBytes;
         }
 
