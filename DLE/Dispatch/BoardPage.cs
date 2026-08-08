@@ -138,8 +138,6 @@ white-space:nowrap;user-select:none;text-align:center}
 padding:6px 14px;border-top:1px solid var(--line);background:var(--panel)}
 #yardKey i{display:inline-block;width:11px;height:11px;border-radius:2px;border:1px solid var(--line2);
 margin-right:4px;vertical-align:-1px;font-style:normal}
-#strip{flex:none;display:flex;align-items:center;gap:3px;height:38px;padding:0 12px;
-border-top:1px solid var(--line);background:var(--panel);overflow-x:auto}
 #stationBar{flex:none;display:flex;align-items:center;gap:3px;height:38px;padding:0 12px;
 border-top:1px solid var(--line);background:var(--panel);overflow-x:auto}
 /* ── fleet + log surfaces ──────────────────────────────── */
@@ -311,7 +309,6 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <span><i style='opacity:.4'></i>on a job / reserved / player car</span>
     <span><i style='background:#16233a;border-color:#39597f'></i>power</span>
     <span class='spacer'></span><span id='jmSel' class='meta'></span></div>
-   <div id='strip'></div>
   </div>
   <div class='surf' id='surfRails'>
    <div style='flex:1;position:relative;overflow:hidden;background:#101220'>
@@ -396,7 +393,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
       <div class='spacer'></div><span class='k' id='bkHint'>pick cars on any track</span></div>
      <div style='display:flex;gap:6px;align-items:flex-end'>
       <label style='flex:1'>Cargo<select id='hCargo'></select></label>
-      <label>Cars<input id='hCars' type='number' value='4' min='1' max='40' style='width:56px'></label>
+      <label>Cars <span class='k num' id='hAvail' style='margin-left:2px'></span><input id='hCars' type='number' value='4' min='1' max='40' style='width:56px'></label>
       <button class='mini' data-act='jmAddLine' style='height:26px'
        title='Bank the picked cars as a cargo line, then pick more cars for another cargo. One booklet covers every line.'>+ Add</button>
      </div>
@@ -406,7 +403,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <select id='hDest' style='display:none'></select>
     <div id='destChips'></div>
     <div class='crewrow'><span class='k'>Crew</span>
-     <input id='hCrew' class='crew' list='crewNames' placeholder='optional' style='flex:1'>
+     <input id='hCrew' class='crew' list='crewNames' placeholder='crew, or a loco: L049' style='flex:1'>
      <label style='flex-direction:row;align-items:center;gap:5px;font-size:11px;white-space:nowrap'>
       <input type='checkbox' id='hTake'> take</label>
     </div>
@@ -597,7 +594,7 @@ async function refresh(){
   jobs.filter(x=>!x.logi&&x.cargo&&x.cargo.indexOf(' ')<0).map(x=>x.cargo)))].sort()));
  lastEconData=econ;
  const stripKey=[...new Set(econ.map(e=>e.yardId))].sort().join();
- if(last.strip!==stripKey){last.strip=stripKey;renderStrip();renderStationBar()}
+ if(last.strip!==stripKey){last.strip=stripKey;renderStationBar()}
  const netKey=JSON.stringify(options)+JSON.stringify(econ)+'|'+haulSel+'|'+JSON.stringify(lastJobs.map(x=>x.id));
  if(last.net!==netKey){last.net=netKey;drawNet()}
  const jKey=JSON.stringify(jobs)+[...expanded].join()+'|'+[...accSel].join()+'|'+[...accHidden].join()+'|'+haulSel+'|'+lastEconData.length;
@@ -632,7 +629,7 @@ async function refresh(){
 function laneCard(x){
  const cars=x.cars||x.plannedCars||0;
  const crew=x.assignedTo?esc(x.assignedTo):(x.state==='Available'?'unassigned':'crewless');
- const d2=x.logi?'empties · closes on arrival':`${crew}${x.wage?' · '+money(x.wage):''}${x.cargo?' · '+esc(disp(x.cargo)):''}`;
+ const d2=x.logi?'empties · closes on arrival':`${crew}${x.crewLoco?' in '+esc(x.crewLoco):''}${x.wage?' · '+money(x.wage):''}${x.cargo?' · '+esc(disp(x.cargo)):''}`;
  return `<div class='jc${haulSel===x.id?' cur':''}' data-act='laneOpen' data-id='${esc(x.id)}'>
   <div class='r1'>${spine(x.origin,x.destination)}
    <span class='rt num'>${esc(x.origin)}→${esc(x.destination)} ${cars}</span>
@@ -679,7 +676,7 @@ function jobDetail(x){
    <div class='meta'>${x.assignedTo?`crew: <b>${esc(x.assignedTo)}</b>`:'dispatch move'}</div>
    <div class='acts'>
     <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name or loco plate first, else the assigned crew, else you'>Fax</button>
-    <input class='crew' id='a_${esc(x.id)}' placeholder='crew or loco' list='crewNames'>
+    <input class='crew' id='a_${esc(x.id)}' placeholder='crew, or a loco: L049' list='crewNames'>
     <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
     <button class='mini' data-act='unassign' data-id='${esc(x.id)}'>Unassign</button>
     <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Cancel the move; the cars free up'>×</button>
@@ -702,7 +699,7 @@ function jobDetail(x){
    <button data-act='fax' data-id='${esc(x.id)}' title='Fax the booklet: typed name first, else the assigned crew, else you'>Fax</button>
    <button class='mini' data-act='cars' data-id='${esc(x.id)}'>${expanded.has(x.id)?'Hide cars':'Cars'}</button>
    <button class='mini' data-act='findEmpties' data-id='${esc(x.id)}' title='Show every compatible car in the world for this cargo'>Find empties</button>
-   <input class='crew' id='a_${esc(x.id)}' placeholder='crew or loco' list='crewNames'>
+   <input class='crew' id='a_${esc(x.id)}' placeholder='crew, or a loco: L049' list='crewNames'>
    <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>Unassign</button>
    <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Delete this haul; its supply returns to the pile'>×</button>
@@ -1145,14 +1142,23 @@ function renderRailsDyn(){
  // own place, on its own heading. A loco gets a nose so power reads at a glance, a
  // car on a job carries the job colour, and hovering names the vehicle exactly.
  for(const c of (tr.consists||[])){
-  let labeled=false;
+  const jobCars=[];
   for(const car of (c.cars||[])){
    const q=rxy(car.x,car.z);
    const [ux,uy]=screenDir(car.x,car.z,car.dx,car.dz);
    const px2=-uy,py2=ux;
    const hl=Math.max(railSize(4),(car.len||20)/RAIL_MPP/2);
    const hw=Math.max(railSize(2.2),1.5/RAIL_MPP);
-   const col=car.job?'#e09b95':(car.loco?'#7fb3e8':'#9aa0ae');
+   // A job car wears its DESTINATION's station colour (owner ruling: consist
+   // colours mean something), so where a train is going reads from across the map.
+   // The id's middle token is the fallback when the board list is behind the world.
+   let col='#9aa0ae';
+   if(car.loco)col='#7fb3e8';
+   if(car.job){
+    const jb=lastJobs.find(v=>v.id===car.job);
+    let dest=jb&&jb.destination;
+    if(!dest){const mm=/^[A-Z]+-([A-Z]+)-/.exec(car.job);if(mm)dest=mm[1]}
+    col=(dest&&SC[dest])||'#e09b95'}
    let pg;
    if(car.loco){
     pg=[[q[0]+ux*hl,q[1]+uy*hl],
@@ -1168,9 +1174,27 @@ function renderRailsDyn(){
    const d=pg.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    const t=`${car.id||'car'}${car.type?' · '+car.type:''}${car.loco?' · power':''}${car.job?' · '+car.job:''}`;
    h+=`<polygon points='${d}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(1.2)}' stroke-linejoin='round'><title>${esc(t)}</title></polygon>`;
-   if(car.job&&!labeled){labeled=true;
-    const x2=lastJobs.find(v=>v.id===car.job);
-    h+=`<text x='${q[0].toFixed(1)}' y='${(q[1]-railSize(9)).toFixed(1)}' font-size='${(12*RAIL_G).toFixed(1)}' font-weight='700' fill='#d9b47a' stroke='#0d0f1a' stroke-width='${(3*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(car.job)}${x2&&x2.assignedTo?' · '+esc(x2.assignedTo):''}</text>`}}}
+   // The loco wears its own number (owner ask): dark on the light hull, rotated with
+   // the vehicle, letting the mouse through so the hover still names it in full.
+   if(car.loco&&car.id){
+    let angL=Math.atan2(uy,ux)*180/Math.PI;
+    if(angL>90)angL-=180;if(angL<-90)angL+=180;
+    h+=`<text transform='translate(${q[0].toFixed(1)},${q[1].toFixed(1)}) rotate(${angL.toFixed(1)})' dy='3'
+     text-anchor='middle' font-size='${(9.5*RAIL_G).toFixed(1)}' font-weight='700' fill='#101828'
+     pointer-events='none'>${esc(car.id)}</text>`}
+   if(car.job)jobCars.push(car)}
+  // The job rides ON the train (owner ask), not floating beside it: the label sits
+  // across the middle job car, rotated along the consist, crew and all.
+  if(jobCars.length){
+   const mc=jobCars[jobCars.length>>1];
+   const q=rxy(mc.x,mc.z);
+   const [ux,uy]=screenDir(mc.x,mc.z,mc.dx,mc.dz);
+   let ang=Math.atan2(uy,ux)*180/Math.PI;
+   if(ang>90)ang-=180;if(ang<-90)ang+=180;
+   const x2=lastJobs.find(v=>v.id===mc.job);
+   h+=`<text transform='translate(${q[0].toFixed(1)},${q[1].toFixed(1)}) rotate(${ang.toFixed(1)})' dy='3.5'
+    text-anchor='middle' font-size='${(11*RAIL_G).toFixed(1)}' font-weight='700' fill='#ffe9c2'
+    stroke='#4a2b22' stroke-width='${(3*RAIL_G).toFixed(1)}' paint-order='stroke'>${esc(mc.job)}${x2&&x2.assignedTo?' · '+esc(x2.assignedTo):''}</text>`}}
  g.innerHTML=h}
 // A world heading is not a screen heading here, because the map is stretched sideways;
 // project two points and measure the result instead of rotating the raw vector.
@@ -1631,12 +1655,6 @@ function renderStationBar(){
  const cur=(lens==='logi'&&surface==='yard')?$('hOrigin').value:null;
  box.innerHTML=ys.map(y=>scChip(y,y===cur,'stBar')).join('')
   +`<div class='spacer'></div><span class='k' style='white-space:nowrap'>${cur?'click the lit station to step back out':'click a station to open its yard'}</span>`}
-function renderStrip(){
- const box=$('strip');if(!box)return;
- const ys=[...new Set(lastEconData.map(e=>e.yardId))].sort();
- const cur=$('hOrigin').value;
- box.innerHTML=ys.map(y=>scChip(y,y===cur,'stripJump')).join('')
-  +`<div class='spacer'></div><span class='k' style='white-space:nowrap'>station colours are the game's own · click to jump</span>`}
 // ── compatibility: which usable cars can carry the chosen cargo ──────────
 let compatSeq=0,compatKey='',compatAt=0;
 async function fetchCompat(){
@@ -1904,11 +1922,17 @@ document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if
  const fn=actions[el.dataset.act];if(fn)fn(el.dataset.id,el)});
 function originChanged(){const o=$('hOrigin').value;
  if(o!==jmStation){jmStation=o;jmSelSet.clear();jmCompat=null;jmYardData=null;yardKey='';jmSheet='ALL';
-  jmLines=[];jmDest=null;jmDestPicked=false;renderManifest();syncSelUi();renderYard();renderStrip();pollYard(true)}
+  jmLines=[];jmDest=null;jmDestPicked=false;renderManifest();syncSelUi();renderYard();renderStationBar();pollYard(true)}
  const ed=effDest();
  keepSelect($('hCargo'),options.filter(x=>x.origin===o&&(!ed||(x.consumers||[]).includes(ed))).map(x=>x.cargo).concat([LOGI]));
  cargoChanged()}
 function cargoChanged(){const o=$('hOrigin').value,c=$('hCargo').value;
+ // What the origin can actually send of this cargo, beside the count being typed
+ // (owner ask): the same shippable figure the map edges carry.
+ const av=$('hAvail');
+ if(av){const opt=options.find(x=>x.origin===o&&x.cargo===c);
+  av.textContent=(c&&c!==LOGI&&opt)?('· '+Math.round(opt.stock)+' shippable'):'';
+  av.title=opt?('carloads of '+disp(c)+' ready to ship from '+o):''}
  const locked=jmLines.length>0&&jmDest;
  const allYards=[...new Set(lastEconData.map(e=>e.yardId))].filter(y=>y!==o).sort();
  const union=[...new Set([].concat(...options.filter(x=>x.origin===o).map(x=>x.consumers||[])))].sort();
