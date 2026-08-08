@@ -324,6 +324,68 @@ namespace DLE.Dispatch
             catch { return null; }
         }
 
+        /// <summary>
+        /// Who is sitting in which car, via MPAPI OccupiedCar: usernames to car ids
+        /// (L-049 and the like). Loco-reference assignment and the crew-loco display
+        /// both hang off this. Null without MPAPI (singleplayer).
+        /// </summary>
+        internal static System.Collections.Generic.Dictionary<string, string> MpApiPlayerCars()
+        {
+            try
+            {
+                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                    ?.GetType("MPAPI.MultiplayerAPI");
+                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
+                if (server == null) return null;
+                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
+                        is System.Collections.IEnumerable players)) return null;
+                var map = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in players)
+                {
+                    var pt = p.GetType();
+                    if (!(pt.GetProperty("Username")?.GetValue(p) is string u) || string.IsNullOrEmpty(u)) continue;
+                    var car = pt.GetProperty("OccupiedCar")?.GetValue(p);
+                    if (car == null) continue;
+                    string id = null;
+                    try { id = car.GetType().GetProperty("ID")?.GetValue(car) as string; } catch { }
+                    if (id == null) { try { id = car.GetType().GetField("ID")?.GetValue(car) as string; } catch { } }
+                    if (!string.IsNullOrEmpty(id)) map[u] = id;
+                }
+                return map;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Owner ask: typing a loco on the assign line (49, 049, L049, L-049, L(049),
+        /// however people write it) assigns whoever is SITTING in that loco. Returns
+        /// true when the text reads as a loco reference at all; player comes back null
+        /// when the cab is empty. Anything wordier than an L and digits is a crew name
+        /// and none of this method's business.
+        /// </summary>
+        internal static bool TryResolveLocoAssignee(string text, out string player, out string locoId)
+        {
+            player = null; locoId = null;
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            var digits = new string(text.Where(char.IsDigit).ToArray());
+            var letters = new string(text.Where(char.IsLetter).ToArray()).ToUpperInvariant();
+            if (digits.Length < 1 || digits.Length > 4 || (letters.Length != 0 && letters != "L")) return false;
+            if (!int.TryParse(digits, out var want)) return false;
+            locoId = "L-" + digits.PadLeft(3, '0');
+            var cars = MpApiPlayerCars();
+            if (cars == null) return true;
+            foreach (var kv in cars)
+            {
+                var cid = kv.Value;
+                if (string.IsNullOrEmpty(cid) || char.ToUpperInvariant(cid[0]) != 'L') continue;
+                var cdig = new string(cid.Where(char.IsDigit).ToArray());
+                if (int.TryParse(cdig, out var have) && have == want)
+                { player = kv.Key; locoId = cid; return true; }
+            }
+            return true;
+        }
+
         private static string LocalPlayerName()
         {
             try

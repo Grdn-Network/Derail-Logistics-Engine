@@ -757,7 +757,16 @@ namespace DLE.Dispatch
                         var body = ReadBody(ctx);
                         var req = JsonConvert.DeserializeObject<AssignRequest>(body ?? "");
                         if (string.IsNullOrEmpty(req?.player)) { Json(ctx, 400, new { error = "player required" }); return; }
-                        AssignmentStore.Instance.Assign(jobId, req.player, req.assignedBy ?? "dispatcher");
+                        // Loco-reference assignment (owner ask): an L and digits means
+                        // "whoever is in that loco", resolved through MPAPI occupancy.
+                        var assignee = req.player;
+                        if (DispatchFax.TryResolveLocoAssignee(assignee, out var occupant, out var locoRef))
+                        {
+                            if (occupant == null)
+                            { Json(ctx, 409, new { error = $"nobody is in {locoRef} right now" }); return; }
+                            assignee = occupant;
+                        }
+                        AssignmentStore.Instance.Assign(jobId, assignee, req.assignedBy ?? "dispatcher");
                         // Echo what the store actually recorded (issue #79 forensics): the
                         // caller can verify the assignment landed under the id it expects.
                         Json(ctx, 200, new { ok = true, jobId, assignedTo = AssignmentStore.Instance.Get(jobId)?.Player });
@@ -1391,6 +1400,7 @@ namespace DLE.Dispatch
                 pickupTrack = kv.Value.spawnTrackDisplay,
                 state = kv.Value.LiveJob?.State.ToString() ?? "Unknown",
                 assignedTo = AssignmentStore.Instance.Get(kv.Key)?.Player,
+                crewLoco = CrewLocoOf(AssignmentStore.Instance.Get(kv.Key)?.Player),
                 reservedCars = kv.Value.reservedCarIds,
                 // The board offers "return supply" instead of a doomed unload when the
                 // whole consist is standing back where it started.
@@ -1422,6 +1432,7 @@ namespace DLE.Dispatch
                     logi = true,
                     state = job.State.ToString(),
                     assignedTo = AssignmentStore.Instance.Get(order.JobId)?.Player,
+                    crewLoco = CrewLocoOf(AssignmentStore.Instance.Get(order.JobId)?.Player),
                 });
             }
             return rows;
@@ -1573,6 +1584,17 @@ namespace DLE.Dispatch
             // A remote dispatcher's browser sends the board's own host as its origin.
             var host = ctx.Request.Headers["Host"];
             return string.IsNullOrEmpty(host) || origin != $"http://{host}";
+        }
+
+        /// <summary>The loco a crew member is sitting in right now, if any: the other
+        /// half of loco-reference assignment, so the booklet line reads
+        /// "crew · in L-049" and a dispatcher can see who is actually on power.</summary>
+        private static string CrewLocoOf(string player)
+        {
+            if (string.IsNullOrEmpty(player)) return null;
+            var cars = DispatchFax.MpApiPlayerCars();
+            if (cars == null || !cars.TryGetValue(player, out var cid)) return null;
+            return !string.IsNullOrEmpty(cid) && char.ToUpperInvariant(cid[0]) == 'L' ? cid : null;
         }
 
         private static bool Authorized(DleRequest ctx)
