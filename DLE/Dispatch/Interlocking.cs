@@ -273,7 +273,13 @@ namespace DLE.Dispatch
 
                 // Stand the mark on the same side its rail is drawn, or a crossover puts
                 // two switches on one spot between the tracks.
-                var geo = new JGeo { World = j.position, Dx = 1f, Dz = 0f };
+                // ABSOLUTE coordinates, fixed at build. The game shifts the world
+                // origin under a running session, and caching a frame-relative position
+                // here while subtracting the CURRENT origin at poll time slid every
+                // switch disc off the railway a little further with each shift (owner
+                // screenshot: discs and dots floating in open ground while the lines,
+                // arms and signals, all absolute, stayed put).
+                var geo = new JGeo { World = j.position - move, Dx = 1f, Dz = 0f };
                 var approach = j.inBranch?.track;
                 if (approach != null)
                 {
@@ -393,7 +399,6 @@ namespace DLE.Dispatch
             // when nothing has changed, so the board heals itself instead of showing an
             // empty railway until somebody reloads the page.
             if (!JunctionsAlive()) { try { TrackMap.GeometryBytes(); } catch { } }
-            var move = WorldMover.currentMove;
             // Aspects are read live so the board shows what the world actually shows,
             // including changes the Signals mod makes on its own.
             var live = new Dictionary<string, SignalsLink.SignalInfo>(StringComparer.Ordinal);
@@ -435,7 +440,7 @@ namespace DLE.Dispatch
                 var g = kv.Value;
                 var j = _junctions[i];
                 if (j == null) continue;
-                var p = g.World - move;
+                var p = g.World;
                 jn.Add(new
                 {
                     id = i,
