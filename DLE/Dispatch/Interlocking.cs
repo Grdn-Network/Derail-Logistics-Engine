@@ -191,6 +191,16 @@ namespace DLE.Dispatch
             }
 
             SignalsLink.TryInit();
+            // The mast's own id names its junction: W-0463 is OrderedJunctions[463],
+            // and that beats proximity. At a passing loop end two junctions stand close
+            // together, and nearest-anchoring hung masts on the wrong one, which turned
+            // their arrows backwards and walked their roads from the wrong points
+            // (owner photo of a loop end pair). Proximity is only the fallback, and the
+            // id anchor is still sanity-checked by distance so a stale number can never
+            // hang a mast across the map.
+            System.Collections.Generic.IList<Junction> ordered = null;
+            try { ordered = SingletonBehaviour<RailTrackRegistryBase>.Instance?.OrderedJunctions; } catch { }
+            int byId = 0, movedOffNearest = 0;
             int placed = 0, skipped = 0, loose = 0;
             var dirs = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var used = new Dictionary<long, int>();
@@ -207,8 +217,28 @@ namespace DLE.Dispatch
                 dirs.TryGetValue(key, out var dc); dirs[key] = dc + 1;
 
                 var sig = new Sig { Id = info.Id, Info = info, Leg = LegFromId(info.Id) };
-                int jidx = NearestJunction(info.X, info.Z, out var dist);
-                if (jidx >= 0 && dist <= AnchorRadius) { sig.J = jidx; placed++; }
+                int jidx = -1;
+                var mNum = System.Text.RegularExpressions.Regex.Match(info.Id, "^[A-Za-z]+-0*([0-9]+)");
+                if (ordered != null && mNum.Success
+                    && int.TryParse(mNum.Groups[1].Value, out var onum)
+                    && onum >= 0 && onum < ordered.Count && ordered[onum] != null
+                    && _jIds.TryGetValue(ordered[onum], out var oidx))
+                {
+                    var op = ordered[onum].position - move;
+                    float ddx = op.x - info.X, ddz = op.z - info.Z;
+                    if (ddx * ddx + ddz * ddz <= AnchorRadius * AnchorRadius) { jidx = oidx; byId++; }
+                }
+                if (jidx >= 0)
+                {
+                    int near0 = NearestJunction(info.X, info.Z, out _);
+                    if (near0 >= 0 && near0 != jidx) movedOffNearest++;
+                }
+                else
+                {
+                    jidx = NearestJunction(info.X, info.Z, out var dist);
+                    if (jidx >= 0 && dist > AnchorRadius) jidx = -1;
+                }
+                if (jidx >= 0) { sig.J = jidx; placed++; }
                 else loose++;
                 _signals.Add(sig);
             }
@@ -292,7 +322,7 @@ namespace DLE.Dispatch
                 + $"{loose} loose), {skipped} skipped as distant/shunting/other, {_junctions.Count} junction(s) numbered; "
                 + $"the mod reports direction {dirText}.");
             Main.LogAlways($"[Interlocking] signal facing by id: {_facingReport}. "
-                + "A signal reported as greening the wrong way should name its group here.");
+                + $"Anchors: {byId} by the id's own junction number, {movedOffNearest} of those differ from the nearest-junction guess.");
             // A world reload rebuilds this list, so a railway left under CTC has to be
             // put back to stop or half of it would quietly go automatic again.
             if (Ctc && _signals.Count > 0) HoldEverything();

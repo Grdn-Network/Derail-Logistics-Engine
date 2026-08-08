@@ -121,23 +121,37 @@ namespace DLE.Dispatch
                 // push. Serialization happens here on the main thread where game state
                 // lives (a few milliseconds, recorded in the lag meter); the socket
                 // writes go to the pool so a slow client never touches the frame.
-                if (WsHub.HasClients && UnityEngine.Time.realtimeSinceStartup - _lastPushAt >= 1f)
+                if (WsHub.HasClients && UnityEngine.Time.realtimeSinceStartup - _lastPushAt >= 1f
+                    && System.Threading.Interlocked.CompareExchange(ref _pushBusy, 1, 0) == 0)
                 {
                     _lastPushAt = UnityEngine.Time.realtimeSinceStartup;
                     var sw2 = System.Diagnostics.Stopwatch.StartNew();
-                    string inter = null, traffic = null;
-                    try { inter = JsonConvert.SerializeObject(Interlocking.Payload()); } catch { }
-                    try { traffic = JsonConvert.SerializeObject(TrackMap.TrafficPayload()); } catch { }
+                    // The game thread only BUILDS the payload objects (they must read
+                    // Unity state); they are plain data after that, so serialization,
+                    // the changed-since-last diff and the socket writes all go to the
+                    // pool. The first shape of this serialized here too and cost 43ms a
+                    // second on the owner's lag meter.
+                    object interObj = null, trafficObj = null;
+                    try { interObj = Interlocking.Payload(); } catch { }
+                    try { trafficObj = TrackMap.TrafficPayload(); } catch { }
                     bool force = WsHub.SnapshotWanted;
                     WsHub.SnapshotWanted = false;
-                    var outbox = new List<string>(2);
-                    if (inter != null && (force || inter != _lastPushedInter))
-                    { _lastPushedInter = inter; outbox.Add("{\"ch\":\"interlocking\",\"data\":" + inter + "}"); }
-                    if (traffic != null && (force || traffic != _lastPushedTraffic))
-                    { _lastPushedTraffic = traffic; outbox.Add("{\"ch\":\"traffic\",\"data\":" + traffic + "}"); }
-                    if (outbox.Count > 0)
-                        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                        { foreach (var msg in outbox) WsHub.BroadcastText(msg); });
+                    System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        try
+                        {
+                            var outbox = new List<string>(2);
+                            var inter = interObj == null ? null : JsonConvert.SerializeObject(interObj);
+                            var traffic = trafficObj == null ? null : JsonConvert.SerializeObject(trafficObj);
+                            if (inter != null && (force || inter != _lastPushedInter))
+                            { _lastPushedInter = inter; outbox.Add("{\"ch\":\"interlocking\",\"data\":" + inter + "}"); }
+                            if (traffic != null && (force || traffic != _lastPushedTraffic))
+                            { _lastPushedTraffic = traffic; outbox.Add("{\"ch\":\"traffic\",\"data\":" + traffic + "}"); }
+                            foreach (var msg in outbox) WsHub.BroadcastText(msg);
+                        }
+                        catch { }
+                        finally { System.Threading.Interlocked.Exchange(ref _pushBusy, 0); }
+                    });
                     try { Data.PerfMeter.RecordRequest("/ws-push", sw2.ElapsedMilliseconds); } catch { }
                 }
                 yield return null;
@@ -145,6 +159,7 @@ namespace DLE.Dispatch
         }
 
         private float _lastPushAt;
+        private static int _pushBusy;
         private string _lastPushedInter, _lastPushedTraffic;
 
         /// <summary>

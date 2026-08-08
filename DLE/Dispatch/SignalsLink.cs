@@ -39,6 +39,10 @@ namespace DLE.Dispatch
         public static Func<string, bool> SetAutomaticFn;
         public static Func<string, bool> SetManualFn;
 
+        /// <summary>Bumped by the bridge whenever any signal changes, so callers can
+        /// skip rebuilding payloads for a railway that has not moved.</summary>
+        public static int Version;
+
         public static bool Available => GetAllFn != null;
         public static bool Armed { get; private set; }
         private static bool _reported;
