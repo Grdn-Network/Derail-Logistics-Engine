@@ -137,8 +137,10 @@ namespace DLE.Dispatch
             for (int i = 0; i < lines.Count; i++)
                 if (sides[i] != 0 && lineTrack[i] != null) _sideByTrack[lineTrack[i]] = sides[i];
             var lineOut = new List<object>(lines.Count);
+            // Each line carries its track id so the board can paint occupied blocks red:
+            // the live poll already says which tracks have cars, and the id is the join.
             for (int i = 0; i < lines.Count; i++)
-                lineOut.Add(new { side = sides[i], pts = lines[i] });
+                lineOut.Add(new { id = lineTrack[i], side = sides[i], pts = lines[i] });
 
             // Every junction and every signal, since the map now draws every rail.
             try { Interlocking.Build(stPos, YardRadius); }
