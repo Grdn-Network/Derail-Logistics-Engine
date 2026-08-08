@@ -133,6 +133,13 @@ namespace DLE.Dispatch
             // unlike the earlier per-segment clustering that mistook one track's own
             // consecutive pieces for neighbours and drew combs.
             var sides = DetectParallel(lines);
+            // Only OPEN LINE gets the artificial double-track spread. Yard ladders are
+            // real parallel tracks a few metres apart, and fanning them 22px sideways
+            // physically rearranged whole yards on the board (owner report: HB's E, F
+            // and G ladders drew wrong). Named tracks stay exactly where they are.
+            for (int i = 0; i < lines.Count; i++)
+                if (lineTrack[i] != null && lineTrack[i].Length > 0 && lineTrack[i][0] != '#')
+                    sides[i] = 0;
             _sideByTrack.Clear();
             for (int i = 0; i < lines.Count; i++)
                 if (sides[i] != 0 && lineTrack[i] != null) _sideByTrack[lineTrack[i]] = sides[i];
