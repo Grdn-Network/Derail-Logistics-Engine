@@ -906,6 +906,7 @@ function clampRails(){
  railsVB[1]=Math.min(Math.max(railsVB[1],-m),Math.max(-m,railsB.h-railsVB[3]+m))}
 function renderRailsStatic(){
  const g=$('railsStatic');if(!g||!railsGeo)return;
+ buildJD();
  let h='';
  // Casing pass first, then the bright core, so every crossing reads cleanly.
  // Rails the server paired as double track carry a side and get fanned apart here,
@@ -997,8 +998,9 @@ function renderRailsDyn(){
  (il.junctions||[]).forEach((j,i)=>{
   // A plain track join is not a switch: nothing to throw, nothing to draw.
   if(j.branches<2)return;
-  // True position: the fan ramps to zero at a junction, so the rails arrive HERE.
-  const p=rxy(j.x,j.z);
+  // Display position: where the strongest track through this junction is drawn.
+  const e0=railJD&&railJD.byId[j.id];
+  const p=e0?[e0.tx+e0.dx,e0.ty+e0.dy]:rxy(j.x,j.z);
   marks.push({kind:'jn',id:j.id,j,click:showSw,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
@@ -1063,19 +1065,25 @@ function renderRailsDyn(){
   // cap. A straight-through setting puts it opposite the branch that diverges, which
   // is still the side the traffic goes.
   if(setLeg){
-   const J=rxy(j.x,j.z);
+   const eJ=railJD&&railJD.byId[j.id];
+   const J=eJ?[eJ.tx+eJ.dx,eJ.ty+eJ.dy]:rxy(j.x,j.z);
    const ws=walkAlong(railPath(clip(toQ(setLeg),armPx),setLeg.side||0),railSize(30));
    const wt=trunk?walkAlong(railPath(clip(toQ(trunk),railSize(60)),trunk.side||0),railSize(30)):null;
    if(ws){
     // Through axis: into the junction along the trunk, or the set direction itself
     // when the junction has no trunk leg to speak of.
     const ax=wt?-wt[1][0]:ws[1][0], ay=wt?-wt[1][1]:ws[1][1];
-    let cr=ax*ws[1][1]-ay*ws[1][0];
-    if(Math.abs(cr)<0.10){
-     const un=legs.find(l=>l.branch>=0&&l.branch!==j.branch);
-     if(un){const wu=walkAlong(railPath(clip(toQ(un),railSize(60)),un.side||0),railSize(30));
-      if(wu)cr=-(ax*wu[1][1]-ay*wu[1][0])}}
-    const sgn=cr>=0?1:-1;
+    // Which side is the SET branch on, measured against the OTHER branches. Measured
+    // against the trunk alone, a junction whose branches both bend the same way kept
+    // the same sign whichever was set, and the dot never moved (owner report).
+    const latOf=w2=>ax*w2[1][1]-ay*w2[1][0];
+    const latSet=latOf(ws);
+    let sum=0,n=0;
+    for(const l of legs){
+     if(l.branch<0||l.branch===j.branch)continue;
+     const wu=walkAlong(railPath(clip(toQ(l),railSize(60)),l.side||0),railSize(30));
+     if(wu){sum+=latOf(wu);n++}}
+    const sgn=n?(latSet>=sum/n?1:-1):(latSet>=0?1:-1);
     const dx2=J[0]+ax*railSize(24)-ay*sgn*railSize(15);
     const dy2=J[1]+ay*railSize(24)+ax*sgn*railSize(15);
     h+=`<circle cx='${dx2.toFixed(1)}' cy='${dy2.toFixed(1)}' r='${railSize(7)}' fill='#ffffff' stroke='#0d0f1a' stroke-width='${railSize(2.5)}'/>`}}}
@@ -1204,25 +1212,81 @@ function nearestMark(e){
 // Geographic, and only geographic: real curves, real positions, nothing moved. The
 // schematic and the field that opened out throats are gone (owner ruling); zoom is what
 // makes a throat workable now, and it does not lie about where anything is.
-function railPath(q,side){return smooth(railFan(q,side))}
+// Where each junction is DRAWN: its true position plus the fan of the strongest track
+// through it. A crossover junction on a double track corridor sits ON the displaced
+// corridor line, and the crossover diagonal stretches between the two displaced lines,
+// which is how a real panel draws it. Built from the leg geometry, so it needs nothing
+// but the map payload, and rebuilt with every static render.
+let railJD=null;
+function buildJD(){
+ railJD={grid:new Map(),cell:Math.max(1,railSize(40)),byId:{}};
+ for(const jid in railLegs){
+  const lg=railLegs[jid];
+  if(!lg||!lg.length||lg[0].pts.length<4)continue;
+  let a=null,am=-1;
+  for(const l of lg){
+   const m=(l.side||0)===0?0:(Math.abs(l.side)>1?8:22);
+   const pr=l.branch<0?0.5:0;
+   if(m+pr>am){am=m+pr;a=l}}
+  const q0=rxy(lg[0].pts[0],lg[0].pts[1]);
+  let dx=0,dy=0;
+  if(a&&a.side&&a.pts.length>=4){
+   const p1=rxy(a.pts[0],a.pts[1]),p2=rxy(a.pts[2],a.pts[3]);
+   let ux=p2[0]-p1[0],uy=p2[1]-p1[1];const L=Math.hypot(ux,uy)||1;ux/=L;uy/=L;
+   const mag=Math.abs(a.side)>1?railSize(8):RAIL_FAN();
+   const dir=a.side>0?1:-1;
+   dx=-uy*mag*dir;dy=ux*mag*dir}
+  const e={tx:q0[0],ty:q0[1],dx,dy};
+  railJD.byId[jid]=e;
+  const k=Math.floor(q0[0]/railJD.cell)+':'+Math.floor(q0[1]/railJD.cell);
+  let b=railJD.grid.get(k);if(!b)railJD.grid.set(k,b=[]);b.push(e)}}
+function jDispNear(x,y){
+ if(!railJD)return null;
+ const c=railJD.cell,cx=Math.floor(x/c),cy=Math.floor(y/c);
+ const tol=railSize(12);
+ let best=null,bd=tol*tol;
+ for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
+  const b=railJD.grid.get((cx+ax)+':'+(cy+ay));if(!b)continue;
+  for(const e of b){const d=(e.tx-x)*(e.tx-x)+(e.ty-y)*(e.ty-y);if(d<bd){bd=d;best=e}}}
+ return best}
+// EVERY rail drawing goes through here. The body is fanned by its own side; each END
+// then blends to the display position of the junction it meets, whatever track that
+// junction is anchored to. A corridor track meets its own displaced junction with no
+// correction at all; a plain connecting track is lifted so it spans displaced line to
+// displaced line instead of dangling between two centrelines nobody draws.
+function railPath(q,side){
+ let f=railFan(q,side);
+ const e=q.length-1;
+ const c0=jDispNear(q[0][0],q[0][1]);
+ const c1=jDispNear(q[e][0],q[e][1]);
+ if(c0||c1){
+  const f0x=f[0][0]-q[0][0],f0y=f[0][1]-q[0][1];
+  const f1x=f[e][0]-q[e][0],f1y=f[e][1]-q[e][1];
+  const k0x=c0?c0.dx-f0x:0,k0y=c0?c0.dy-f0y:0;
+  const k1x=c1?c1.dx-f1x:0,k1y=c1?c1.dy-f1y:0;
+  if(k0x||k0y||k1x||k1y){
+   const cum=[0];
+   for(let i=1;i<f.length;i++)cum.push(cum[i-1]+Math.hypot(f[i][0]-f[i-1][0],f[i][1]-f[i-1][1]));
+   const total=cum[cum.length-1]||1,R=Math.min(railSize(55),total/2)||1;
+   f=f.map((pt,i)=>{
+    const t0=Math.max(0,1-cum[i]/R),t1=Math.max(0,1-(total-cum[i])/R);
+    return [pt[0]+k0x*t0+k1x*t1,pt[1]+k0y*t0+k1y*t1]})}}
+ return smooth(f)}
 function railFan(q,side){
  if(!side||q.length<2)return q;
- const cum=[0];
- for(let i=1;i<q.length;i++)cum.push(cum[i-1]+Math.hypot(q[i][0]-q[i-1][0],q[i][1]-q[i-1][1]));
- const total=cum[q.length-1],R=railSize(55);
+ // |side| carries the tier: 1 is open line and gets the wide double-track gap, 2 is a
+ // named yard track and gets just enough air to tell neighbours apart (owner ruling).
+ // The offset is CONSTANT along the line. The old version ramped to zero at the ends,
+ // which necked every paired track down to its true centreline at each junction while
+ // its partner sailed past still offset: that is the crossing, kissing mess the owner
+ // photographed. Ends are reconciled against junction DISPLAY positions in railPath.
+ const mag=Math.abs(side)>1?railSize(8):RAIL_FAN();
+ const dir=side>0?1:-1;
  const out=[];
  for(let k=0;k<q.length;k++){
   const a=q[Math.max(0,k-1)],b=q[Math.min(q.length-1,k+1)];
   const dx=b[0]-a[0],dy=b[1]-a[1],L=Math.hypot(dx,dy)||1;
-  // The offset ramps to zero at both ends, because a rail's ends ARE its junctions:
-  // the drawn line must land exactly where the switch and the next rail sit, or the
-  // double track floats disconnected beside the turnout it belongs to.
-  const t=Math.min(1,Math.min(cum[k],total-cum[k])/R);
-  // |side| carries the tier: 1 is open line and gets the wide double-track gap,
-  // 2 is a named yard track and gets just enough air to tell neighbours apart
-  // without redrawing the ladder somewhere else (owner ruling).
-  const f=(Math.abs(side)>1?railSize(8):RAIL_FAN())*(side>0?1:-1)*t;
-  out.push([q[k][0]-dy/L*f,q[k][1]+dx/L*f]);}
+  out.push([q[k][0]-dy/L*mag*dir,q[k][1]+dx/L*mag*dir]);}
  return out}
 // A switch or signal standing on a fanned rail has to move with it, or it sits on the
 // centreline between the two tracks. The server sends the rail's heading in world
