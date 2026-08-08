@@ -610,6 +610,7 @@ async function refresh(){
   // The map is fetched once and kept. Loading a second save rebuilds the same railway
   // under a possibly different world origin, so the copy in hand can be stale while
   // every id still matches. The server counts its rebuilds; a change means refetch.
+  if(!railWarp&&lastInter&&lastInter.junctions){buildWarp();renderRailsStatic()}
   if(lastInter&&railsGeo.epoch!=null&&lastInter.epoch!=null
    &&lastInter.epoch!==railsGeo.epoch&&lastInter.epoch!==railsEpochSeen){
    // Remembering which epoch was chased stops a refetch every five seconds forever
@@ -835,7 +836,7 @@ function drawNet(){
 // Geometry loads once per session (the server memoizes it per world); traffic
 // rides the 5s refresh while the lens is open. World x,z map to SVG with north
 // up; RS is the uniform scale, so distances stay honest.
-let railsGeo=null,railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
+let railsGeo=null,railNodes=[],railsEpochSeen=null,railLegs={},railsB=null,railsVB=null,lastTraffic=null,lastInter=null,railsLoading=false;
 // Fixed scale, never zoomed: 7 metres a pixel keeps a ten-car train readable while
 // putting the whole railway inside about two screens, and the sideways stretch makes
 // the drag mostly horizontal on a wide monitor. Rails draw as their REAL polylines
@@ -867,9 +868,9 @@ function setRailScale(mpp,glyph){
  localStorage.setItem('dleRailMpp',RAIL_MPP);
  localStorage.setItem('dleRailGlyph',RAIL_G);
  if(!railsGeo)return;
- railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
- railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
- renderRailsStatic();centreRails();renderRailsDyn();
+ railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS+railSize(260);
+ railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP+railSize(260);
+ buildWarp();renderRailsStatic();centreRails();renderRailsDyn();
  const l=$('railScaleLabel');
  if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x';}
 function rxy(x,z){return [(x-railsB.minX)/RAIL_MPP*RAIL_XS,(railsB.maxZ-z)/RAIL_MPP]}
@@ -884,9 +885,9 @@ async function loadRails(){
   // of unchanging track every five seconds.
   railLegs={};
   for(const e of (g.legs||[]))railLegs[e.id]=e.legs;
-  railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS;
-  railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP;
-  renderRailsStatic();
+  railsB.w=(railsB.maxX-railsB.minX)/RAIL_MPP*RAIL_XS+railSize(260);
+  railsB.h=(railsB.maxZ-railsB.minZ)/RAIL_MPP+railSize(260);
+  buildWarp();renderRailsStatic();
   centreRails();
   renderRailsDyn();
   const l=$('railScaleLabel');
@@ -928,7 +929,7 @@ function renderRailsStatic(){
   if(w.length>1){
    const s0=nearSt(w[0][0],w[0][1]);if(s0)w.unshift([s0.x,s0.z]);
    const s1=nearSt(w[w.length-1][0],w[w.length-1][1]);if(s1)w.push([s1.x,s1.z])}
-  const q=w.map(p=>rxy(p[0],p[1]));
+  const q=w.map(p=>wxy(p[0],p[1]));
   paths.push({d:railPath(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
@@ -939,7 +940,7 @@ function renderRailsStatic(){
  // the station letters and turn them to mush.
  let tp='';
  for(const s of (railsGeo.stations||[])){
-  const q=rxy(s.x,s.z);
+  const q=wxy(s.x,s.z);
   tp+=`<g data-act='stripJump' data-id='${esc(s.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(46)}' fill='${SC[s.id]||'#4a4e60'}' stroke='#0d0f1a' stroke-width='${railSize(6)}'/>
    <text x='${q[0].toFixed(1)}' y='${(q[1]+railSize(9)).toFixed(1)}' text-anchor='middle' font-size='${railSize(26)}' font-weight='700' fill='${SC_DARK.has(s.id)?'#e9e9ed':'#12141f'}'>${esc(s.id)}</text>
@@ -958,7 +959,7 @@ function renderRailsDyn(){
  for(const r of (il.routes||[])){
   for(const seg of (r.poly||[])){
    const q=[];
-   for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
+   for(let i=0;i<seg.pts.length;i+=2)q.push(wxy(seg.pts[i],seg.pts[i+1]));
    const d=railPath(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // WHERE EVERY MARK GOES. True positions first, then one spreading pass over the lot,
@@ -969,9 +970,11 @@ function renderRailsDyn(){
  // four pixels); only a crowded throat fans out, and never further than a hard limit.
  const jById={};for(const j of (il.junctions||[]))jById[j.id]=j;
  const marks=[];
- for(const j of (il.junctions||[])){
-  const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
-  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,x:p[0],y:p[1],ax:p[0],ay:p[1]})}
+ (il.junctions||[]).forEach((j,i)=>{
+  // The warp was built from these, so this IS where the railway now bends to.
+  const n=railNodes[i];
+  const p=n?[n.x,n.y]:railPoint(j.x,j.z,j.side,j.dx,j.dz);
+  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,fix:true,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
   // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
@@ -983,16 +986,17 @@ function renderRailsDyn(){
   let q=null,u=[1,0];
   const leg=j&&(railLegs[j.id]||[]).find(l=>l.branch===sg.leg);
   if(leg){
-   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
+   const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(wxy(leg.pts[i],leg.pts[i+1]));
    // Far enough out that the triangle clears the switch mark and its lock ring.
    const w=walkAlong(railPath(pts,leg.side||0),railSize(52)+sg.slot*railSize(34));
    if(w){q=w[0];u=w[1]}}
   // A signal with no leg to stand on falls back to its own coordinates, which
   // the server only sends in that case.
-  if(!q){if(sg.x==null)continue;q=rxy(sg.x,sg.z)}
+  if(!q){if(sg.x==null)continue;q=wxy(sg.x,sg.z)}
   if(sg.inbound)u=[-u[0],-u[1]];
   marks.push({kind:'sig',id:sg.id,sg,u,click:true,x:q[0],y:q[1],ax:q[0],ay:q[1]})}
- spread(marks,railSize(31),railSize(38));
+ // Only the signals still have anything to settle; the switches are already placed.
+ spread(marks,railSize(31),railSize(44));
  railMarks=marks;
  const jItems=marks.filter(m=>m.kind==='jn');
  // Switches: a black disc with the track lines running THROUGH it (owner ruling), the
@@ -1008,7 +1012,7 @@ function renderRailsDyn(){
    // The one thing a dispatcher needs to see is which branch the points lie on.
    if(leg.branch<0)continue;
    const q=[];
-   for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
+   for(let i=0;i<leg.pts.length;i+=2)q.push(wxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
    const set=leg.branch===j.branch;
    // Short. Measured at the live leg length, arms came to 153 PERCENT of the total
@@ -1170,6 +1174,58 @@ function octi(q){
   else if(ay>ax)out.push([a[0],a[1]+Math.sign(dy)*(ay-ax)]);
   out.push(b)}
  return out}
+// A THROAT IS NOT DRAWN AT ITS REAL SIZE.
+//
+// This railway is fifteen kilometres across and carries 221 switches on the open line.
+// At any scale where the whole thing is on screen, a junction throat is a few pixels
+// wide, and no glyph size fixes that: make the marks bigger and they overlap, make them
+// smaller and you cannot see them. That is why every scale setting felt wrong. Geography
+// and legibility are simply asking for different pictures.
+//
+// So the switches are pushed apart until each has room, and then the RAILWAY IS BENT TO
+// FOLLOW THEM. Every line, arm, road and signal is drawn through the same displacement
+// field, so nothing can come adrift from anything else: a switch keeps its rails, a road
+// keeps its track, a signal keeps its leg. Empty countryside has no switches in it and so
+// is left exactly where it was; only the crowded places open up.
+let railWarp=null;
+function buildWarp(){
+ railWarp=null;
+ const il=lastInter;
+ if(!il||!il.junctions||!il.junctions.length||!railsB)return;
+ const nodes=il.junctions.map(j=>{const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
+  return {x:p[0],y:p[1],ax:p[0],ay:p[1]}});
+ spread(nodes,railSize(46),railSize(120));
+ railNodes=nodes;
+ // Index the switches so warping a point is a look at its neighbours, not a search over
+ // the whole railway.
+ const reach=railSize(150);
+ const grid=new Map();
+ for(const n of nodes){
+  const k=Math.floor(n.ax/reach)+':'+Math.floor(n.ay/reach);
+  let b=grid.get(k);if(!b)grid.set(k,b=[]);b.push(n)}
+ railWarp={grid,reach}}
+// Inverse distance weighting, computed per point rather than sampled off a grid. That
+// matters more than it sounds: a grid smooths the field over its own cell size, and the
+// first version of this left switches up to 71px off their own rails because of it. With
+// the weight taken at the point itself, a rail arriving at a switch is dominated by that
+// switch's own displacement by three orders of magnitude, so it lands on it.
+function warpPt(p){
+ const W=railWarp;
+ if(!W)return p;
+ const R=W.reach,cx=Math.floor(p[0]/R),cy=Math.floor(p[1]/R);
+ let sw=0,sx=0,sy=0;
+ for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
+  const b=W.grid.get((cx+ax)+':'+(cy+ay));
+  if(!b)continue;
+  for(const n of b){
+   const dx=p[0]-n.ax,dy=p[1]-n.ay,d2=dx*dx+dy*dy;
+   if(d2>R*R)continue;
+   const wt=1/(d2+1);
+   sw+=wt;sx+=wt*(n.x-n.ax);sy+=wt*(n.y-n.ay)}}
+ return sw>0?[p[0]+sx/sw,p[1]+sy/sw]:p}
+// Project a world point and put it through the warp in one step, so no caller can
+// accidentally draw something in the unbent world.
+function wxy(x,z){return warpPt(rxy(x,z))}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -1231,10 +1287,14 @@ function spread(items,minSep,limit){
       // Dead level: fan them by index so the result is the same every render
       // rather than jittering from poll to poll.
       const a=(i%8)*0.785398;dx=Math.cos(a);dy=Math.sin(a);d=1}
-     const push=(minSep-d)*0.3;
-     m.x+=dx/d*push;m.y+=dy/d*push;
-     o.x-=dx/d*push;o.y-=dy/d*push;hits++}}}
+     // A fixed mark shoves but is never shoved: switches are placed first and the
+     // railway is drawn to follow them, so nothing may move one afterwards.
+     const push=(minSep-d)*(m.fix||o.fix?0.6:0.3);
+     if(!m.fix){m.x+=dx/d*push;m.y+=dy/d*push}
+     if(!o.fix){o.x-=dx/d*push;o.y-=dy/d*push}
+     hits++}}}
   for(const m of items){
+   if(m.fix)continue;
    m.x+=(m.ax-m.x)*0.03;m.y+=(m.ay-m.y)*0.03;
    const dx=m.x-m.ax,dy=m.y-m.ay,d=Math.hypot(dx,dy);
    if(d>limit){m.x=m.ax+dx/d*limit;m.y=m.ay+dy/d*limit}}
@@ -1607,7 +1667,7 @@ const actions={
  railZoom:(id,el)=>setRailScale(RAIL_MPP*(el.dataset.id==='in'?0.7:1/0.7),RAIL_G),
  railGlyph:(id,el)=>setRailScale(RAIL_MPP,RAIL_G*(el.dataset.id==='up'?1.25:0.8)),
  railSchem:()=>{RAIL_SCHEM=!RAIL_SCHEM;localStorage.setItem('dleRailSchem',RAIL_SCHEM?'1':'0');
-  syncSchemBtn();renderRailsStatic();renderRailsDyn()},
+  syncSchemBtn();buildWarp();renderRailsStatic();renderRailsDyn()},
  throwSwitch:async(id,el)=>{
   const r=await j('/api/v1/junctions/'+el.dataset.id+'/throw','POST');
   toast(r.message||(r.ok?'switch thrown':'throw refused'),!r.ok);
