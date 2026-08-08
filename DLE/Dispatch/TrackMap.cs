@@ -103,6 +103,20 @@ namespace DLE.Dispatch
                     if (p.z < minZ) minZ = p.z;
                     if (p.z > maxZ) maxZ = p.z;
                 }
+                // The LAST point always goes in, even when thinning would drop it: a
+                // track's ends are its junctions, and the board matches line ends to
+                // junction display positions, so an endpoint ten metres short of its
+                // junction reads as a track that does not reach its own switch.
+                var endBp = rt.curve[rt.curve.pointCount - 1];
+                if (endBp != null && have)
+                {
+                    var ep = endBp.position - move;
+                    if ((ep.x - lx) * (ep.x - lx) + (ep.z - lz) * (ep.z - lz) > 0.01f)
+                    {
+                        run.Add((float)Math.Round(ep.x, 1));
+                        run.Add((float)Math.Round(ep.z, 1));
+                    }
+                }
                 Flush();
             }
 

@@ -1243,7 +1243,9 @@ function buildJD(){
 function jDispNear(x,y){
  if(!railJD)return null;
  const c=railJD.cell,cx=Math.floor(x/c),cy=Math.floor(y/c);
- const tol=railSize(12);
+ // Wide enough to catch a line end the point thinning left a few metres short,
+ // narrow enough never to grab a neighbouring ladder junction.
+ const tol=railSize(14);
  let best=null,bd=tol*tol;
  for(let ax=-1;ax<=1;ax++)for(let ay=-1;ay<=1;ay++){
   const b=railJD.grid.get((cx+ax)+':'+(cy+ay));if(!b)continue;

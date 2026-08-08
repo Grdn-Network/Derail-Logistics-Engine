@@ -776,12 +776,21 @@ namespace DLE.Dispatch
                 pts.Add((float)Math.Round(q.z, 1));
             }
             if (pts.Count >= 4)
+            {
+                // The fan offset flips with travel direction, and a leg walks OUTWARD
+                // from its junction, which for half of all legs is the reverse of the
+                // direction the track's own line is drawn in. The side flips for those,
+                // or the leg lands mirrored across its line instead of on it: with the
+                // constant fan that mirrored every affected switch arm on the board.
+                int side = TrackMap.SideOfTrack(TrackIdOf(br.track));
+                if (!br.first) side = -side;
                 into.Add(new
                 {
                     branch = leg,
-                    side = TrackMap.SideOfTrack(TrackIdOf(br.track)),
+                    side,
                     pts = pts.ToArray(),
                 });
+            }
         }
     }
 }
