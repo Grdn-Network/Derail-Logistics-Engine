@@ -77,6 +77,7 @@ namespace DLE.Dispatch
         {
             try { _tcp?.Stop(); } catch { }
             _tcp = null;
+            try { WsHub.CloseAll(); } catch { }
         }
 
         private IEnumerator ListenLoop()
@@ -115,9 +116,36 @@ namespace DLE.Dispatch
                     // this is exactly the time the game frame paid for this request.
                     try { Data.PerfMeter.RecordRequest(req.Path, sw.ElapsedMilliseconds); } catch { }
                 }
+                // The push tick: once a second, while any board is subscribed, serialize
+                // the rails payloads and broadcast only what CHANGED since the last
+                // push. Serialization happens here on the main thread where game state
+                // lives (a few milliseconds, recorded in the lag meter); the socket
+                // writes go to the pool so a slow client never touches the frame.
+                if (WsHub.HasClients && UnityEngine.Time.realtimeSinceStartup - _lastPushAt >= 1f)
+                {
+                    _lastPushAt = UnityEngine.Time.realtimeSinceStartup;
+                    var sw2 = System.Diagnostics.Stopwatch.StartNew();
+                    string inter = null, traffic = null;
+                    try { inter = JsonConvert.SerializeObject(Interlocking.Payload()); } catch { }
+                    try { traffic = JsonConvert.SerializeObject(TrackMap.TrafficPayload()); } catch { }
+                    bool force = WsHub.SnapshotWanted;
+                    WsHub.SnapshotWanted = false;
+                    var outbox = new List<string>(2);
+                    if (inter != null && (force || inter != _lastPushedInter))
+                    { _lastPushedInter = inter; outbox.Add("{\"ch\":\"interlocking\",\"data\":" + inter + "}"); }
+                    if (traffic != null && (force || traffic != _lastPushedTraffic))
+                    { _lastPushedTraffic = traffic; outbox.Add("{\"ch\":\"traffic\",\"data\":" + traffic + "}"); }
+                    if (outbox.Count > 0)
+                        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                        { foreach (var msg in outbox) WsHub.BroadcastText(msg); });
+                    try { Data.PerfMeter.RecordRequest("/ws-push", sw2.ElapsedMilliseconds); } catch { }
+                }
                 yield return null;
             }
         }
+
+        private float _lastPushAt;
+        private string _lastPushedInter, _lastPushedTraffic;
 
         /// <summary>
         /// Worker thread: read and parse one HTTP request, hand it to the main thread,
@@ -126,6 +154,7 @@ namespace DLE.Dispatch
         /// </summary>
         private void ServeClient(System.Net.Sockets.TcpClient client)
         {
+            bool handedOff = false;
             try
             {
                 client.ReceiveTimeout = 10000;
@@ -133,6 +162,20 @@ namespace DLE.Dispatch
                 var stream = client.GetStream();
                 var req = ParseRequest(client, stream);
                 if (req == null) { WriteRaw(stream, 400, "text/plain", Encoding.UTF8.GetBytes("bad request")); return; }
+
+                // WebSocket upgrade (ported from the RD fork): the socket leaves the
+                // request-response world here and becomes a push feed. Remote viewers
+                // authenticate exactly like any other remote read; browsers cannot set
+                // headers on a WebSocket, so the key rides the query string.
+                if (req.Method == "GET" && req.Path == "/api/v1/ws"
+                    && string.Equals(req.Request.Headers["Upgrade"], "websocket", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!req.Request.IsLocal && !Authorized(req))
+                    { WriteRaw(stream, 401, "text/plain", Encoding.UTF8.GetBytes("password required")); return; }
+                    handedOff = WsHub.Attach(client, stream, req.Request.Headers["Sec-WebSocket-Key"]);
+                    if (!handedOff) WriteRaw(stream, 400, "text/plain", Encoding.UTF8.GetBytes("bad upgrade"));
+                    return;
+                }
 
                 _pending.Enqueue(req);
                 // The main thread drains the queue every frame; a long stall means the
@@ -148,7 +191,8 @@ namespace DLE.Dispatch
             }
             finally
             {
-                try { client.Close(); } catch { }
+                // A socket adopted by the WebSocket hub lives on; everything else closes.
+                if (!handedOff) { try { client.Close(); } catch { } }
             }
         }
 

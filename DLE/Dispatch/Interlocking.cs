@@ -124,11 +124,6 @@ namespace DLE.Dispatch
             return h >= 0 ? id.Substring(h + 1) : "?";
         }
 
-        /// <summary>A From signal governs the move OUT of its junction, away along the
-        /// leg it stands on, which is the one case that is not an approach.</summary>
-        private static bool IsDepartureId(string id) =>
-            id.EndsWith("-F", StringComparison.Ordinal);
-
         private static int LegFromId(string id)
         {
             int c = id.LastIndexOf(':');
@@ -240,8 +235,11 @@ namespace DLE.Dispatch
                 used[k] = n + 1;
                 sig.Slot = n;
                 // A second signal on one leg necessarily faces the other way, whatever it
-                // is called; that is four legs in the whole world.
-                sig.Inbound = n == 0 && !IsDepartureId(sig.Id);
+                // is called; that is four legs in the whole world. The -F suffix was once
+                // read as a departure signal facing out, but that was inference, and the
+                // owner's screenshots show those masts facing the junction like every
+                // other: a junction signal guards its junction, whatever it is named.
+                sig.Inbound = n == 0;
                 var fk = SuffixOf(sig.Id) + (sig.Inbound ? " inbound" : " outbound");
                 facing.TryGetValue(fk, out var fc); facing[fk] = fc + 1;
                 if (sig.Inbound && !_inboundAt.ContainsKey(k)) _inboundAt[k] = sig;
@@ -550,7 +548,13 @@ namespace DLE.Dispatch
                 track = exit.track; towardOut = exit.first;
             }
             if (route.Path.Count == 0) return (false, "nothing to set from that signal");
-            route.Poly = PathPolyline(route.Path);
+            // The approach the signal stands on belongs in Path so the release logic
+            // sees the train coming, but not in the PICTURE: painting the track behind
+            // the signal green made every cleared road look like it ran backwards
+            // (owner screenshot: a kilometre of green trailing away behind the mast).
+            route.Poly = PathPolyline(s.Inbound && route.Path.Count > 1
+                ? route.Path.GetRange(1, route.Path.Count - 1)
+                : route.Path);
             _routes[signalId] = route;
 
             // The signal itself belongs to the Signals mod: take it to manual and clear
