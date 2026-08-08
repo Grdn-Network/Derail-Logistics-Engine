@@ -325,7 +325,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span><i style='background:#57c78e;width:8px;height:8px;border-radius:50%'></i>signal clear, click to set or drop a road</span>
      <span><i style='background:#e09b95;height:5px'></i>consist on a job</span>
      <span><i style='background:#8fb8e0;height:5px'></i>light engine</span>
-     <span class='k' style='letter-spacing:.06em'>drag the map to move · yards are bubbles, click one to open its view</span>
+     <span class='k' style='letter-spacing:.06em'>drag to move · wheel to zoom · click a signal for a road, a switch to throw it</span>
     </div>
     <div style='position:absolute;right:12px;top:12px;display:flex;align-items:center;gap:6px;
      background:rgba(22,24,38,.92);border:1px solid var(--line);border-radius:6px;padding:6px 9px'>
@@ -853,9 +853,14 @@ let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
 // spreads it on purpose: geography decides WHERE the pair runs, this decides that you
 // can see and click both of them.
 const RAIL_FAN=()=>22*RAIL_G;
-function railSize(k){return k*RAIL_G}
+// The scaling law (owner ruling): zooming OUT never shrinks a glyph, zooming IN grows
+// them a little, up to a cap. Far out, everything holds its screen size so the map
+// stays readable; close in, the throat under the cursor turns chunky instead of the
+// marks sitting spindly on fat empty space.
+function railZ(){return Math.min(1.6,Math.max(1,Math.pow(7/RAIL_MPP,0.3)))}
+function railSize(k){return k*RAIL_G*railZ()}
 function setRailScale(mpp,glyph){
- RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
+ RAIL_MPP=Math.min(20,Math.max(0.3,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
  localStorage.setItem('dleRailMpp',RAIL_MPP);
  localStorage.setItem('dleRailGlyph',RAIL_G);
@@ -951,8 +956,10 @@ function renderRailsDyn(){
  const jById={};for(const j of (il.junctions||[]))jById[j.id]=j;
  const marks=[];
  (il.junctions||[]).forEach((j,i)=>{
+  // A plain track join is not a switch: nothing to throw, nothing to draw.
+  if(j.branches<2)return;
   const p=railPoint(j.x,j.z,j.side,j.dx,j.dz);
-  marks.push({kind:'jn',id:j.id,j,click:j.branches>1,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
+  marks.push({kind:'jn',id:j.id,j,click:true,x:p[0],y:p[1],ax:p[0],ay:p[1]})});
  for(const sg of (il.signals||[])){
   const j=jById[sg.jid];
   // Two signals stand at a switch on this board (owner ruling): the one on the trunk,
@@ -983,35 +990,40 @@ function renderRailsDyn(){
  // a connection and exactly where it goes. The disc goes down first and the legs are
  // drawn over it, which is why this is in three passes rather than one.
  for(const m of jItems)
-  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(15)}' fill='#07080e'/>`;
+  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(11)}' fill='#07080e' stroke='#454c5e' stroke-width='${railSize(1.5)}'/>`;
  for(const j of (il.junctions||[])){
-  for(const leg of (railLegs[j.id]||[])){
-   // ONLY THE BRANCHES get an arm. The trunk is the stem a switch hangs off: it is
-   // always connected, so drawing it says nothing, and it was half the ink on the map.
-   // The one thing a dispatcher needs to see is which branch the points lie on.
-   if(leg.branch<0)continue;
-   const q=[];
-   for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
-   if(q.length<2)continue;
-   const set=leg.branch===j.branch;
-   // Short. Measured at the live leg length, arms came to 153 PERCENT of the total
-   // length of the railway itself, which is why the map read as a thicket however the
-   // colours were tuned. An arm is a blade on the points, not a piece of route.
-   // The arm is a length of TRACK, not a length of screen. Fixed pixels looked like a
-   // bar sitting inside the switch mark once zoomed in, which is exactly why the way a
-   // switch is set could not be read. Clamped at both ends so it never disappears and
-   // never turns back into the thicket.
-   const armPx=Math.max(railSize(40),Math.min(railSize(320),300/RAIL_MPP));
-   const d=railPath(clip(q,set?armPx:armPx*0.6),leg.side||0)
+  if(j.branches<2)continue;
+  const legs=railLegs[j.id]||[];
+  const toQ=l=>{const q=[];for(let i=0;i<l.pts.length;i+=2)q.push(rxy(l.pts[i],l.pts[i+1]));return q};
+  // The arm is a length of TRACK, clamped in screen terms at both ends: never gone
+  // when zoomed out, never a thicket when zoomed in.
+  const armPx=Math.max(railSize(40),Math.min(railSize(300),300/RAIL_MPP));
+  // Branches NOT set: dim, and PARTED from the switch by a gap, the way a panel shows
+  // a route that is not made. They only appear once the zoom gives them room.
+  for(const leg of legs){
+   if(leg.branch<0||leg.branch===j.branch)continue;
+   const q=toQ(leg);if(q.length<2)continue;
+   const cut=skipAlong(railPath(clip(q,armPx*0.85),leg.side||0),railSize(17));
+   if(pathLen(cut)<railSize(9))continue;
+   h+=`<polyline points='${cut.map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}' fill='none' stroke='#5f6880' stroke-width='${railSize(4.5)}' stroke-linecap='butt' stroke-linejoin='round'/>`}
+  // The route that IS made: one bright line from the trunk THROUGH the switch onto the
+  // set branch. That is the whole read: where the white goes, the train goes. A stub
+  // sitting inside a ring said nothing; a line that bends through the points says it
+  // from across the room.
+  const setLeg=legs.find(l=>l.branch===j.branch);
+  const trunk=legs.find(l=>l.branch<0);
+  for(const leg of [trunk,setLeg]){
+   if(!leg)continue;
+   const q=toQ(leg);if(q.length<2)continue;
+   const d=railPath(clip(q,leg===setLeg?armPx:armPx*0.55),leg.side||0)
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
-   h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#39404f'}' stroke-width='${railSize(set?9:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
+   h+=`<polyline points='${d}' fill='none' stroke='#ffffff' stroke-width='${railSize(7.5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  for(const m of jItems){
   const j=m.j,q=[m.x,m.y];
-  const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
-  h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(22)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(15)}' fill='none' stroke='${j.branches>1?'#e0a97e':'#4a5064'}' stroke-width='${railSize(4)}'/>
+  const t=`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`;
+  h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:pointer'>
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
@@ -1078,6 +1090,21 @@ function clip(q,maxPx){
   if(run+L>=maxPx){const t=(maxPx-run)/L;out.push([q[i-1][0]+dx*t,q[i-1][1]+dy*t]);return out}
   out.push(q[i]);run+=L}
  return out}
+function pathLen(q){let t=0;for(let i=1;i<q.length;i++)t+=Math.hypot(q[i][0]-q[i-1][0],q[i][1]-q[i-1][1]);return t}
+// Drop the first PX of a path and keep the rest: this is what parts an unset branch
+// from the switch by a visible gap, the way a panel shows a route that is not made.
+function skipAlong(q,fromPx){
+ if(q.length<2)return q;
+ let run=0;
+ for(let i=1;i<q.length;i++){
+  const dx=q[i][0]-q[i-1][0],dy=q[i][1]-q[i-1][1],L=Math.hypot(dx,dy)||1e-6;
+  if(run+L>=fromPx){
+   const t=(fromPx-run)/L;
+   const out=[[q[i-1][0]+dx*t,q[i-1][1]+dy*t]];
+   for(let m=i;m<q.length;m++)out.push(q[m]);
+   return out}
+  run+=L}
+ return [q[q.length-1]]}
 function walkAlong(q,dist){
  if(!q||q.length<2)return null;
  let run=0;
@@ -1844,21 +1871,30 @@ document.addEventListener('keydown',e=>{
  svg.addEventListener('wheel',e=>{
   if(!railsVB)return;
   e.preventDefault();
-  const k=e.deltaY<0?1.15:1/1.15;
+  let k=e.deltaY<0?1.15:1/1.15;
+  // The scale has limits, so the GESTURE respects them too. Without this the viewBox
+  // kept zooming past what the settle could honour, and the settle then scaled the
+  // camera origin by the factor the wheel ASKED for rather than the factor the clamp
+  // ALLOWED, throwing the view across the map. That was the teleport at full zoom.
+  const target=Math.min(RAIL_MPP/0.3,Math.max(RAIL_MPP/20,pend*k));
+  k=target/pend;
+  if(Math.abs(k-1)<0.0005)return;
+  pend=target;
   const r=svg.getBoundingClientRect();
   const cx=railsVB[0]+(e.clientX-r.left)/r.width*railsVB[2];
   const cy=railsVB[1]+(e.clientY-r.top)/r.height*railsVB[3];
   railsVB[0]=cx-(cx-railsVB[0])/k;railsVB[1]=cy-(cy-railsVB[1])/k;
   railsVB[2]/=k;railsVB[3]/=k;
   applyRailsVB();
-  pend*=k;
   clearTimeout(settle);
   settle=setTimeout(()=>{
    const f=pend;pend=1;
    const keepX=railsVB[0],keepY=railsVB[1];
+   const before=RAIL_MPP;
    setRailScale(RAIL_MPP/f,RAIL_G);
+   const ratio=before/RAIL_MPP;
    const [vw,vh]=railsViewport();
-   railsVB=[keepX*f,keepY*f,vw,vh];
+   railsVB=[keepX*ratio,keepY*ratio,vw,vh];
    clampRails();applyRailsVB()},170)},{passive:false});
  window.addEventListener('mouseup',()=>{panning=false;svg.style.cursor='grab'});
  window.addEventListener('mousemove',e=>{
