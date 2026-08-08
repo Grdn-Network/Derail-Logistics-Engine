@@ -132,14 +132,7 @@ namespace DLE.Dispatch
             // the board can fan them apart on screen. This works on whole polylines,
             // unlike the earlier per-segment clustering that mistook one track's own
             // consecutive pieces for neighbours and drew combs.
-            var sides = DetectParallel(lines);
-            // Only OPEN LINE gets the artificial double-track spread. Yard ladders are
-            // real parallel tracks a few metres apart, and fanning them 22px sideways
-            // physically rearranged whole yards on the board (owner report: HB's E, F
-            // and G ladders drew wrong). Named tracks stay exactly where they are.
-            for (int i = 0; i < lines.Count; i++)
-                if (lineTrack[i] != null && lineTrack[i].Length > 0 && lineTrack[i][0] != '#')
-                    sides[i] = 0;
+            var sides = DetectParallel(lines, lineTrack);
             _sideByTrack.Clear();
             for (int i = 0; i < lines.Count; i++)
                 if (sides[i] != 0 && lineTrack[i] != null) _sideByTrack[lineTrack[i]] = sides[i];
@@ -150,7 +143,7 @@ namespace DLE.Dispatch
                 lineOut.Add(new { id = lineTrack[i], side = sides[i], pts = lines[i] });
 
             // Every junction and every signal, since the map now draws every rail.
-            try { Interlocking.Build(stPos, YardRadius); }
+            try { Interlocking.Build(); }
             catch (Exception ex) { Main.LogAlways($"[Interlocking] build failed: {ex.GetType().Name}: {ex.Message}"); }
 
             // Switch legs are geometry too, so they ride here and are built once, not
@@ -192,7 +185,7 @@ namespace DLE.Dispatch
         /// itself. Antiparallel pairs flip the second side so both push apart rather than
         /// both the same way.
         /// </summary>
-        private static int[] DetectParallel(List<float[]> lines)
+        private static int[] DetectParallel(List<float[]> lines, List<string> lineTrack)
         {
             const float cell = 20f, near = 14f;
             var side = new int[lines.Count];
@@ -217,7 +210,7 @@ namespace DLE.Dispatch
                 if (len < 0.001f) { ox = 1f; oz = 0f; } else { ox = dx / len; oz = dz / len; }
             }
             var counts = new Dictionary<long, int>();
-            var dots = new Dictionary<long, float>();
+            var lats = new Dictionary<long, (float li, float lj)>();
             for (int i = 0; i < lines.Count; i++)
             {
                 var p = lines[i];
@@ -243,7 +236,12 @@ namespace DLE.Dispatch
                                 if (Math.Abs(dot) < 0.94f) continue;
                                 long pk = ((long)i << 32) | (uint)j;
                                 counts.TryGetValue(pk, out var c); counts[pk] = c + 1;
-                                dots.TryGetValue(pk, out var s2); dots[pk] = s2 + dot;
+                                // Which SIDE the partner lies on, in each line's own frame.
+                                // The old code never knew, so half the time a pair was
+                                // pushed toward each other and the tracks swapped places,
+                                // which is what rearranged the yard ladders.
+                                lats.TryGetValue(pk, out var lv);
+                                lats[pk] = (lv.li + (-iz * ddx + ix * ddz), lv.lj + (jz * ddx - jx * ddz));
                             }
                         }
                 }
@@ -253,11 +251,19 @@ namespace DLE.Dispatch
                 int i = (int)(kv.Key >> 32), j = (int)(kv.Key & 0xFFFFFFFF);
                 int need = Math.Max(2, (int)(0.35f * Math.Min(lines[i].Length, lines[j].Length) / 2));
                 if (kv.Value < need) continue;
-                int orient = dots[kv.Key] >= 0 ? 1 : -1;
-                if (side[i] == 0 && side[j] == 0) { side[i] = 1; side[j] = -orient; }
-                else if (side[i] != 0 && side[j] == 0) side[j] = -side[i] * orient;
-                else if (side[j] != 0 && side[i] == 0) side[i] = -side[j] * orient;
+                // Each line moves AWAY from where its partner actually is. The lateral
+                // sums carry that per line in its own frame, so orientation stops
+                // mattering and a pair can never be pushed into a swap.
+                var (li, lj) = lats[kv.Key];
+                if (side[i] == 0) side[i] = li >= 0 ? -1 : 1;
+                if (side[j] == 0) side[j] = lj >= 0 ? -1 : 1;
             }
+            // Two spread tiers, encoded in the magnitude: open line stays 1 and gets the
+            // wide double-track gap; named yard tracks become 2 and get just enough air
+            // to tell neighbours apart without redrawing the ladder somewhere else.
+            for (int i = 0; i < lines.Count; i++)
+                if (side[i] != 0 && lineTrack[i] != null && lineTrack[i].Length > 0 && lineTrack[i][0] != '#')
+                    side[i] *= 2;
             return side;
         }
 

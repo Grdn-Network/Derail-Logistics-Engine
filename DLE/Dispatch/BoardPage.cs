@@ -1218,7 +1218,10 @@ function railFan(q,side){
   // the drawn line must land exactly where the switch and the next rail sit, or the
   // double track floats disconnected beside the turnout it belongs to.
   const t=Math.min(1,Math.min(cum[k],total-cum[k])/R);
-  const f=RAIL_FAN()*side*t;
+  // |side| carries the tier: 1 is open line and gets the wide double-track gap,
+  // 2 is a named yard track and gets just enough air to tell neighbours apart
+  // without redrawing the ladder somewhere else (owner ruling).
+  const f=(Math.abs(side)>1?railSize(8):RAIL_FAN())*(side>0?1:-1)*t;
   out.push([q[k][0]-dy/L*f,q[k][1]+dx/L*f]);}
  return out}
 // A switch or signal standing on a fanned rail has to move with it, or it sits on the
