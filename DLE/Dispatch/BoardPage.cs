@@ -332,6 +332,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
      <span class='k'>Size</span>
      <button class='mini' data-act='railZoom' data-id='out' title='fit more railway on screen'>&minus;</button>
      <button class='mini' data-act='railZoom' data-id='in' title='fewer kilometres, everything bigger'>+</button>
+     <button class='mini' data-act='railSchem' id='bSchem' title='Straighten the railway into 45 degree pieces, or show its true curves'>45s</button>
      <span class='k' style='margin-left:6px'>Glyphs</span>
      <button class='mini' data-act='railGlyph' data-id='down' title='smaller marks'>&minus;</button>
      <button class='mini' data-act='railGlyph' data-id='up' title='bigger marks'>+</button>
@@ -846,6 +847,9 @@ const RAIL_XS=2.0;
 // Set them once and then pan; nothing here changes while you work.
 let RAIL_MPP=+localStorage.getItem('dleRailMpp')||7.0;
 let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
+// Schematic on by default: a railway drawn in 45s is what a dispatcher can read at a
+// glance. True geography is one click away for anyone who wants to see the real shape.
+let RAIL_SCHEM=localStorage.getItem('dleRailSchem')!=='0';
 // Double track must read as TWO tracks. Nine pixels each way is eighteen apart, but
 // every rail carries a sixteen pixel casing, so the casings all but touched and a
 // double track section drew as one fat line with a hairline down it. Real spacing is
@@ -854,6 +858,9 @@ let RAIL_G=+localStorage.getItem('dleRailGlyph')||1.0;
 // can see and click both of them.
 const RAIL_FAN=()=>22*RAIL_G;
 function railSize(k){return k*RAIL_G}
+function syncSchemBtn(){const b=$('bSchem');if(b){b.textContent=RAIL_SCHEM?'45s':'real';
+ b.title=RAIL_SCHEM?'Showing the railway straightened into 45 degree pieces; click for true curves'
+  :'Showing true track curves; click to straighten into 45 degree pieces'}}
 function setRailScale(mpp,glyph){
  RAIL_MPP=Math.min(20,Math.max(0.8,mpp));
  RAIL_G=Math.min(4,Math.max(0.5,glyph));
@@ -883,6 +890,7 @@ async function loadRails(){
   centreRails();
   renderRailsDyn();
   const l=$('railScaleLabel');
+  syncSchemBtn();
   if(l)l.textContent=RAIL_MPP.toFixed(1)+' m/px · glyphs '+RAIL_G.toFixed(1)+'x'}
  catch(e){toast('track map failed to load',true)}
  finally{railsLoading=false}}
@@ -909,7 +917,7 @@ function renderRailsStatic(){
   const a=ln.pts||ln,side=ln.side||0;
   const q=[];
   for(let i=0;i<a.length;i+=2)q.push(rxy(a[i],a[i+1]));
-  paths.push({d:smooth(railFan(q,side)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
+  paths.push({d:railPath(q,side).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' '),side});}
  for(const p of paths)
   h+=`<polyline points='${p.d}' fill='none' stroke='#0d0f1a' stroke-width='${railSize(16)}' stroke-linecap='round' stroke-linejoin='round'/>`;
  for(const p of paths)
@@ -939,7 +947,7 @@ function renderRailsDyn(){
   for(const seg of (r.poly||[])){
    const q=[];
    for(let i=0;i<seg.pts.length;i+=2)q.push(rxy(seg.pts[i],seg.pts[i+1]));
-   const d=smooth(railFan(q,seg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   const d=railPath(q,seg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    if(q.length>1)h+=`<polyline points='${d}' fill='none' stroke='#2f9e63' stroke-width='${railSize(seg.side?9:10)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  // WHERE EVERY MARK GOES. True positions first, then one spreading pass over the lot,
  // because real geography puts switches on top of each other at map scale: on this
@@ -965,7 +973,7 @@ function renderRailsDyn(){
   if(leg){
    const pts=[];for(let i=0;i<leg.pts.length;i+=2)pts.push(rxy(leg.pts[i],leg.pts[i+1]));
    // Far enough out that the triangle clears the switch mark and its lock ring.
-   const w=walkAlong(smooth(railFan(pts,leg.side||0)),railSize(52)+sg.slot*railSize(34));
+   const w=walkAlong(railPath(pts,leg.side||0),railSize(52)+sg.slot*railSize(34));
    if(w){q=w[0];u=w[1]}}
   // A signal with no leg to stand on falls back to its own coordinates, which
   // the server only sends in that case.
@@ -986,7 +994,7 @@ function renderRailsDyn(){
    const q=[];
    for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
-   const d=smooth(railFan(q,leg.side||0)).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
+   const d=railPath(q,leg.side||0).map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    // The trunk is leg -1 and is always connected; only the branches take turns.
    const set=leg.branch<0||leg.branch===j.branch;
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#333949'}' stroke-width='${railSize(set?12:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
@@ -1084,6 +1092,56 @@ function nearestMark(e){
   const d=(k.x-p.x)*(k.x-p.x)+(k.y-p.y)*(k.y-p.y);
   if(d<bd){bd=d;best=k}}
  return best}
+// EVERY rail on this map goes through here: the lines, the cleared roads, the switch
+// legs, and the walk that decides where a signal stands. If they did not share it, a
+// green road would sit beside its own rail and a signal would float off its leg.
+//
+// Schematic mode straightens the railway into 45 degree pieces, the way a control panel
+// draws one. Real curves are honest but they are also why a compact section is
+// unreadable without winding the zoom up: geography is kept for what it is good for,
+// which is deciding what runs where and detecting double track, and thrown away for
+// what it is bad at, which is being legible at a glance.
+function railPath(q,side){
+ // The spread goes on FIRST and the straightening second. The other way round, the
+ // perpendicular offset at each elbow is the average of two directions, which tilts
+ // the segment off 45 again: exactly the double track lines came out crooked.
+ return RAIL_SCHEM?octi(railFan(q,side)):smooth(railFan(q,side))}
+// Douglas-Peucker: the few points that carry the shape, dropping the wiggle between.
+function simplify(q,tol){
+ if(q.length<3)return q.slice();
+ const keep=new Array(q.length).fill(false);
+ keep[0]=keep[q.length-1]=true;
+ const stack=[[0,q.length-1]];
+ while(stack.length){
+  const se=stack.pop(),a=q[se[0]],b=q[se[1]];
+  const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy;
+  let best=-1,bd=tol;
+  for(let i=se[0]+1;i<se[1];i++){
+   let t=L2?((q[i][0]-a[0])*dx+(q[i][1]-a[1])*dy)/L2:0;
+   t=t<0?0:t>1?1:t;
+   const d=Math.hypot(q[i][0]-(a[0]+dx*t),q[i][1]-(a[1]+dy*t));
+   if(d>bd){bd=d;best=i}}
+  if(best>=0){keep[best]=true;stack.push([se[0],best],[best,se[1]])}}
+ return q.filter((_,i)=>keep[i])}
+// Straighten to horizontals, verticals and true diagonals. Both ENDS are pinned, which
+// is what keeps the network joined up: a rail still starts and finishes exactly where it
+// met its neighbours. Only the shape between them is redrawn, as one straight run into
+// one 45 degree elbow. The turning points snap to a grid so two rails that run together
+// snap the same way and stay parallel instead of drifting apart.
+function octi(q){
+ if(q.length<2)return q;
+ const tol=railSize(13),grid=railSize(11);
+ const key=simplify(q,tol);
+ for(let i=1;i<key.length-1;i++)
+  key[i]=[Math.round(key[i][0]/grid)*grid,Math.round(key[i][1]/grid)*grid];
+ const out=[key[0]];
+ for(let i=1;i<key.length;i++){
+  const a=out[out.length-1],b=key[i];
+  const dx=b[0]-a[0],dy=b[1]-a[1],ax=Math.abs(dx),ay=Math.abs(dy);
+  if(ax>ay)out.push([a[0]+Math.sign(dx)*(ax-ay),a[1]]);
+  else if(ay>ax)out.push([a[0],a[1]+Math.sign(dy)*(ay-ax)]);
+  out.push(b)}
+ return out}
 function railFan(q,side){
  if(!side||q.length<2)return q;
  const out=[];
@@ -1520,6 +1578,8 @@ const actions={
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
  railZoom:(id,el)=>setRailScale(RAIL_MPP*(el.dataset.id==='in'?0.7:1/0.7),RAIL_G),
  railGlyph:(id,el)=>setRailScale(RAIL_MPP,RAIL_G*(el.dataset.id==='up'?1.25:0.8)),
+ railSchem:()=>{RAIL_SCHEM=!RAIL_SCHEM;localStorage.setItem('dleRailSchem',RAIL_SCHEM?'1':'0');
+  syncSchemBtn();renderRailsStatic();renderRailsDyn()},
  throwSwitch:async(id,el)=>{
   const r=await j('/api/v1/junctions/'+el.dataset.id+'/throw','POST');
   toast(r.message||(r.ok?'switch thrown':'throw refused'),!r.ok);
