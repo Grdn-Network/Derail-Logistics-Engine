@@ -992,7 +992,7 @@ function renderRailsDyn(){
   if(!q){if(sg.x==null)continue;q=rxy(sg.x,sg.z)}
   if(sg.inbound)u=[-u[0],-u[1]];
   marks.push({kind:'sig',id:sg.id,sg,u,click:true,x:q[0],y:q[1],ax:q[0],ay:q[1]})}
- spread(marks,railSize(26),railSize(34));
+ spread(marks,railSize(31),railSize(38));
  railMarks=marks;
  const jItems=marks.filter(m=>m.kind==='jn');
  // Switches: a black disc with the track lines running THROUGH it (owner ruling), the
@@ -1000,20 +1000,21 @@ function renderRailsDyn(){
  // a connection and exactly where it goes. The disc goes down first and the legs are
  // drawn over it, which is why this is in three passes rather than one.
  for(const m of jItems)
-  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(11)}' fill='#07080e'/>`;
+  h+=`<circle cx='${m.x.toFixed(1)}' cy='${m.y.toFixed(1)}' r='${railSize(15)}' fill='#07080e'/>`;
  for(const j of (il.junctions||[])){
   for(const leg of (railLegs[j.id]||[])){
+   // ONLY THE BRANCHES get an arm. The trunk is the stem a switch hangs off: it is
+   // always connected, so drawing it says nothing, and it was half the ink on the map.
+   // The one thing a dispatcher needs to see is which branch the points lie on.
+   if(leg.branch<0)continue;
    const q=[];
    for(let i=0;i<leg.pts.length;i+=2)q.push(rxy(leg.pts[i],leg.pts[i+1]));
    if(q.length<2)continue;
-   // The trunk is leg -1 and is always connected; only the branches take turns.
-   const set=leg.branch<0||leg.branch===j.branch;
-   // A SHORT arm at the switch, not half a kilometre of it. Legs used to run 500m, and
-   // with two or three of them on each of 221 junctions that drew the entire railway a
-   // second time in bright white on top of itself: the map turned into a thicket where
-   // no line could be followed. The arm only has to say which way the points lie, and
-   // it has to be long enough to still carry this switch's signals.
-   const d=railPath(clip(q,set?railSize(118):railSize(74)),leg.side||0)
+   const set=leg.branch===j.branch;
+   // Short. Measured at the live leg length, arms came to 153 PERCENT of the total
+   // length of the railway itself, which is why the map read as a thicket however the
+   // colours were tuned. An arm is a blade on the points, not a piece of route.
+   const d=railPath(clip(q,set?railSize(46):railSize(32)),leg.side||0)
     .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ');
    h+=`<polyline points='${d}' fill='none' stroke='${set?'#ffffff':'#39404f'}' stroke-width='${railSize(set?9:5)}' stroke-linecap='round' stroke-linejoin='round'/>`}}
  for(const m of jItems){
@@ -1021,8 +1022,8 @@ function renderRailsDyn(){
   const t=j.branches>1?`switch ${j.id}: branch ${j.branch+1} of ${j.branches}${j.locked?' (locked by a cleared road)':' - click to throw'}`:`junction ${j.id}`;
   h+=`<g data-act='throwSwitch' data-id='${j.id}' style='cursor:${j.branches>1?'pointer':'default'}'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='transparent'/>
-   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(18)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3)}'/>`:''}
-   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(11)}' fill='none' stroke='${j.branches>1?'#c98f6b':'#4a5064'}' stroke-width='${railSize(2.5)}'/>
+   ${j.locked?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(22)}' fill='none' stroke='#d9b47a' stroke-width='${railSize(3.5)}'/>`:''}
+   <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(15)}' fill='none' stroke='${j.branches>1?'#e0a97e':'#4a5064'}' stroke-width='${railSize(4)}'/>
    <title>${esc(t)}</title></g>`}
  // Signals belong to the DV Signals mod: the colour is the aspect the world is
  // actually showing, and clicking sets or drops the road through it.
@@ -1036,7 +1037,7 @@ function renderRailsDyn(){
   h+=`<g data-act='signal' data-id='${esc(sg.id)}' style='cursor:pointer'>
    <circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(20)}' fill='transparent'/>
    ${sg.road?`<circle cx='${q[0].toFixed(1)}' cy='${q[1].toFixed(1)}' r='${railSize(16)}' fill='none' stroke='#2f9e63' stroke-width='${railSize(3.5)}'/>`:''}
-   <polygon points='${triAt(q,u)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
+   <polygon points='${triAt(q,u,sg.on?1:0.62)}' fill='${col}' stroke='#0d0f1a' stroke-width='${railSize(3)}' stroke-linejoin='round'/>
    <title>${esc(t)}</title></g>`}
  if(!tr)  {g.innerHTML=h;return}
  // A consist is drawn car by car at true length, so a train reads as a train.
@@ -1192,12 +1193,12 @@ function railPoint(x,z,side,dirX,dirZ){
 // keeping every mark visible and clickable.
 // A signal is drawn as a triangle whose apex points the way it governs, so its facing
 // reads without hovering (owner ruling, and how the reference panel does it).
-function triAt(q,u){
- const ux=u[0],uy=u[1];
- const px=-uy,py=ux,L=railSize(19),W=railSize(12);
+function triAt(q,u,k){
+ const ux=u[0],uy=u[1],z=k||1;
+ const px=-uy,py=ux,L=railSize(14)*z,W=railSize(9)*z;
  return [[q[0]+ux*L,q[1]+uy*L],
-         [q[0]-ux*railSize(6)+px*W,q[1]-uy*railSize(6)+py*W],
-         [q[0]-ux*railSize(6)-px*W,q[1]-uy*railSize(6)-py*W]]
+         [q[0]-ux*railSize(5)*z+px*W,q[1]-uy*railSize(5)*z+py*W],
+         [q[0]-ux*railSize(5)*z-px*W,q[1]-uy*railSize(5)*z-py*W]]
    .map(v=>v[0].toFixed(1)+','+v[1].toFixed(1)).join(' ')}
 // Push crowded marks apart until each has room, without letting any of them wander off
 // the railway they belong to. Every mark keeps an anchor at its true position; each
