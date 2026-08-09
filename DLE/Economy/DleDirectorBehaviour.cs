@@ -76,6 +76,9 @@ namespace DLE.Economy
 
         private IEnumerator OverviewSweepLoop()
         {
+            // Offset from the 5s dormancy sweep: the 3s and 5s loops used to align
+            // every 15s and stack their whole cost on one frame (#211).
+            yield return new WaitForSeconds(1.3f);
             var wait = new WaitForSeconds(3f);
             while (true)
             {
@@ -150,13 +153,20 @@ namespace DLE.Economy
         {
             var jobsManager = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
             if (jobsManager == null) return;
+            // One pass over the jobs table instead of a linear scan per order (#211).
+            // Built lazily: most sweeps have no open order to look up.
+            System.Collections.Generic.Dictionary<string, DV.Logic.Job.Job> byId = null;
             foreach (var order in Dispatch.LogisticsBoard.Instance.All)
             {
                 if (string.IsNullOrEmpty(order.JobId) || order.Status == "Done") continue;
-                DV.Logic.Job.Job job = null;
-                foreach (var j in jobsManager.jobToJobCars.Keys)
-                    if (j != null && j.ID == order.JobId) { job = j; break; }
-                if (job == null) continue; // expired or already cleaned up; the order stays a note
+                if (byId == null)
+                {
+                    byId = new System.Collections.Generic.Dictionary<string, DV.Logic.Job.Job>(System.StringComparer.Ordinal);
+                    foreach (var j in jobsManager.jobToJobCars.Keys)
+                        if (j?.ID != null && !byId.ContainsKey(j.ID)) byId[j.ID] = j;
+                }
+                if (!byId.TryGetValue(order.JobId, out var job))
+                    continue; // expired or already cleaned up; the order stays a note
                 if (job.State == DV.ThingTypes.JobState.Completed)
                 {
                     Dispatch.LogisticsBoard.Instance.SetStatus(order.Id, "Done");

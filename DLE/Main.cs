@@ -71,9 +71,19 @@ namespace DLE
 
         // World ready
 
+        // #207: within a loaded session the role cannot change (a DVMP host stays host),
+        // so the verdict latches at world load and every later call reads a plain bool
+        // instead of paying two reflected property reads and their boxed results. The
+        // hottest caller is the deleter patch, once per candidate car per vanilla sweep.
+        // Latching EARLIER than world load is the trap #207 warns about: a host asked
+        // before its server starts reads as a client and caches the lie.
+        private static bool _roleLatched;
+        private static bool _roleCache;
+
         private static void OnWorldLoaded()
         {
             Log("[Main] World loaded; initialising DLE systems.");
+            _roleLatched = false;
 
             // Build the economy for this world (recipes from stations, overlay, saved
             // stock; a fresh economy seeds its starting stock inside Init).
@@ -92,6 +102,9 @@ namespace DLE
             // vanilla job save), restore assignments, and start the local HTTP API.
             // Host only; clients receive jobs from the host via DVMP.
             bool hostOrSp = IsHostOrSingleplayer();
+            // Only a settled DVMP resolution latches: present-but-unresolved keeps the
+            // live check so a slow-arming client can never cache the wrong role.
+            if (_dvmpResolved) { _roleCache = hostOrSp; _roleLatched = true; }
             LogAlways(hostOrSp
                 ? "[Main] running as host/singleplayer; DLE server logic active."
                 : "[Main] running as a multiplayer client; DLE host logic stays off (the host runs it).");
@@ -204,6 +217,7 @@ namespace DLE
         /// </summary>
         public static bool IsHostOrSingleplayer()
         {
+            if (_roleLatched) return _roleCache; // settled at world load (#207)
             ResolveDvmpApi(); // idempotent: resolves once then returns immediately
             if (_mpApiInstance == null) return true; // no DVMP present, single-player
             try

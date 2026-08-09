@@ -748,9 +748,6 @@ namespace DLE.Economy
             return Math.Max(0f, TotalCapOf(yardId) - TotalStock(yardId));
         }
 
-        public bool HasRoomFor(string yardId, CargoType cargo, float amount) =>
-            GetRoom(yardId, cargo) >= amount;
-
         public void Reserve(string jobId, string yardId, CargoType cargo, float amount, bool paid = true)
         {
             _reservations[jobId] = new Reservation
@@ -958,20 +955,6 @@ namespace DLE.Economy
         /// <summary>Remove stock (e.g. a producer loading cars for a haul).</summary>
         public void Debit(string yardId, CargoType cargo, float amount) =>
             Consume(yardId, cargo, amount);
-
-        /// <summary>Debug/console path: run every recipe at a station until inputs or
-        /// room run out. The live economy paces batches on the clock instead.</summary>
-        public void RunAllBatchesNow(string yardId)
-        {
-            if (!_facilities.TryGetValue(yardId, out var facility)) return;
-            foreach (var recipe in facility.Recipes)
-            {
-                if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
-                int guard = 0;
-                while (HasInputs(yardId, recipe) && HasOutputRoom(yardId, facility, recipe) && guard++ < 1000)
-                    RunBatch(facility, recipe);
-            }
-        }
 
         // Category-aware recipe plumbing (#100): an input stack naming a category is
         // satisfied by any member brand and consumed biggest-pile-first.

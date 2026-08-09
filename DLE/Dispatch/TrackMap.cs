@@ -187,10 +187,63 @@ namespace DLE.Dispatch
             return _junctions.Length == 0 || _junctions[0] != null;
         }
 
+        /// <summary>
+        /// Cheap fingerprint of the traffic picture: car positions at payload
+        /// granularity, the jobs table shape, and switch positions. The push tick
+        /// compares tokens and skips the build entirely when nothing moved, which is
+        /// every second of a session where the trains are parked (#211). Allocation
+        /// free on purpose.
+        /// </summary>
+        public static int TrafficToken()
+        {
+            unchecked
+            {
+                int h = 17;
+                try
+                {
+                    var move = WorldMover.currentMove;
+                    foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
+                    {
+                        var tc = kv.Value;
+                        if (tc == null) continue;
+                        var p = tc.transform.position;
+                        h = h * 31 + (int)((p.x - move.x) * 10f);
+                        h = h * 31 + (int)((p.z - move.z) * 10f);
+                    }
+                    var jm = SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+                    if (jm != null)
+                    {
+                        h = h * 31 + jm.jobToJobCars.Count;
+                        foreach (var kv in jm.jobToJobCars)
+                            h = h * 31 + (kv.Value?.Count ?? 0);
+                    }
+                    if (_junctions.Length > 0 && JunctionsAlive())
+                        for (int i = 0; i < _junctions.Length; i++)
+                            h = h * 31 + (_junctions[i] != null ? _junctions[i].selectedBranch : -1);
+                }
+                catch { return Environment.TickCount; } // unreadable state: force a rebuild
+                return h;
+            }
+        }
+
         public static object TrafficPayload()
         {
             var move = WorldMover.currentMove;
             var jobsManager = SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+
+            // One pass over the jobs table instead of a linear GetJobOfCar scan per car:
+            // at 360 cars that was 360 walks of every job's car list, every second (#211).
+            Dictionary<DV.Logic.Job.Car, string> carJobs = null;
+            if (jobsManager != null)
+            {
+                carJobs = new Dictionary<DV.Logic.Job.Car, string>();
+                foreach (var kv in jobsManager.jobToJobCars)
+                {
+                    if (kv.Key == null || kv.Value == null) continue;
+                    foreach (var jc in kv.Value)
+                        if (jc != null) carJobs[jc] = kv.Key.ID;
+                }
+            }
 
             var consists = new List<object>();
             var seen = new HashSet<Trainset>();
@@ -214,11 +267,8 @@ namespace DLE.Dispatch
                     var p = c.transform.position - move;
                     var f = c.transform.forward;
                     string jid = null;
-                    if (c.logicCar != null && jobsManager != null)
-                    {
-                        var j = jobsManager.GetJobOfCar(c.logicCar);
-                        if (j != null) jid = j.ID;
-                    }
+                    if (c.logicCar != null && carJobs != null)
+                        carJobs.TryGetValue(c.logicCar, out jid);
                     float len = 20f;
                     try { if (c.logicCar != null) len = c.logicCar.length; } catch { }
                     string type = null;

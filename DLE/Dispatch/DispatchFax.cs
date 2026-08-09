@@ -300,17 +300,40 @@ namespace DLE.Dispatch
         /// read from PlayerManager by the caller, and a loading player's position is
         /// not yet meaningful. Null when MPAPI is absent.
         /// </summary>
+        // MPAPI reflection handles, resolved once (#211): the assembly set cannot
+        // change inside a session, and the 5s dormancy sweep was re-scanning every
+        // loaded assembly to re-find the same type. Absence is not latched, so a
+        // late-arming DVMP (a client joining after load) is still found later.
+        private static System.Reflection.PropertyInfo _mpServerProp;
+        private static System.Reflection.PropertyInfo _mpPlayersProp;
+
+        private static System.Collections.IEnumerable MpApiPlayers()
+        {
+            try
+            {
+                if (_mpServerProp == null)
+                {
+                    var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
+                        .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
+                        ?.GetType("MPAPI.MultiplayerAPI");
+                    _mpServerProp = mpApiType?.GetProperty("Server");
+                    if (_mpServerProp == null) return null;
+                }
+                var server = _mpServerProp.GetValue(null);
+                if (server == null) return null;
+                if (_mpPlayersProp == null)
+                    _mpPlayersProp = server.GetType().GetProperty("Players");
+                return _mpPlayersProp?.GetValue(server) as System.Collections.IEnumerable;
+            }
+            catch { return null; }
+        }
+
         internal static System.Collections.Generic.List<Vector3> MpApiPlayerPositions()
         {
             try
             {
-                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
-                    ?.GetType("MPAPI.MultiplayerAPI");
-                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
-                if (server == null) return null;
-                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
-                        is System.Collections.IEnumerable players)) return null;
+                var players = MpApiPlayers();
+                if (players == null) return null;
                 var list = new System.Collections.Generic.List<Vector3>();
                 foreach (var p in players)
                 {
@@ -333,13 +356,8 @@ namespace DLE.Dispatch
         {
             try
             {
-                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
-                    ?.GetType("MPAPI.MultiplayerAPI");
-                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
-                if (server == null) return null;
-                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
-                        is System.Collections.IEnumerable players)) return null;
+                var players = MpApiPlayers();
+                if (players == null) return null;
                 var map = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var p in players)
                 {
@@ -390,13 +408,8 @@ namespace DLE.Dispatch
         {
             try
             {
-                var mpApiType = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "MultiplayerAPI")
-                    ?.GetType("MPAPI.MultiplayerAPI");
-                var server = mpApiType?.GetProperty("Server")?.GetValue(null);
-                if (server == null) return null;
-                if (!(server.GetType().GetProperty("Players")?.GetValue(server)
-                        is System.Collections.IEnumerable players)) return null;
+                var players = MpApiPlayers();
+                if (players == null) return null;
                 foreach (var p in players)
                 {
                     var pt = p.GetType();

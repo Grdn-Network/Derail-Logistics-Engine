@@ -71,8 +71,12 @@ namespace DLE.Data
         /// <summary>Board handler time, keyed by route shape (ids stripped).</summary>
         public static void RecordRequest(string path, long ms)
         {
-            var parts = (path ?? "/").Split('/');
-            var key = parts.Length > 3 ? $"/{parts[1]}/{parts[2]}/{parts[3]}" : path;
+            // Key by route shape (/api/v1/route, ids stripped) without Split's string[]
+            // garbage: cut once at the fourth slash, allocate nothing otherwise (#211).
+            var key = path ?? "/";
+            int slashes = 0;
+            for (int i = 0; i < key.Length; i++)
+                if (key[i] == '/' && ++slashes == 4) { key = key.Substring(0, i); break; }
             _reqMs.TryGetValue(key, out var t); _reqMs[key] = t + ms;
             _reqN.TryGetValue(key, out var n); _reqN[key] = n + 1;
         }

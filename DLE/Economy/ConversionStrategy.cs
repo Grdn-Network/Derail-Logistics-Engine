@@ -4,7 +4,8 @@ namespace DLE.Economy
     /// Seam for how a facility turns delivered inputs into outputs. Since 0.44 the
     /// economy runs on the in-game clock (issue #100): deliveries just stock the
     /// warehouse and the hourly batch loop does the converting, so the default
-    /// strategy is a no-op on delivery. InstantConversion remains for debugging.
+    /// strategy is a no-op on delivery. (The pre-0.44 InstantConversion was deleted
+    /// unreachable in #212; the seam stays for a future strategy.)
     /// </summary>
     public interface IConversionStrategy
     {
@@ -15,12 +16,6 @@ namespace DLE.Economy
     public sealed class PacedConversion : IConversionStrategy
     {
         public void OnDelivered(EconomyState economy, string yardId) { }
-    }
-
-    /// <summary>Pre-0.44 behavior: convert everything possible the moment inputs arrive.</summary>
-    public sealed class InstantConversion : IConversionStrategy
-    {
-        public void OnDelivered(EconomyState economy, string yardId) => economy.RunAllBatchesNow(yardId);
     }
 
     public static class Conversion
