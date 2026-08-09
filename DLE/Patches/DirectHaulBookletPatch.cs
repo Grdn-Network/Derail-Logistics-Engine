@@ -126,12 +126,21 @@ namespace DLE.Patches
                 pick = job.tasksData.Where(t =>
                     t.warehouseTaskType == DV.Logic.Job.WarehouseTaskType.Unloading).ToList();
             if (pick.Count == 0) pick = job.tasksData.ToList();
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var t in pick)
             {
                 if (t.cars == null) continue;
                 for (int i = 0; i < t.cars.Count; i++)
                 {
-                    cars.Add(t.cars[i]);
+                    var car = t.cars[i];
+                    if (car == null) continue;
+                    // The same physical car can appear in several synced task entries on
+                    // a DVMP client; counting it once per entry inflated the drawn
+                    // consist (a 9-car haul aggregating as 27) and overflowed the task
+                    // paper's fixed car slots (#209). First sighting wins, and it keeps
+                    // that sighting's cargo.
+                    if (!string.IsNullOrEmpty(car.ID) && car.ID != "?" && !seenIds.Add(car.ID)) continue;
+                    cars.Add(car);
                     cargoPerCar.Add(t.cargoTypePerCar != null && i < t.cargoTypePerCar.Count
                         ? t.cargoTypePerCar[i] : CargoType.None);
                 }
@@ -295,7 +304,7 @@ namespace DLE.Patches
             if (job == null || job.type != JobType.ComplexTransport)
                 return true;
 
-            DirectHaulBooklet.GetDisplayData(job, out var cars, out _, out _);
+            DirectHaulBooklet.GetDisplayData(job, out var cars, out var cargoPerCar, out _);
 
             StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(job.ID, out var def);
             var origin = job.chainOriginStationInfo
@@ -304,44 +313,79 @@ namespace DLE.Patches
                 ?? StationController.GetStationByYardID(def?.chainData?.chainDestinationYardId)?.stationInfo;
 
             // A carless Company Haul carries a leading load task; the booklet mirrors it.
-            // Jobs whose cars ship pre-loaded keep the 4-page layout. Detection is by
+            // Jobs whose cars ship pre-loaded keep the shorter layout. Detection is by
             // task TYPE: a mixed haul has several tasks per step, so length says nothing.
             bool hasLoadStep = def?.includeLoadTask
                 ?? (job.tasksData != null && job.tasksData.Any(t =>
                     t.warehouseTaskType == DV.Logic.Job.WarehouseTaskType.Loading));
-            string total = hasLoadStep ? "5" : "4";
+
+            // The task paper prints cars 6 per track onto a fixed 3-track prefab and
+            // indexes that array unguarded, so a page can hold at most 18 cars; car 19
+            // threw IndexOutOfRange and poisoned the whole render queue (#209). Long
+            // consists paginate, exactly like vanilla's own creators do.
+            const int carsPerPage = 18;
+            bool cargoMatches = cargoPerCar != null && cargoPerCar.Count == cars.Count;
+            var carPages = new List<List<Car_data>>();
+            var cargoPages = new List<List<CargoType>>();
+            if (cars.Count == 0)
+            {
+                carPages.Add(cars);
+                cargoPages.Add(null);
+            }
+            for (int s = 0; s < cars.Count; s += carsPerPage)
+            {
+                int n = Math.Min(carsPerPage, cars.Count - s);
+                carPages.Add(cars.GetRange(s, n));
+                cargoPages.Add(cargoMatches ? cargoPerCar.GetRange(s, n) : null);
+            }
+
+            bool haveFront = origin != null && destination != null;
+            int totalPages = 1 + (haveFront ? 1 : 0)
+                + (hasLoadStep ? carPages.Count : 0) + carPages.Count + 1;
+            string total = totalPages.ToString();
+            int pageNo = 1;
 
             var pages = new List<TemplatePaperData>
             {
-                new CoverPageTemplatePaperData(job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME, "1", total),
+                new CoverPageTemplatePaperData(job.ID, DirectHaulBooklet.DIRECT_HAUL_NAME,
+                    pageNo++.ToString(), total),
             };
-            var frontPage = DirectHaulBooklet.BuildFrontPage(job, "2", total);
-            if (frontPage != null) pages.Add(frontPage);
+            if (haveFront)
+            {
+                var frontPage = DirectHaulBooklet.BuildFrontPage(job, pageNo.ToString(), total);
+                if (frontPage != null) { pages.Add(frontPage); pageNo++; }
+            }
 
             // Booklet text rework (#87): each step teaches the DLE mechanic it uses,
             // because the booklet is the whole contract between dispatch and crew.
             if (hasLoadStep)
             {
-                pages.Add(new TaskTemplatePaperData(
-                    "1",
-                    DirectHaulBooklet.SafeL("job/task_type_load", "LOAD"),
-                    "Bring the empty cars to the loading track, or ask dispatch to load them remotely wherever they stand.",
-                    origin?.YardID ?? string.Empty,
-                    origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
-                    DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Loading), C.TRACK_COLOR,
-                    string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                    cars, null, "3", total));
+                for (int p = 0; p < carPages.Count; p++)
+                {
+                    pages.Add(new TaskTemplatePaperData(
+                        "1",
+                        DirectHaulBooklet.SafeL("job/task_type_load", "LOAD"),
+                        "Bring the empty cars to the loading track, or ask dispatch to load them remotely wherever they stand.",
+                        origin?.YardID ?? string.Empty,
+                        origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                        DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Loading), C.TRACK_COLOR,
+                        string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                        carPages[p], cargoPages[p], pageNo++.ToString(), total));
+                }
             }
 
-            pages.Add(new TaskTemplatePaperData(
-                hasLoadStep ? "2" : "1",
-                DirectHaulBooklet.SafeL("job/task_type_unload", "UNLOAD"),
-                "Take the cars to the unloading track, or ask dispatch to unload them remotely wherever they stand.",
-                destination?.YardID ?? string.Empty,
-                destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
-                DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Unloading), C.TRACK_COLOR,
-                string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                cars, null, hasLoadStep ? "4" : "3", total));
+            for (int p = 0; p < carPages.Count; p++)
+            {
+                pages.Add(new TaskTemplatePaperData(
+                    hasLoadStep ? "2" : "1",
+                    DirectHaulBooklet.SafeL("job/task_type_unload", "UNLOAD"),
+                    "Take the cars to the unloading track, or ask dispatch to unload them remotely wherever they stand.",
+                    destination?.YardID ?? string.Empty,
+                    destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                    DirectHaulBooklet.GetTrackDisplayByType(job, DV.Logic.Job.WarehouseTaskType.Unloading), C.TRACK_COLOR,
+                    string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                    carPages[p], cargoPages[p], pageNo++.ToString(), total));
+            }
 
             // The vanilla validator page told crews to find a validator that this job
             // never needs; a TURN IN step states what actually happens instead.
@@ -353,7 +397,7 @@ namespace DLE.Patches
                 destination?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
                 string.Empty, C.TRACK_COLOR,
                 string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
-                new List<Car_data>(), null, hasLoadStep ? "5" : "4", total));
+                new List<Car_data>(), null, pageNo++.ToString(), total));
 
             __result = pages;
             return false;
