@@ -71,17 +71,6 @@ namespace DLE.Jobs
             if (n > cur) _routeCounters[key] = n;
         }
 
-        public static StationsChainData Chain(string originYardId, string destYardId) =>
-            new StationsChainData(originYardId, destYardId);
-
-        // Wage / time estimates (rough; fine-tuned later)
-
-        public static float EstimateWage(int carCount, float distanceFactor = 1f) =>
-            Mathf.Max(200f, carCount * 450f * distanceFactor);
-
-        public static float EstimateTimeLimit(int carCount, float distanceFactor = 1f) =>
-            Mathf.Max(600f, carCount * 120f * distanceFactor + 600f);
-
         // JobChainController builder
 
         /// <summary>
@@ -114,32 +103,6 @@ namespace DLE.Jobs
             }
             station.ProceduralJobsController.AddJobChainController(jcc);
             return jcc;
-        }
-
-        // Car helpers
-
-        public static List<Car> ToLogicCars(IEnumerable<TrainCar> trainCars) =>
-            TrainCar.ExtractLogicCars(trainCars.ToList());
-
-        public static List<CargoType> GetCargoes(IEnumerable<TrainCar> cars) =>
-            cars.Select(c => c.logicCar.CurrentCargoTypeInCar).ToList();
-
-        public static List<float> GetCargoAmounts(IEnumerable<TrainCar> cars) =>
-            cars.Select(c => c.logicCar.LoadedCargoAmount).ToList();
-
-        /// <summary>
-        /// Find the logic Track the majority of cars in a list are sitting on.
-        /// </summary>
-        public static Track FindCommonTrack(List<TrainCar> cars)
-        {
-            if (cars == null || cars.Count == 0) return null;
-            return cars
-                .Select(c => c.logicCar.CurrentTrack)
-                .Where(t => t != null)
-                .GroupBy(t => t)
-                .OrderByDescending(g => g.Count())
-                .Select(g => g.Key)
-                .FirstOrDefault();
         }
     }
 }

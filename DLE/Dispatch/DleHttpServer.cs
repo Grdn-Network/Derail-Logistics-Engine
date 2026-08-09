@@ -126,32 +126,50 @@ namespace DLE.Dispatch
                 {
                     _lastPushAt = UnityEngine.Time.realtimeSinceStartup;
                     var sw2 = System.Diagnostics.Stopwatch.StartNew();
-                    // The game thread only BUILDS the payload objects (they must read
-                    // Unity state); they are plain data after that, so serialization,
-                    // the changed-since-last diff and the socket writes all go to the
-                    // pool. The first shape of this serialized here too and cost 43ms a
-                    // second on the owner's lag meter.
-                    object interObj = null, trafficObj = null;
-                    try { interObj = Interlocking.Payload(); } catch { }
-                    try { trafficObj = TrackMap.TrafficPayload(); } catch { }
                     bool force = WsHub.SnapshotWanted;
                     WsHub.SnapshotWanted = false;
-                    System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+                    // Change tokens first (#211): most seconds nothing on the railway has
+                    // changed, and the tokens (a few hundred int reads, allocation free)
+                    // let those seconds skip the whole build-serialize-broadcast pipeline.
+                    // The old shape serialized both payloads to full JSON strings every
+                    // second just to discover they matched the last ones: tens of KB of
+                    // garbage per tick feeding the GC pauses that show up as hitches.
+                    object interObj = null, trafficObj = null;
+                    int interToken = 0, trafficToken = 0;
+                    try { interToken = Interlocking.PayloadToken(); } catch { }
+                    try { trafficToken = TrackMap.TrafficToken(); } catch { }
+                    if (force || interToken != _lastInterToken)
+                        try { interObj = Interlocking.Payload(); _lastInterToken = interToken; } catch { }
+                    if (force || trafficToken != _lastTrafficToken)
+                        try { trafficObj = TrackMap.TrafficPayload(); _lastTrafficToken = trafficToken; } catch { }
+                    if (interObj != null || trafficObj != null)
                     {
-                        try
+                        // The game thread only BUILDS the payload objects (they must read
+                        // Unity state); they are plain data after that, so serialization,
+                        // the string diff and the socket writes all go to the pool. The
+                        // first shape of this serialized here too and cost 43ms a second
+                        // on the owner's lag meter.
+                        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            var outbox = new List<string>(2);
-                            var inter = interObj == null ? null : JsonConvert.SerializeObject(interObj);
-                            var traffic = trafficObj == null ? null : JsonConvert.SerializeObject(trafficObj);
-                            if (inter != null && (force || inter != _lastPushedInter))
-                            { _lastPushedInter = inter; outbox.Add("{\"ch\":\"interlocking\",\"data\":" + inter + "}"); }
-                            if (traffic != null && (force || traffic != _lastPushedTraffic))
-                            { _lastPushedTraffic = traffic; outbox.Add("{\"ch\":\"traffic\",\"data\":" + traffic + "}"); }
-                            foreach (var msg in outbox) WsHub.BroadcastText(msg);
-                        }
-                        catch { }
-                        finally { System.Threading.Interlocked.Exchange(ref _pushBusy, 0); }
-                    });
+                            try
+                            {
+                                var outbox = new List<string>(2);
+                                var inter = interObj == null ? null : WrapChannel("interlocking", interObj);
+                                var traffic = trafficObj == null ? null : WrapChannel("traffic", trafficObj);
+                                if (inter != null && (force || inter != _lastPushedInter))
+                                { _lastPushedInter = inter; outbox.Add(inter); }
+                                if (traffic != null && (force || traffic != _lastPushedTraffic))
+                                { _lastPushedTraffic = traffic; outbox.Add(traffic); }
+                                foreach (var msg in outbox) WsHub.BroadcastText(msg);
+                            }
+                            catch { }
+                            finally { System.Threading.Interlocked.Exchange(ref _pushBusy, 0); }
+                        });
+                    }
+                    else
+                    {
+                        System.Threading.Interlocked.Exchange(ref _pushBusy, 0);
+                    }
                     try { Data.PerfMeter.RecordRequest("/ws-push", sw2.ElapsedMilliseconds); } catch { }
                 }
                 yield return null;
@@ -161,6 +179,25 @@ namespace DLE.Dispatch
         private float _lastPushAt;
         private static int _pushBusy;
         private string _lastPushedInter, _lastPushedTraffic;
+        private int _lastInterToken, _lastTrafficToken;
+
+        // One pool worker at a time (the _pushBusy single-flight), so a shared builder
+        // and serializer are safe. Building "{"ch":...,"data":<json>}" in one pass
+        // halves the string copies the old concat made per broadcast.
+        private static readonly System.Text.StringBuilder _wsSb = new System.Text.StringBuilder(64 * 1024);
+        private static readonly JsonSerializer _wsSerializer = JsonSerializer.CreateDefault();
+
+        private static string WrapChannel(string channel, object payload)
+        {
+            var sb = _wsSb;
+            sb.Length = 0;
+            sb.Append("{\"ch\":\"").Append(channel).Append("\",\"data\":");
+            using (var sw = new System.IO.StringWriter(sb))
+            using (var jw = new Newtonsoft.Json.JsonTextWriter(sw))
+                _wsSerializer.Serialize(jw, payload);
+            sb.Append('}');
+            return sb.ToString();
+        }
 
         /// <summary>
         /// Worker thread: read and parse one HTTP request, hand it to the main thread,

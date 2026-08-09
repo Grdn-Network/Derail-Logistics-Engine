@@ -139,7 +139,16 @@ namespace DLE.Data
                 yield return null;
             }
 
-            // DESPAWN pass: whole yards with no player anywhere near.
+            // DESPAWN pass: whole yards with no player anywhere near. The reserved-car
+            // set is identical for every facility, so it is built once out here rather
+            // than once per yard, and the scan yields between facilities so the whole
+            // registry walk stops landing on a single frame (#211).
+            var reserved = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                if (kv.Value?.reservedCarIds != null)
+                    foreach (var rid in kv.Value.reservedCarIds)
+                        reserved.Add(rid);
+
             foreach (var facility in Economy.EconomyState.Instance.Facilities.Values.ToList())
             {
                 if (stale()) yield break;
@@ -147,11 +156,12 @@ namespace DLE.Data
                 if (sc == null) continue;
                 if (AnyWithin(players, sc.transform.position, sleepR)) continue;
 
-                foreach (var cutCars in EligibleCuts(sc, players, sleepR))
+                foreach (var cutCars in EligibleCuts(sc, players, sleepR, reserved))
                 {
                     DespawnCut(cutCars, facility.YardId);
                     yield return null;
                 }
+                yield return null;
             }
         }
 
@@ -162,17 +172,11 @@ namespace DLE.Data
         /// coupling is only restorable within a cut captured together.
         /// </summary>
         private static List<List<TrainCar>> EligibleCuts(StationController sc,
-            List<Vector3> players, float sleepR)
+            List<Vector3> players, float sleepR, HashSet<string> reserved)
         {
             var pool = DleCarPool.Instance;
             var tracks = Dispatch.DispatchServicing.StationTracks(sc, null);
             var jobsManager = SingletonBehaviour<JobsManager>.Instance;
-
-            var reserved = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
-                if (kv.Value?.reservedCarIds != null)
-                    foreach (var rid in kv.Value.reservedCarIds)
-                        reserved.Add(rid);
 
             var byTrainset = new Dictionary<Trainset, List<TrainCar>>();
             var whole = new Dictionary<Trainset, bool>();

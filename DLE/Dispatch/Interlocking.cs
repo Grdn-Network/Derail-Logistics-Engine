@@ -55,17 +55,19 @@ namespace DLE.Dispatch
         private static readonly List<Sig> _signals = new List<Sig>();
         private static readonly Dictionary<long, Sig> _inboundAt = new Dictionary<long, Sig>();
         private static readonly Dictionary<string, Route> _routes = new Dictionary<string, Route>(StringComparer.Ordinal);
+        // Bumped on every route add/drop and CTC flip, so the push tick can ask "did
+        // anything change" without rebuilding the payload to find out (#211).
+        private static int _routesVersion;
         private static readonly Dictionary<Junction, int> _jIds = new Dictionary<Junction, int>();
         private static readonly List<Junction> _junctions = new List<Junction>();
         private static readonly Dictionary<int, List<object>> _stubs = new Dictionary<int, List<object>>();
 
         /// <summary>Everything about a drawn switch that the world decides once: where it
-        /// stands, which way its approach runs, and which side of a double track it is on.
-        /// Held in world coordinates, because the game shifts the world origin under us and
-        /// only the live subtraction stays honest across that.</summary>
-        private class JGeo { public Vector3 World; public float Dx, Dz; public int Side; }
+        /// stands and which way its approach runs. Held in world coordinates, because the
+        /// game shifts the world origin under us and only the live subtraction stays
+        /// honest across that.</summary>
+        private class JGeo { public Vector3 World; public float Dx, Dz; }
         private static readonly Dictionary<int, JGeo> _jGeo = new Dictionary<int, JGeo>();
-        private static readonly Dictionary<RailTrack, string> _trackIds = new Dictionary<RailTrack, string>();
         // How far each leg of a switch is drawn. This is the ONLY thing on the board that
         // says which way a switch is set, so it has to be long enough to read without
         // winding the zoom up: 120m is seventeen pixels at the default scale, which is
@@ -91,7 +93,8 @@ namespace DLE.Dispatch
         {
             _signals.Clear(); _inboundAt.Clear(); _routes.Clear();
             _jIds.Clear(); _junctions.Clear(); _stubs.Clear();
-            _jGeo.Clear(); _trackIds.Clear(); _builtHash = null;
+            _jGeo.Clear(); _builtHash = null;
+            _routesVersion++;
         }
 
         private static long LegKey(int junction, int leg) => ((long)junction << 8) ^ (uint)(leg + 8);
@@ -277,16 +280,6 @@ namespace DLE.Dispatch
             _facingReport = string.Join(", ", facing.OrderBy(kv => kv.Key)
                 .Select(kv => kv.Key + "=" + kv.Value).ToArray());
 
-            // A rail's display id is looked up by object once here. Finding it used to mean
-            // walking the whole track registry, and the live payload did that for every
-            // drawn junction on every poll.
-            try
-            {
-                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
-                    if (kv.Value != null && kv.Key?.ID != null) _trackIds[kv.Value] = kv.Key.ID.FullDisplayID;
-            }
-            catch { }
-
             // Leg geometry never moves, so it is worked out once here and only the
             // selected index changes from poll to poll.
             // Every junction, yards included (owner ruling): main signals and switches
@@ -342,6 +335,7 @@ namespace DLE.Dispatch
                 return (false, "the DV Signals mod is not loaded, so there are no signals to hold");
             if (Ctc == on) return (true, on ? "CTC is already on" : "CTC is already off");
             Ctc = on;
+            _routesVersion++;
             if (!on)
             {
                 int freed = 0;
@@ -420,6 +414,33 @@ namespace DLE.Dispatch
             return outp;
         }
 
+        /// <summary>
+        /// A cheap fingerprint of everything Payload() would say: signal state (the
+        /// bridge bumps SignalsLink.Version on every aspect and mode event), routes and
+        /// CTC (bumped locally), switch positions (read directly; ~600 int reads), and
+        /// the map epoch. The push tick compares tokens and skips the whole
+        /// build-serialize-broadcast pipeline when the railway has not changed, which is
+        /// most seconds of a session (#211).
+        /// </summary>
+        public static int PayloadToken()
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + SignalsLink.Version;
+                h = h * 31 + _routesVersion;
+                h = h * 31 + (Ctc ? 1 : 0);
+                h = h * 31 + TrackMap.Epoch;
+                if (JunctionsAlive())
+                    for (int i = 0; i < _junctions.Count; i++)
+                    {
+                        var j = _junctions[i];
+                        h = h * 31 + (j != null ? (int)j.selectedBranch : -1);
+                    }
+                return h;
+            }
+        }
+
         public static object Payload()
         {
             // A world reload leaves this holding switches that no longer exist. Rebuilding
@@ -477,7 +498,6 @@ namespace DLE.Dispatch
                     branch = (int)j.selectedBranch,
                     branches = j.outBranches?.Count ?? 0,
                     locked = locked.Contains(i),
-                    side = g.Side,
                     dx = g.Dx,
                     dz = g.Dz,
                 });
@@ -586,6 +606,7 @@ namespace DLE.Dispatch
                 ? route.Path.GetRange(1, route.Path.Count - 1)
                 : route.Path);
             _routes[signalId] = route;
+            _routesVersion++;
 
             // The signal itself belongs to the Signals mod: take it to manual and clear
             // it so drivers see a real green, not just a line on the dispatcher's board.
@@ -604,6 +625,7 @@ namespace DLE.Dispatch
         public static (bool ok, string message) Cancel(string signalId)
         {
             if (!_routes.Remove(signalId)) return (false, "that signal is already on");
+            _routesVersion++;
             Release(signalId);
             return (true, Ctc
                 ? $"{signalId} back to stop; switches released"
@@ -626,6 +648,7 @@ namespace DLE.Dispatch
                 if (r.WasOccupied)
                 {
                     _routes.Remove(id);
+                    _routesVersion++;
                     Release(id);
                     Main.Log($"[Interlocking] road off {id} released; the train is through.");
                 }
@@ -688,20 +711,6 @@ namespace DLE.Dispatch
             }
             if (j.inBranch?.track == null) { why = "that switch has nowhere to go"; return null; }
             return j.inBranch;
-        }
-
-        /// <summary>The rail's id as the map keys it, for the fan-side lookup.</summary>
-        private static string TrackIdOf(RailTrack t)
-        {
-            if (t == null) return null;
-            if (_trackIds.TryGetValue(t, out var id)) return id;
-            try
-            {
-                foreach (var kv in RailTrackRegistry.LogicToRailTrack)
-                    if (ReferenceEquals(kv.Value, t)) return kv.Key?.ID?.FullDisplayID;
-            }
-            catch { }
-            return null;
         }
 
         /// <summary>Unit heading of a rail at the end in question, so a mark standing on
