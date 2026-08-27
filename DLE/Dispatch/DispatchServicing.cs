@@ -257,6 +257,24 @@ namespace DLE.Dispatch
                 if (yard.TransferInTracks != null) foreach (var t in yard.TransferInTracks) set.Add(t);
                 if (yard.TransferOutTracks != null) foreach (var t in yard.TransferOutTracks) set.Add(t);
             }
+            // Warehouse (loading) tracks sit in NONE of the yard groups, so a car parked
+            // on the loading track itself read as "not standing at the station" and was
+            // refused the exact servicing the track exists for (#218, and the event-day
+            // "get off the loading track so I can unload"). Every warehouse machine
+            // track whose id names this yard belongs in the set.
+            try
+            {
+                var yardId = sc?.stationInfo?.YardID;
+                if (!string.IsNullOrEmpty(yardId))
+                    foreach (var c in WarehouseMachineController.allControllers)
+                    {
+                        var t = c?.warehouseMachine?.WarehouseTrack;
+                        if (t?.ID?.yardId != null
+                            && string.Equals(t.ID.yardId, yardId, StringComparison.OrdinalIgnoreCase))
+                            set.Add(t);
+                    }
+            }
+            catch { }
             if (extra != null) set.Add(extra);
             return set;
         }
