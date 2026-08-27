@@ -120,6 +120,9 @@ namespace DLE
                 // Local stale-paper sweep (#73): the game respawns office overviews on
                 // every peer, so host-side destroys never reach this client's copies.
                 Dispatch.DleClientPaperSweeper.StartOnClient();
+                // The board server now survives world reloads (#215); a world loaded as
+                // a CLIENT must not keep serving the previous hosted session's board.
+                Dispatch.DleHttpServer.Stop();
             }
             if (hostOrSp)
             {

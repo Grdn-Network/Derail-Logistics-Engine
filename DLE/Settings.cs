@@ -10,11 +10,12 @@ namespace DLE
     /// </summary>
     public class Settings : UnityModManager.ModSettings, IDrawable
     {
+        // The per-station number IS the cap (owner ruling 2026-08-27, #217): a map-wide
+        // total silently stalled all generation once ~60 untaken orders piled up at
+        // singleplayer pace, and nothing anywhere said why. Priority orders that bump
+        // stale paper come later.
         [Draw("Available booklets per station")]
         public int MaxOpenBookletsPerStation = 10;
-
-        [Draw("Available booklets on the whole map")]
-        public int MaxOpenBookletsTotal = 60;
 
         // The password IS the switch: set one and the board serves on the network
         // (LAN, port-forward, or a tunnel); leave it blank and the board is host-only.

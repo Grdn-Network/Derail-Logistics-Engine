@@ -37,9 +37,15 @@ namespace DLE.Dispatch
 
         public static void StartOnHost()
         {
-            // Recreate per world load, like the director: the old listener closes in
-            // OnDestroy (end of frame) before the new component's Start opens the port.
-            if (_host != null) Destroy(_host);
+            // ONE server for the whole game process (#215). It used to recreate per
+            // world load, betting that the old component's OnDestroy (end of frame)
+            // closed the port before the new component's Start bound it; the bet lost
+            // on real reloads ('failed to start on port 7246: only one usage of each
+            // socket address') and the board stayed dead until a full game restart.
+            // Nothing in here is world-scoped: handlers read live singletons per
+            // request, the payload caches expire in seconds, and the push tokens
+            // re-diff against the new world on their own.
+            if (_host != null) return;
             _host = new GameObject("DLE_HttpServer");
             DontDestroyOnLoad(_host);
             _host.AddComponent<DleHttpServer>();
@@ -54,6 +60,19 @@ namespace DLE.Dispatch
 
         private void Start()
         {
+            if (TryBind())
+            {
+                StartCoroutine(ListenLoop());
+                return;
+            }
+            // The port can be briefly held by a zombie of the previous game process or
+            // a lingering socket; giving up forever turned that hiccup into a dead
+            // board for the whole session (#215). Retry for a while instead.
+            StartCoroutine(RetryBind());
+        }
+
+        private bool TryBind()
+        {
             bool network = !string.IsNullOrEmpty(Main.Settings?.BoardPassword);
             try
             {
@@ -63,14 +82,29 @@ namespace DLE.Dispatch
             }
             catch (Exception ex)
             {
-                Main.LogAlways($"[Http] failed to start on port {Port} ({ex.GetType().Name}: {ex.Message}); the board is offline. Is another program on the port?");
+                Main.LogAlways($"[Http] failed to start on port {Port} ({ex.GetType().Name}: {ex.Message}); retrying shortly. Is another program on the port?");
                 _tcp = null;
-                return;
+                return false;
             }
             Main.LogAlways(network
                 ? $"[Http] board serving on ALL interfaces port {Port} (password set). Plain HTTP: prefer an https tunnel over raw internet exposure."
                 : $"[Http] board serving on 127.0.0.1:{Port} (no password: host-only).");
-            StartCoroutine(ListenLoop());
+            return true;
+        }
+
+        private IEnumerator RetryBind()
+        {
+            for (int attempt = 1; attempt <= 18; attempt++)
+            {
+                yield return new WaitForSecondsRealtime(10f);
+                if (this == null || _tcp != null) yield break;
+                if (TryBind())
+                {
+                    StartCoroutine(ListenLoop());
+                    yield break;
+                }
+            }
+            Main.LogAlways($"[Http] port {Port} stayed taken for 3 minutes; the board is offline this session. Close whatever holds the port and restart the game.");
         }
 
         private void OnDestroy()
@@ -172,9 +206,18 @@ namespace DLE.Dispatch
                     }
                     try { Data.PerfMeter.RecordRequest("/ws-push", sw2.ElapsedMilliseconds); } catch { }
                 }
+                // Heartbeat (#215): one verbose line every 5 minutes, so a log can prove
+                // whether the listen loop was alive when someone reports a dead board.
+                if (UnityEngine.Time.realtimeSinceStartup - _lastBeat > 300f)
+                {
+                    _lastBeat = UnityEngine.Time.realtimeSinceStartup;
+                    Main.Log("[Http] alive: listening, draining, and pushing.");
+                }
                 yield return null;
             }
         }
+
+        private float _lastBeat;
 
         private float _lastPushAt;
         private static int _pushBusy;
