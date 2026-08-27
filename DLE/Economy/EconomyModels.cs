@@ -289,6 +289,10 @@ namespace DLE.Economy
         // (shared round-robin across its outputs). Factories run batchesPerGameHour base.
         public float sourceCarloadsPerGameHour = 1f;
         public float factoryBatchesPerGameHour = 1f;
+        // Whole-economy speed multiplier applied to elapsed game time before any rate
+        // math: 0.5 halves everything (production, consumption, imports, catalyst burn),
+        // keeping ratios intact. The single tuning lever for "too fast for this group".
+        public float paceFactor = 1f;
 
         // Machines: carloads of production before one machine unit is consumed; catalyst
         // presence divides wear. Sites without their machines crawl at crawlFactor.

@@ -231,15 +231,67 @@ namespace DLE.Dispatch
             if (room + 0.001f < deliverable)
                 return Result.Fail($"{def.chainData?.chainDestinationYardId} has room for {(int)Math.Floor(room + 0.001f)} of {deliverable} carload(s); waiting for the station to consume");
 
-            var state = SingletonBehaviour<JobsManager>.Instance.TryToCompleteAJob(job);
+            // The validator's concurrent-order gate and its reprint both read
+            // jm.currentJobs (verified against build 2702), and our pseudo-booklet flow
+            // could leave a finished haul in that list forever: the tester got DENIED
+            // for order slots two completed hauls were still holding (#216). Complete
+            // through the vanilla path (adding first when the player never formally
+            // took it, since vanilla's CompleteTheJob throws otherwise), then sweep any
+            // same-id straggler so a closed haul can never occupy a slot.
+            var jm = SingletonBehaviour<JobsManager>.Instance;
+            if (!jm.currentJobs.Contains(job)) jm.currentJobs.Add(job);
+            var state = jm.TryToCompleteAJob(job);
             if (state != JobState.Completed)
                 return Result.Fail($"game refused completion (state {state})");
+            PurgeTakenStragglers(jm, jobId, job);
 
             // Completion fired the chain, and DirectHaulCompletionPatch is the single
             // gated payout: it pays deliveryPayment scaled to the cargo the destination
             // accepted. Paying here as well would double it.
             Main.LogAlways($"[Dispatch] {jobId} turned in via board.");
             return Result.Done($"{jobId} turned in; delivery pay up to ${def.deliveryPayment:0}");
+        }
+
+        /// <summary>Remove every leftover taken-orders entry carrying this DLE job id
+        /// that is not the given instance (#216). DLE ids only; vanilla jobs are never
+        /// touched.</summary>
+        private static void PurgeTakenStragglers(JobsManager jm, string jobId, Job keep)
+        {
+            if (jm == null) return;
+            for (int i = jm.currentJobs.Count - 1; i >= 0; i--)
+            {
+                var j = jm.currentJobs[i];
+                if (j == null) { jm.currentJobs.RemoveAt(i); continue; }
+                if (ReferenceEquals(j, keep) || !string.Equals(j.ID, jobId, StringComparison.Ordinal)) continue;
+                jm.currentJobs.RemoveAt(i);
+                Main.LogAlways($"[Dispatch] {jobId}: dropped a stale duplicate from the taken-orders list; it was holding a concurrent-order slot (#216).");
+            }
+        }
+
+        /// <summary>
+        /// World-load reconcile (#216): a taken-orders entry with a DLE-managed id that
+        /// is not its definition's live instance is a ghost from a previous world
+        /// (Direct Hauls are filtered out of the vanilla job save, so vanilla can never
+        /// legitimately restore a taken one). Ghosts eat concurrent-order slots and
+        /// resurrect at every validator reprint. Vanilla ids are never touched.
+        /// </summary>
+        public static void ReconcileTakenOrders()
+        {
+            var jm = SingletonBehaviour<JobsManager>.Instance;
+            if (jm == null) return;
+            int dropped = 0;
+            for (int i = jm.currentJobs.Count - 1; i >= 0; i--)
+            {
+                var j = jm.currentJobs[i];
+                if (j?.ID == null || !JobUtils.ManagedJobIds.Contains(j.ID)) continue;
+                bool legit = StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(j.ID, out var d)
+                             && ReferenceEquals(d.LiveJob, j);
+                if (legit) continue;
+                jm.currentJobs.RemoveAt(i);
+                dropped++;
+            }
+            if (dropped > 0)
+                Main.LogAlways($"[Dispatch] dropped {dropped} ghost taken order(s) from a previous world; they were eating concurrent-order slots (#216).");
         }
     }
 }

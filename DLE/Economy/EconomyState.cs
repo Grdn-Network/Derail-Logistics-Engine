@@ -217,6 +217,12 @@ namespace DLE.Economy
         public void TickGameTime(float hours)
         {
             if (hours <= 0f) return;
+            // One pace knob for the whole simulation: DV's day runs ~12x real time, so
+            // every "per game hour" rate is 12x faster on the wall clock than it reads,
+            // and both testers found the economy outruns the players. paceFactor scales
+            // production, consumption, imports, catalyst burn and the boost window
+            // together, so balance passes are one number in economy.json.
+            hours *= Math.Min(10f, Math.Max(0.01f, RecipeProvider.Tuning.paceFactor));
             AdvanceHourRings(hours);
             GlobalBoost = ComputeGlobalBoost();
 

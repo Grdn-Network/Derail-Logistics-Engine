@@ -136,6 +136,7 @@ namespace DLE
                     // be written into this save.
                     SafeRestore("car pool", () => { DleCarPool.Instance.LoadFrom(data); DleCarPool.Instance.PruneDeadGuids(); });
                     SafeRestore("jobs", () => DleJobStore.RestoreFrom(data));
+                    SafeRestore("taken-order reconcile", () => Dispatch.DispatchLifecycle.ReconcileTakenOrders());
                     SafeRestore("assignments", () => AssignmentStore.Instance.LoadFrom(data));
                     SafeRestore("logistics board", () => LogisticsBoard.Instance.LoadFrom(data));
                 }
