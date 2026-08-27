@@ -61,11 +61,12 @@ namespace DLE.Economy
             var econ = EconomyState.Instance;
             const int min = MinAutoHaulCarloads;
             const int max = MaxAutoHaulCars;
+            // Per-station is the only cap (#217): the old map-wide total of 60 filled up
+            // at singleplayer pace and stalled every station at once, silently.
             int perStation = Math.Max(1, Main.Settings?.MaxOpenBookletsPerStation ?? 10);
-            int total = Math.Max(1, Main.Settings?.MaxOpenBookletsTotal ?? 60);
 
             var perOrigin = new Dictionary<string, int>(StringComparer.Ordinal);
-            if (CountOpenBooklets(perOrigin) >= total) return false;
+            CountOpenBooklets(perOrigin);
 
             foreach (var producer in econ.Facilities.Values)
             {

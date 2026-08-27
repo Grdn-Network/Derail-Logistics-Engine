@@ -55,6 +55,33 @@ namespace DLE
             Main.LogAlways(report);
         }
 
+        [RegisterCommand("company.orders",
+            Help = "DLE: dump the vanilla taken-order list against DLE's job definitions. Run this the moment the validator says DENIED for concurrent orders (#216) and send the log.",
+            MinArgCount = 0, MaxArgCount = 0)]
+        public static void Orders(CommandArg[] args)
+        {
+            var jm = DV.Utils.SingletonBehaviour<DV.Logic.Job.JobsManager>.Instance;
+            if (jm == null) { Debug.Log("company.orders: world not ready."); return; }
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[Orders] vanilla currentJobs (what the concurrent limit and reprint read): {jm.currentJobs.Count}");
+            foreach (var j in jm.currentJobs)
+            {
+                if (j == null) { sb.AppendLine("  - (null entry)"); continue; }
+                string defNote = "no DLE def";
+                if (Jobs.StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(j.ID, out var d))
+                    defNote = d.LiveJob == null ? "def has no live job"
+                        : ReferenceEquals(d.LiveJob, j) ? "SAME instance as the def's job"
+                        : $"DIFFERENT instance than the def's job (def state {d.LiveJob.State})";
+                sb.AppendLine($"  - {j.ID} state={j.State} ({defNote})");
+            }
+            sb.AppendLine($"[Orders] DLE job definitions: {Jobs.StaticDirectHaulJobDefinition.jobDefinitions.Count}");
+            foreach (var kv in Jobs.StaticDirectHaulJobDefinition.jobDefinitions)
+                sb.AppendLine($"  - {kv.Key} live={(kv.Value.LiveJob == null ? "none" : kv.Value.LiveJob.State.ToString())}");
+            var report = sb.ToString();
+            Debug.Log(report);
+            Main.LogAlways(report);
+        }
+
         [RegisterCommand("company.resupply",
             Help = "DLE: wipe all facility stockpiles back to the starting stock values.",
             MinArgCount = 0, MaxArgCount = 0)]
