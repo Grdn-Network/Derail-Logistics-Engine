@@ -275,6 +275,10 @@ namespace DLE.Economy
             var ops = Ops(f.YardId);
             if (f.Outputs.Count == 0) return;
 
+            // Same principle for sources: a full shared pool pauses the mine instead of
+            // banking carloads that pop out the instant room frees.
+            if (GetRoom(f.YardId, default) < 1f) return;
+
             bool machinesOk = MachinesOk(f);
             float rate = t.sourceCarloadsPerGameHour * hours * GlobalBoost
                 * (machinesOk ? 1f : t.crawlFactor);
@@ -309,6 +313,13 @@ namespace DLE.Economy
             var t = RecipeProvider.Tuning;
             var ops = Ops(f.YardId);
 
+            // The batch clock only runs while a batch could actually run (owner ruling
+            // 2026-08-27): a factory missing inputs or room banks NOTHING, so product
+            // can never materialize the moment a delivery lands. Supply completes
+            // first, then the production time passes. Partial progress holds while
+            // supply is interrupted and resumes when it returns.
+            if (!AnyRunnable(f)) return;
+
             bool catalystReady = ops.CatalystHoursLeft > 0f || AnyCatalystStock(f);
             float speed = t.factoryBatchesPerGameHour * hours * GlobalBoost
                 * (catalystReady ? t.factoryBoostFactor : 1f);
@@ -327,6 +338,19 @@ namespace DLE.Economy
 
             if (EnsureCatalyst(f, ops))
                 ops.CatalystHoursLeft = Math.Max(0f, ops.CatalystHoursLeft - hours);
+        }
+
+        /// <summary>True when at least one recipe has its full inputs and output room
+        /// right now. A pure probe: unlike NextRunnableRecipe it never advances the
+        /// rotation, so checking does not skew which recipe batches next.</summary>
+        private bool AnyRunnable(FacilityDef f)
+        {
+            foreach (var recipe in f.Recipes)
+            {
+                if (recipe.Inputs.Count == 0 || recipe.Outputs.Count == 0) continue;
+                if (HasInputs(f.YardId, recipe) && HasOutputRoom(f.YardId, f, recipe)) return true;
+            }
+            return false;
         }
 
         private RecipeDef NextRunnableRecipe(FacilityDef f, YardOps ops)
