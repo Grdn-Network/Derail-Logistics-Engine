@@ -22,6 +22,10 @@ namespace DLE
         [Draw("Board password (set one to serve the board on the network)")]
         public string BoardPassword = "";
 
+        // Change it when another mod wants 7246 (#226); applies on the next world load.
+        [Draw("Board port")]
+        public int BoardPort = 7246;
+
         [Draw("Verbose logging")]
         public bool VerboseLogging = false;
 
