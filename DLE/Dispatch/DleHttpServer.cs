@@ -111,7 +111,6 @@ namespace DLE.Dispatch
         {
             try { _tcp?.Stop(); } catch { }
             _tcp = null;
-            try { WsHub.CloseAll(); } catch { }
         }
 
         private IEnumerator ListenLoop()
@@ -150,97 +149,20 @@ namespace DLE.Dispatch
                     // this is exactly the time the game frame paid for this request.
                     try { Data.PerfMeter.RecordRequest(req.Path, sw.ElapsedMilliseconds); } catch { }
                 }
-                // The push tick: once a second, while any board is subscribed, serialize
-                // the rails payloads and broadcast only what CHANGED since the last
-                // push. Serialization happens here on the main thread where game state
-                // lives (a few milliseconds, recorded in the lag meter); the socket
-                // writes go to the pool so a slow client never touches the frame.
-                if (WsHub.HasClients && UnityEngine.Time.realtimeSinceStartup - _lastPushAt >= 1f
-                    && System.Threading.Interlocked.CompareExchange(ref _pushBusy, 1, 0) == 0)
-                {
-                    _lastPushAt = UnityEngine.Time.realtimeSinceStartup;
-                    var sw2 = System.Diagnostics.Stopwatch.StartNew();
-                    bool force = WsHub.SnapshotWanted;
-                    WsHub.SnapshotWanted = false;
-                    // Change tokens first (#211): most seconds nothing on the railway has
-                    // changed, and the tokens (a few hundred int reads, allocation free)
-                    // let those seconds skip the whole build-serialize-broadcast pipeline.
-                    // The old shape serialized both payloads to full JSON strings every
-                    // second just to discover they matched the last ones: tens of KB of
-                    // garbage per tick feeding the GC pauses that show up as hitches.
-                    object interObj = null, trafficObj = null;
-                    int interToken = 0, trafficToken = 0;
-                    try { interToken = Interlocking.PayloadToken(); } catch { }
-                    try { trafficToken = TrackMap.TrafficToken(); } catch { }
-                    if (force || interToken != _lastInterToken)
-                        try { interObj = Interlocking.Payload(); _lastInterToken = interToken; } catch { }
-                    if (force || trafficToken != _lastTrafficToken)
-                        try { trafficObj = TrackMap.TrafficPayload(); _lastTrafficToken = trafficToken; } catch { }
-                    if (interObj != null || trafficObj != null)
-                    {
-                        // The game thread only BUILDS the payload objects (they must read
-                        // Unity state); they are plain data after that, so serialization,
-                        // the string diff and the socket writes all go to the pool. The
-                        // first shape of this serialized here too and cost 43ms a second
-                        // on the owner's lag meter.
-                        System.Threading.ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            try
-                            {
-                                var outbox = new List<string>(2);
-                                var inter = interObj == null ? null : WrapChannel("interlocking", interObj);
-                                var traffic = trafficObj == null ? null : WrapChannel("traffic", trafficObj);
-                                if (inter != null && (force || inter != _lastPushedInter))
-                                { _lastPushedInter = inter; outbox.Add(inter); }
-                                if (traffic != null && (force || traffic != _lastPushedTraffic))
-                                { _lastPushedTraffic = traffic; outbox.Add(traffic); }
-                                foreach (var msg in outbox) WsHub.BroadcastText(msg);
-                            }
-                            catch { }
-                            finally { System.Threading.Interlocked.Exchange(ref _pushBusy, 0); }
-                        });
-                    }
-                    else
-                    {
-                        System.Threading.Interlocked.Exchange(ref _pushBusy, 0);
-                    }
-                    try { Data.PerfMeter.RecordRequest("/ws-push", sw2.ElapsedMilliseconds); } catch { }
-                }
                 // Heartbeat (#215): one verbose line every 5 minutes, so a log can prove
                 // whether the listen loop was alive when someone reports a dead board.
+                // (The websocket push tick lived here until the Clearance strip, #224;
+                // the console and its live feed return RD-style in 0.9.)
                 if (UnityEngine.Time.realtimeSinceStartup - _lastBeat > 300f)
                 {
                     _lastBeat = UnityEngine.Time.realtimeSinceStartup;
-                    Main.Log("[Http] alive: listening, draining, and pushing.");
+                    Main.Log("[Http] alive: listening and draining.");
                 }
                 yield return null;
             }
         }
 
         private float _lastBeat;
-
-        private float _lastPushAt;
-        private static int _pushBusy;
-        private string _lastPushedInter, _lastPushedTraffic;
-        private int _lastInterToken, _lastTrafficToken;
-
-        // One pool worker at a time (the _pushBusy single-flight), so a shared builder
-        // and serializer are safe. Building "{"ch":...,"data":<json>}" in one pass
-        // halves the string copies the old concat made per broadcast.
-        private static readonly System.Text.StringBuilder _wsSb = new System.Text.StringBuilder(64 * 1024);
-        private static readonly JsonSerializer _wsSerializer = JsonSerializer.CreateDefault();
-
-        private static string WrapChannel(string channel, object payload)
-        {
-            var sb = _wsSb;
-            sb.Length = 0;
-            sb.Append("{\"ch\":\"").Append(channel).Append("\",\"data\":");
-            using (var sw = new System.IO.StringWriter(sb))
-            using (var jw = new Newtonsoft.Json.JsonTextWriter(sw))
-                _wsSerializer.Serialize(jw, payload);
-            sb.Append('}');
-            return sb.ToString();
-        }
 
         /// <summary>
         /// Worker thread: read and parse one HTTP request, hand it to the main thread,
@@ -249,7 +171,6 @@ namespace DLE.Dispatch
         /// </summary>
         private void ServeClient(System.Net.Sockets.TcpClient client)
         {
-            bool handedOff = false;
             try
             {
                 client.ReceiveTimeout = 10000;
@@ -257,20 +178,6 @@ namespace DLE.Dispatch
                 var stream = client.GetStream();
                 var req = ParseRequest(client, stream);
                 if (req == null) { WriteRaw(stream, 400, "text/plain", Encoding.UTF8.GetBytes("bad request")); return; }
-
-                // WebSocket upgrade (ported from the RD fork): the socket leaves the
-                // request-response world here and becomes a push feed. Remote viewers
-                // authenticate exactly like any other remote read; browsers cannot set
-                // headers on a WebSocket, so the key rides the query string.
-                if (req.Method == "GET" && req.Path == "/api/v1/ws"
-                    && string.Equals(req.Request.Headers["Upgrade"], "websocket", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (!req.Request.IsLocal && !Authorized(req))
-                    { WriteRaw(stream, 401, "text/plain", Encoding.UTF8.GetBytes("password required")); return; }
-                    handedOff = WsHub.Attach(client, stream, req.Request.Headers["Sec-WebSocket-Key"]);
-                    if (!handedOff) WriteRaw(stream, 400, "text/plain", Encoding.UTF8.GetBytes("bad upgrade"));
-                    return;
-                }
 
                 _pending.Enqueue(req);
                 // The main thread drains the queue every frame; a long stall means the
@@ -286,8 +193,7 @@ namespace DLE.Dispatch
             }
             finally
             {
-                // A socket adopted by the WebSocket hub lives on; everything else closes.
-                if (!handedOff) { try { client.Close(); } catch { } }
+                try { client.Close(); } catch { }
             }
         }
 
@@ -482,53 +388,9 @@ namespace DLE.Dispatch
                 if (method == "GET" && path == "/api/v1/jobs") { Json(ctx, 200, JobsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/options") { Json(ctx, 200, OptionsPayload()); return; }
                 if (method == "GET" && path == "/api/v1/players") { Json(ctx, 200, DispatchFax.GetPlayerNames()); return; }
-                if (method == "GET" && path == "/api/v1/trackmap")
-                {
-                    // Pre-serialized and memoized per world inside TrackMap; the bytes
-                    // go out directly so the big payload never re-serializes.
-                    ctx.RespStatus = 200; ctx.RespType = "application/json";
-                    ctx.RespBytes = TrackMap.GeometryBytes();
-                    return;
-                }
-                if (method == "GET" && path == "/api/v1/traffic") { Json(ctx, 200, TrackMap.TrafficPayload()); return; }
-                if (method == "GET" && path == "/api/v1/interlocking") { Json(ctx, 200, Interlocking.Payload()); return; }
-                // Switches and signals: host-side only, and a throw rides the game's own
-                // Junction.Switch event, which the Multiplayer mod already broadcasts.
-                if (method == "POST" && path.StartsWith("/api/v1/junctions/", StringComparison.Ordinal)
-                    && path.EndsWith("/throw", StringComparison.Ordinal))
-                {
-                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
-                    var seg = path.Split('/');
-                    if (seg.Length < 5 || !int.TryParse(seg[4], out var jid)) { Json(ctx, 400, new { error = "bad switch id" }); return; }
-                    var (jok, jmsg) = Interlocking.Throw(jid);
-                    Json(ctx, jok ? 200 : 409, new { ok = jok, message = jmsg });
-                    return;
-                }
-                if (method == "POST" && path.StartsWith("/api/v1/signals/", StringComparison.Ordinal))
-                {
-                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
-                    // Signal ids come from the Signals mod and are strings, so the id
-                    // segment is taken verbatim (url-decoded) rather than parsed.
-                    var seg = path.Split('/');
-                    if (seg.Length < 6) { Json(ctx, 400, new { error = "bad signal id" }); return; }
-                    var sid = Uri.UnescapeDataString(seg[4]);
-                    var (sok, smsg) = seg[5] == "clear" ? Interlocking.Clear(sid)
-                        : seg[5] == "cancel" ? Interlocking.Cancel(sid)
-                        : (false, "unknown signal action");
-                    Json(ctx, sok ? 200 : 409, new { ok = sok, message = smsg });
-                    return;
-                }
-                // CTC (#176): hold the whole railway at stop until dispatch clears a road.
-                if (method == "PUT" && path == "/api/v1/ctc")
-                {
-                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
-                    var creq = JsonConvert.DeserializeObject<LockRequest>(ReadBody(ctx) ?? "");
-                    if (creq?.enabled == null)
-                    { Json(ctx, 400, new { error = "enabled (true or false) required" }); return; }
-                    var (cok, cmsg) = Interlocking.SetCtc(creq.enabled.Value);
-                    Json(ctx, cok ? 200 : 409, new { ok = cok, message = cmsg, ctc = Interlocking.Ctc });
-                    return;
-                }
+                // The rails console endpoints (trackmap, traffic, interlocking, junction
+                // throws, signal clears, CTC) left with the Clearance strip (#224); the
+                // console returns RD-style in 0.9.
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -1403,7 +1265,6 @@ namespace DLE.Dispatch
         {
             modVersion = Main.ModEntry?.Info?.Version,
             lockEnabled = AssignmentStore.Instance.LockEnabled,
-            ctc = Interlocking.Ctc,
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
             dormantCars = Data.DleCarPool.Instance.DormantCount,
@@ -1704,7 +1565,7 @@ namespace DLE.Dispatch
         }
 
         private static readonly HashSet<string> CacheablePaths = new HashSet<string>(StringComparer.Ordinal)
-        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players", "/api/v1/traffic", "/api/v1/interlocking" };
+        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players" };
         private static readonly Dictionary<string, (float at, byte[] bytes)> _payloadCache =
             new Dictionary<string, (float, byte[])>(StringComparer.Ordinal);
 
