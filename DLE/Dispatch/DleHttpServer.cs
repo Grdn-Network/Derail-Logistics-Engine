@@ -28,7 +28,13 @@ namespace DLE.Dispatch
     /// </summary>
     public class DleHttpServer : MonoBehaviour
     {
-        public const int Port = 7246;
+        // 7246 unless the settings say otherwise (#226): Advanced Dispatcher System on
+        // Nexus defaults to the same port, and two mods fighting over one bind left
+        // whichever lost retrying for three minutes and giving up. Clamped to the
+        // unprivileged range; the bind reads it once per attempt, so a settings change
+        // applies on the next bind (world load or retry), not mid-listen.
+        public static int Port =>
+            Math.Min(65535, Math.Max(1024, Main.Settings?.BoardPort ?? 7246));
 
         private System.Net.Sockets.TcpListener _tcp;
         private static GameObject _host;
