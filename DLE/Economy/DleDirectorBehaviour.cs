@@ -110,11 +110,8 @@ namespace DLE.Economy
 
                 try { AutoCloseLogiRuns(); }
                 catch (System.Exception ex) { Main.LogAlways($"[Director] logistics sweep failed: {ex.GetType().Name}: {ex.Message}"); }
-
-                // Cleared roads drop themselves once the train is through, the way a
-                // real one clears behind the tail.
-                try { Dispatch.Interlocking.Tick(); }
-                catch (System.Exception ex) { Main.LogAlways($"[Director] interlocking sweep failed: {ex.GetType().Name}: {ex.Message}"); }
+                // (The interlocking auto-release tick lived here until the Clearance
+                // strip, #224; roads return RD-style in 0.9.)
             }
         }
 

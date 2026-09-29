@@ -98,7 +98,9 @@
       <HintPath>lib\DV.Localization.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="BezierCurves">
+    <!-- BezierCurves was only read by the rails geometry (TrackMap), removed with the
+         Clearance strip (#224); the reference returns with the 0.9 console rebuild. -->
+    <Reference Include="BezierCurves" Condition="false">
       <HintPath>lib\BezierCurves.dll</HintPath>
       <Private>False</Private>
     </Reference>
