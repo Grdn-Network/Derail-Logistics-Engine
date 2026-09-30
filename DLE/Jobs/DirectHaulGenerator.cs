@@ -29,17 +29,36 @@ namespace DLE.Jobs
         internal static (float length, float tare, float capacity) LiveryDisplayData(TrainCarLivery livery)
         {
             if (_liveryDisplayData.TryGetValue(livery, out var cached)) return cached;
-            float length = 0f, capacity = 1f;
+            float length = 0f, tare = 0f, capacity = 0f;
+            // A LIVE car of this livery is the runtime truth: the exact numbers vanilla
+            // gave its logic car. The prefab reads returned zeros in the field (#219,
+            // booklets printing 0.00 t and 0.00 m): InterCouplerDistance and capacity
+            // are runtime-initialised, so the asset can read as 0 before anything of
+            // the type has spawned.
             try
             {
-                var proto = livery.prefab != null ? livery.prefab.GetComponent<TrainCar>() : null;
-                if (proto != null)
+                foreach (var kv in TrainCarRegistry.Instance.logicCarToTrainCar)
                 {
-                    length = proto.InterCouplerDistance;
-                    capacity = proto.cargoCapacity;
+                    if (kv.Key == null || kv.Value == null || kv.Value.carLivery != livery) continue;
+                    length = kv.Key.length;
+                    capacity = kv.Key.capacity;
+                    break;
                 }
             }
             catch { }
+            if (length <= 0f)
+            {
+                try
+                {
+                    var proto = livery.prefab != null ? livery.prefab.GetComponent<TrainCar>() : null;
+                    if (proto != null)
+                    {
+                        length = proto.InterCouplerDistance;
+                        capacity = proto.cargoCapacity;
+                    }
+                }
+                catch { }
+            }
             if (length <= 0f)
             {
                 try
@@ -49,9 +68,40 @@ namespace DLE.Jobs
                 }
                 catch { }
             }
-            var data = (length, livery.parentType?.mass ?? 0f, capacity);
-            _liveryDisplayData[livery] = data;
+            try { tare = livery.parentType?.mass ?? 0f; } catch { }
+            if (capacity <= 0f) capacity = 1f;
+            var data = (length, tare, capacity);
+            // A zero is a degraded read, not a fact about the car, and the old code
+            // cached it for the session: one bad early read printed 0.00 t booklets
+            // forever. Cache only complete answers; a degraded one is retried on the
+            // next use, when the world is further along or a live sample exists.
+            if (length > 0f && tare > 0f) _liveryDisplayData[livery] = data;
+            else if (_degradedLogged.Add(livery.id))
+                Main.LogAlways($"[DirectHaul] booklet stats degraded for {livery.id}: " +
+                    $"length {length:0.#}, tare {tare:0}, capacity {capacity:0.#} (#219); retried on next use.");
             return data;
+        }
+        private static readonly HashSet<string> _degradedLogged = new HashSet<string>();
+
+        /// <summary>Synthetic display cars for a carless haul: what the booklet shows the
+        /// crew to bring, with real length, tare and capacity so the stats read true.</summary>
+        internal static List<Car_data> SyntheticDisplayCars(CargoType cargo, int carCount)
+        {
+            var outp = new List<Car_data>();
+            if (carCount <= 0 ||
+                !DV.Globals.G.Types.CargoType_to_v2.TryGetValue(cargo, out var v2) ||
+                !DV.Globals.G.Types.CargoToLoadableCarTypes.TryGetValue(v2, out var carTypes))
+                return outp;
+            var usable = carTypes.Where(t => t.liveries != null && t.liveries.Count > 0).ToList();
+            if (usable.Count == 0) return outp;
+            for (int i = 0; i < carCount; i++)
+            {
+                var shownType = usable[i % usable.Count];
+                var livery = shownType.liveries[i % shownType.liveries.Count];
+                var (length, tare, capacity) = LiveryDisplayData(livery);
+                outp.Add(new Car_data("?", livery, false, false, length, tare, capacity));
+            }
+            return outp;
         }
 
         /// <summary>
@@ -135,16 +185,12 @@ namespace DLE.Jobs
             // Synthetic display cars: the booklet shows what to bring before cars attach.
             // Real length, tare and capacity make the booklet's length/mass/value stats
             // and the board's tonnage read true instead of zero.
-            var displayCars = new List<Car_data>();
+            var displayCars = SyntheticDisplayCars(cargo, carCount);
             var liveryCounts = new Dictionary<TrainCarLivery, int>();
-            for (int i = 0; i < carCount; i++)
+            foreach (var cd in displayCars)
             {
-                var shownType = usableTypes[i % usableTypes.Count];
-                var livery = shownType.liveries[i % shownType.liveries.Count];
-                var (length, tare, capacity) = LiveryDisplayData(livery);
-                displayCars.Add(new Car_data("?", livery, false, false, length, tare, capacity));
-                liveryCounts.TryGetValue(livery, out var n);
-                liveryCounts[livery] = n + 1;
+                liveryCounts.TryGetValue(cd.type, out var n);
+                liveryCounts[cd.type] = n + 1;
             }
 
             float distance = JobPaymentCalculator.GetDistanceBetweenStations(producer, consumer);
@@ -587,7 +633,13 @@ namespace DLE.Jobs
             def.transportedCargo  = cargo;
             def.includeLoadTask   = includeLoadTask;
             def.plannedCarCount   = plannedCarCount > 0 ? plannedCarCount : logicCars.Count;
-            def.displayCars       = displayCarsOverride ?? logicCars.Select(c => new Car_data(c, false)).ToList();
+            // A carless job with no override used to get an EMPTY display list here
+            // (the dispatcher-created carless path), so its booklet showed nothing to
+            // bring and zero stats (#219): synthesize the planned consist instead.
+            def.displayCars       = displayCarsOverride
+                ?? (logicCars.Count > 0
+                    ? logicCars.Select(c => new Car_data(c, false)).ToList()
+                    : SyntheticDisplayCars(cargo, plannedCarCount));
             def.spawnTrackDisplay = spawnTrackDisplay;
             def.deliveryPayment   = wage;
             def.manifest          = manifest;
