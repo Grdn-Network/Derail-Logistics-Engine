@@ -106,6 +106,10 @@ cursor:pointer;flex:none;user-select:none}
 .sc.txl{color:#e9e9ed}
 #yardScroll{flex:1;overflow:auto;padding:16px 14px 8px;
 background:linear-gradient(180deg,#151726,#111320)}
+#jmYard{position:relative;min-height:100%}
+#jmYard .ycar{position:absolute;overflow:hidden;text-overflow:clip;padding:0 3px}
+#jmYard .tid{position:absolute}
+.ycar.gh{border-style:dashed;border-color:#4a4e60;color:#75798c;background:transparent}
 .ytrack{display:flex;align-items:center;gap:9px;padding:5px 8px;margin-bottom:7px;
 border:1px solid transparent;border-radius:6px}
 .ytrack:hover{border-color:#20233a}
@@ -252,23 +256,6 @@ border-radius:999px;padding:1px 8px;color:var(--dim);cursor:pointer;white-space:
 .toast{background:var(--raised);border:1px solid var(--line2);border-left:3px solid var(--green);
 border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0,0,0,.55);animation:tin .18s ease-out}
 .toast.err{border-left-color:var(--red)}
-#surfDesk{display:none;flex-direction:column;background:#0b0c14}
-#surfDesk.on{display:flex}
-#deskBar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:#10121d}
-#deskBar .fchip{font:600 10px Inter,sans-serif;letter-spacing:.1em;color:#8a92a8;border:1px solid #2a2d40;border-radius:3px;padding:3px 8px;cursor:pointer;user-select:none}
-#deskBar .fchip.on{color:#e8ecf8;background:#1d2133;border-color:#3d4361}
-#deskQ{background:#0d0f1a;border:1px solid #262a3d;border-radius:3px;color:#c8cede;font:500 12px Inter,sans-serif;padding:4px 8px;width:230px}
-#deskScroll{flex:1;overflow:auto}
-#deskT{width:100%;border-collapse:collapse;font:500 12px Inter,sans-serif}
-#deskT th{position:sticky;top:0;background:#0e1019;color:#6b7288;font:600 10px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;text-align:left;padding:7px 10px;border-bottom:1px solid #262a3d;z-index:1}
-#deskT td{padding:6px 10px;border-bottom:1px solid #171a28;color:#c2c8d8;white-space:nowrap}
-#deskT th.num,#deskT td.num{text-align:right;font-variant-numeric:tabular-nums}
-#deskT tr.wb{cursor:pointer}
-#deskT tr.wb:hover td{background:#121524}
-#deskT tr.wb.cur td{background:#181c30}
-#deskT .wbid{font:600 12px 'Cascadia Mono',Consolas,monospace;color:#e4e9f6}
-#deskT .dim{color:#5f6880}
-#deskT tr.det td{background:#0e111d;white-space:normal;padding:10px 14px}
 .deskNote{width:100%;min-height:44px;background:#0d0f1a;border:1px solid #262a3d;border-radius:3px;color:#d6dbec;font:500 12px Inter,sans-serif;padding:6px 8px;resize:vertical}
 @keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media(max-width:1080px){body{overflow:auto}}
@@ -277,15 +264,15 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 <header id='topbar'>
  <div class='brand'>DLE</div>
  <div class='tbdiv'></div>
- <span class='tab on' id='tabDesk' data-act='lens' data-id='desk'>Desk</span>
- <span class='tab' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
+ <span class='tab on' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
+ <span class='tab' id='tabClear' style='opacity:.4;cursor:not-allowed' title='Route control returns in 0.9, rebuilt on the station sheets'>Clearances</span>
  <span class='tab' id='tabFleet' data-act='lens' data-id='fleet'>Fleet</span>
  <span class='tab' id='tabLog' data-act='lens' data-id='log'>Log</span>
  <div class='spacer'></div>
- <div class='dot' id='dot' title='board connection'></div>
- <span class='chip' id='chipVer'></span>
+ <span class='pill pok' id='dot' title='board connection'>&#9679; board live &middot; 5s</span>
  <span class='chip num' id='chipStations'></span>
- <span class='chip num' id='chipJobs'></span>
+ <span class='pill pal' id='chipStarve' style='display:none'></span>
+ <span class='chip' id='chipVer'></span>
  <span class='pill pld' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='pill pal' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
  <div class='tbdiv'></div>
@@ -294,26 +281,7 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 </header>
 <div id='stage'>
  <div id='surface'>
-  <div class='surf on' id='surfDesk'>
-   <div id='deskBar'>
-    <span class='k' style='letter-spacing:.14em'>WAYBILLS</span>
-    <span class='fchip on' data-act='deskF' data-id='all'>ALL</span>
-    <span class='fchip' data-act='deskF' data-id='open'>OPEN</span>
-    <span class='fchip' data-act='deskF' data-id='working'>WORKING</span>
-    <span class='fchip' data-act='deskF' data-id='loaded'>LOADED</span>
-    <input id='deskQ' placeholder='search id, cargo, station, crew' spellcheck='false'>
-    <span class='spacer'></span>
-    <span class='k num' id='deskCount'></span>
-   </div>
-   <div id='deskScroll'>
-    <table id='deskT'>
-     <thead><tr><th>waybill</th><th>from</th><th>to</th><th>cargo</th>
-      <th class='num'>cars</th><th>crew</th><th class='num'>pay</th><th>state</th></tr></thead>
-     <tbody id='deskRows'></tbody>
-    </table>
-   </div>
-  </div>
-  <div class='surf' id='surfMap'>
+  <div class='surf on' id='surfMap'>
    <div id='mapWrap'>
     <svg id='net' viewBox='0 0 1040 760' preserveAspectRatio='xMidYMid meet'></svg>
     <div class='maplegend'>
@@ -333,11 +301,17 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
     <select id='hOrigin' style='display:none'></select>
     <div style='display:flex;gap:3px;margin-left:6px' id='sheetTabs'></div>
     <div class='spacer'></div>
+    <div style='display:flex;gap:4px;padding:2px;border:1px solid var(--line);border-radius:6px;flex:none'>
+     <span class='tab mini on'>Logistics</span>
+     <span class='tab mini' style='opacity:.4;cursor:not-allowed' title='Route control returns in 0.9 on this same sheet'>Control</span>
+    </div>
     <span class='chip num' id='jmMeta'></span>
     <button class='mini' data-act='backMap' title='back to the network map (Esc)'>Esc</button>
    </div>
    <div id='yardScroll'><div id='jmYard'></div></div>
-   <div id='yardKey'><span><i style='border-color:#3f6b54'></i>selectable</span>
+   <div id='yardKey'><span><i style='border-radius:50%;background:#8b5f5f;border-color:transparent'></i>switch</span>
+    <span><i style='width:16px;height:6px;background:#6b5a34;border-color:transparent;border-radius:0'></i>loading platform</span>
+    <span><i style='border-color:#3f6b54'></i>selectable</span>
     <span><i style='background:var(--acc-deep);border-color:var(--acc)'></i>picked</span>
     <span><i style='border-color:#6b5a34;background:#241f16'></i>loaded</span>
     <span><i style='border-style:dashed;border-color:#5c5783'></i>banked in a line</span>
@@ -443,8 +417,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
 // Shell state: which lens, which surface inside Logistics, what the inspector shows.
-let lens='desk',surface='map',dockMode='hint',haulSel=null;
-let deskF='all',deskQ='',deskSel=null;
+let lens='logi',surface='map',dockMode='hint',haulSel=null;
 // Job maker state: the picked cars, the compatible-car set for the chosen cargo,
 // the banked manifest lines, and the last yard snapshot. Selection survives
 // refreshes; a station change clears everything.
@@ -521,13 +494,9 @@ function unpaidPill(x){
 // #224 strip; the console returns RD-style in 0.9.)
 function dockVis(){$('dock').classList.toggle('hidden',lens!=='logi')}
 function setLens(l){lens=l;
- if(l==='desk'){haulSel=null;dockMode='hint';renderDockHaul()}
- else if(deskSel){deskSel=null;last.desk=null;renderDesk()}
- $('tabDesk').classList.toggle('on',l==='desk');
  $('tabLogi').classList.toggle('on',l==='logi');
  $('tabFleet').classList.toggle('on',l==='fleet');
  $('tabLog').classList.toggle('on',l==='log');
- $('surfDesk').classList.toggle('on',l==='desk');
  $('surfMap').classList.toggle('on',l==='logi'&&surface==='map');
  $('surfYard').classList.toggle('on',l==='logi'&&surface==='yard');
  $('surfFleet').classList.toggle('on',l==='fleet');
@@ -563,8 +532,8 @@ async function refresh(){
  try{[state,options,jobs,econ,hist,crews]=await Promise.all([
   jget('/api/v1/state'),jget('/api/v1/options'),jget('/api/v1/jobs'),jget('/api/v1/economy'),jget('/api/v1/history?limit=60'),
   wantCrews?jget('/api/v1/players'):Promise.resolve(lastCrews)]);
-  $('dot').className='dot'}
- catch(e){$('dot').className='dot bad';return}
+  $('dot').className='pill pok';$('dot').innerHTML='&#9679; board live &middot; 5s'}
+ catch(e){$('dot').className='pill pal';$('dot').innerHTML='&#9679; board lost';return}
  lastCrews=crews||[];
  lastJobs=jobs;
  const cKey=JSON.stringify(crews||[]);
@@ -576,8 +545,11 @@ async function refresh(){
  $('bLock').textContent='DIRECTOR '+(lockOn?'OFF':'ON');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
  $('chipVer').textContent='v'+(state.modVersion||'?');
- $('chipStations').textContent=state.stationCount+' stations';
- $('chipJobs').textContent=state.jobCount+' hauls';
+ const liveN=(state.perf||{}).liveCars||0,dormN=state.dormantCars||0;
+ $('chipStations').textContent=state.stationCount+' stations · '+(liveN+dormN)+' cars · '+dormN+' stored';
+ const starveN=(lastEconData||[]).filter(e=>netMissing(e).length>0).length;
+ $('chipStarve').style.display=starveN?'':'none';
+ $('chipStarve').textContent=starveN+' station'+(starveN===1?'':'s')+' starving';
  const pf=state.perf||{};
  const ftBits=[];
  if(pf.liveCars)ftBits.push(pf.liveCars+' live');
@@ -614,85 +586,7 @@ async function refresh(){
  pollYard();
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
- const dKey=jKey+'|'+deskF+'|'+deskQ+'|'+(deskSel||'');
- if(lens==='desk'&&last.desk!==dKey){last.desk=dKey;
-  const snap=snapshotCrew();renderDesk();restoreCrew(snap)}
 }
-// ── the Dispatch Desk (#225 first pass): the waybill sheet ────────────────
-// One row per waybill: a manifest line of an order, or the whole order when it
-// has a single cargo. Dark, dense, keyboard-light: the sheet IS the screen.
-// Actions reuse the exact endpoints the dock uses, so nothing here is new logic.
-function wbRows(){
- const rows=[];
- for(const x of lastJobs){
-  const state=(x.state||'').toLowerCase();
-  const lines=(x.lines&&x.lines.length)?x.lines:[null];
-  lines.forEach((l,i)=>{
-   rows.push({
-    wb:lines.length>1?x.id+'-'+(i+1):x.id,
-    job:x,line:l,
-    cargo:l?l.cargo:(x.logi?'Logistics move':x.cargo),
-    cars:l?l.cars:(x.cars||x.plannedCars||0),
-    loadedCars:l?(l.loaded||0):(x.loadedCars||0),
-    pay:l?l.pay:x.wage,
-    open:state==='available',working:state==='inprogress'})})}
- return rows}
-function deskMatch(r){
- if(deskF==='open'&&!r.open)return false;
- if(deskF==='working'&&!r.working)return false;
- if(deskF==='loaded'&&!(r.loadedCars>0))return false;
- if(!deskQ)return true;
- const q=deskQ.toLowerCase();
- return [r.wb,r.cargo,r.job.origin,r.job.destination,r.job.assignedTo||'']
-  .some(v=>String(v||'').toLowerCase().includes(q))}
-function deskDetail(x){
- const avail=x.state==='Available';
- const plates=(x.lines||[]).flatMap(l=>l.plates||[]);
- const acts=x.logi
-  ?`<button data-act='fax' data-id='${esc(x.id)}'>Fax</button>`
-  :(avail?`<button class='primary' data-act='take' data-id='${esc(x.id)}'>Take</button>`
-   :`<button data-act='${x.awaitingEmpties?'pickAuto':'load'}' data-id='${esc(x.id)}'>Load</button>
-     <button data-act='unload' data-id='${esc(x.id)}'>Unload</button>
-     <button class='primary' data-act='complete' data-id='${esc(x.id)}'>Turn in</button>`)
-   +`<button data-act='fax' data-id='${esc(x.id)}'>Fax</button>`;
- return `<div style='display:flex;flex-direction:column;gap:8px'>
-  <div class='meta'>${plates.length?'cars: <b>'+plates.map(esc).join(' ')+'</b>':(x.awaitingEmpties?'awaiting empties':'')}
-   ${x.pickupTrack?' · pickup <b>'+esc(trackDisp(x.pickupTrack))+'</b>':''}
-   ${x.tonnes?' · '+x.tonnes+' t loaded':''}</div>
-  <div class='acts'>${acts}
-   <input class='crew' id='a_${esc(x.id)}' placeholder='crew, or a loco: L049' list='crewNames'>
-   <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
-   <button class='mini' data-act='unassign' data-id='${esc(x.id)}'>Unassign</button>
-   <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Cancel; supply returns'>×</button>
-  </div>
-  ${x.logi?'':`<div style='display:flex;gap:8px;align-items:flex-start'>
-   <textarea class='deskNote' id='note_${esc(x.id)}' maxlength='500'
-    placeholder='dispatcher note: prints as a DISPATCH page in the booklet on the next fax'>${esc(x.note||'')}</textarea>
-   <button class='mini' data-act='saveNote' data-id='${esc(x.id)}'>Save note</button>
-  </div>`}
- </div>`}
-function renderDesk(){
- const box=$('deskRows');if(!box)return;
- const rows=wbRows().filter(deskMatch);
- $('deskCount').textContent=rows.length+' waybill(s)';
- if(!rows.length){box.innerHTML=`<tr><td colspan='8' class='dim' style='padding:18px'>nothing on the sheet${lockOn?' · the director is paused (lock on)':''}</td></tr>`;return}
- let h='';
- for(const r of rows){
-  const x=r.job;
-  const cur=deskSel===r.wb;
-  const crew=x.assignedTo?esc(x.assignedTo)+(x.crewLoco?' <span class=\'dim\'>in '+esc(x.crewLoco)+'</span>':''):`<span class='dim'>${r.open?'unassigned':'crewless'}</span>`;
-  h+=`<tr class='wb${cur?' cur':''}' data-act='deskRow' data-id='${esc(r.wb)}'>
-   <td class='wbid'>${esc(r.wb)}</td>
-   <td><span style='color:${SC[x.origin]||'#7f879c'};font-weight:700'>${esc(x.origin||'?')}</span></td>
-   <td><span style='color:${SC[x.destination]||'#7f879c'};font-weight:700'>${esc(x.destination||'?')}</span></td>
-   <td>${esc(disp(r.cargo))}${x.note?` <span title='has a dispatcher note'>✎</span>`:''}</td>
-   <td class='num'>${r.loadedCars?r.loadedCars+'/':''}${r.cars}</td>
-   <td>${crew}</td>
-   <td class='num'>${r.pay?money(r.pay):'<span class=\'dim\'>—</span>'}</td>
-   <td>${statusPill(x)}${x.awaitingEmpties?` <span class='tag'>empties</span>`:''}</td>
-  </tr>`;
-  if(cur)h+=`<tr class='det'><td colspan='8'>${deskDetail(x)}</td></tr>`}
- box.innerHTML=h}
 // ── haul lane: the whole board in one strip, filter chips included ───────
 function laneCard(x){
  const cars=x.cars||x.plannedCars||0;
@@ -772,6 +666,11 @@ function jobDetail(x){
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>Unassign</button>
    <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Delete this haul; its supply returns to the pile'>×</button>
   </div>
+  ${x.logi?'':`<div style='display:flex;gap:8px;align-items:flex-start;border-top:1px solid var(--line);padding-top:9px'>
+   <textarea class='deskNote' id='note_${esc(x.id)}' maxlength='500'
+    placeholder='dispatcher note: prints as a DISPATCH page in the booklet on the next fax'>${esc(x.note||'')}</textarea>
+   <button class='mini' data-act='saveNote' data-id='${esc(x.id)}'>Save note</button>
+  </div>`}
   ${expanded.has(x.id)?`<div class='carsbox' id='cars_${esc(x.id)}'>fetching…</div>`:''}
   ${pickOpen.has(x.id)?`<div class='carsbox' id='pick_${esc(x.id)}'>fetching…</div>`:''}
  </div>`}
@@ -903,6 +802,17 @@ function drawNet(){
    ${miss.length?`<text y='${-r-6}' text-anchor='middle' fill='#e09b95' font-size='8.5' font-weight='600'>WAITING</text>`:''}
    <title>${esc(id)} · ${esc(NET_NAMES[id]||'')}${miss.length?' · waiting on '+esc(miss.map(disp).join(', ')):''}</title></g>`;
  }
+ for(const id in nodes){
+  const n=nodes[id],P=NET_POS[id];
+  if(!P)continue;
+  if(netMissing(n).length)
+   h+=`<text x='${P[0]}' y='${P[1]-22}' fill='#e09b95' font-size='9' font-weight='600' text-anchor='middle'>STARVING</text>`;
+  if(id===netSel){
+   const touching=lastJobs.filter(x=>x.origin===id||x.destination===id).length;
+   if(touching)h+=`<g><rect x='${P[0]-33}' y='${P[1]+22}' width='66' height='17' rx='3' fill='#241f3c' stroke='#9184d9'></rect>
+    <text x='${P[0]}' y='${P[1]+34}' fill='#d2cefd' font-size='9.5' font-weight='600' text-anchor='middle'>${touching} haul${touching===1?'':'s'} out</text></g>`}
+  else if(NET_NAMES[id]&&(n.totalCap||0)>=200)
+   h+=`<text x='${P[0]}' y='${P[1]+30}' fill='#75798c' font-size='9' text-anchor='middle'>${esc(NET_NAMES[id])}</text>`}
  svg.innerHTML=h;
  if(dockMode==='station')renderDockStation();
 }
@@ -1051,6 +961,14 @@ function renderDockStation(){
   fold('inv-c','Consumes',consH,gsum(dcons)||null)+
   fold('inv-m','Machines and catalyst',machH)+
   fold('inv-i','Consumption supply points',inH))+`</div>`;
+ const touching=lastJobs.filter(x=>x.origin===sel||x.destination===sel);
+ if(touching.length){
+  h+=`<div class='dsec'><div class='k' style='margin-bottom:6px'>Hauls touching ${esc(sel)}</div>`+
+   touching.slice(0,6).map(x=>`<div class='jc' style='flex-direction:row;align-items:center;gap:9px;padding:6px 9px;margin-bottom:5px' data-act='laneOpen' data-id='${esc(x.id)}'>
+    ${spine(x.origin,x.destination)}
+    <div style='flex:1;min-width:0'><div style='font:600 12px Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>${esc(x.origin)} → ${esc(x.destination)} · ${esc(disp(x.cargo))} ×${x.cars||x.plannedCars||0}</div>
+    <div class='k' style='margin-top:2px'>${x.assignedTo?'crew '+esc(x.assignedTo):'unassigned'}</div></div>
+    ${statusPill(x)}</div>`).join('')+`</div>`}
  d.innerHTML=h;
 }
 // Unnamed world tracks come through as raw ids like #Y-#S1437#T; read them as
@@ -1143,6 +1061,10 @@ async function pollYard(force){
   if(force||k!==yardKey){yardKey=k;jmYardData=r;renderYard()}}
  catch(e){}
  finally{yardBusy=false}}
+// The station sheet (design v10, option 2a): the yard drawn as the in-game
+// schematic ladder. Cars stand where they really stand; the drawing is the
+// form: click cars to build the booklet. Geometry is presentation (a balanced
+// ladder off one main), but every track, length, cut and car is the payload's.
 function renderYard(){
  const box=$('jmYard');if(!box)return;
  const d=jmYardData;
@@ -1152,7 +1074,6 @@ function renderYard(){
  $('yhChip').className='sc'+(SC_DARK.has(y)?' txl':'');
  $('yhName').textContent=d?(d.name||''):'';
  if(!d){box.innerHTML=`<div class='empty'>pick a station on the strip below</div>`;$('jmMeta').textContent='';$('sheetTabs').innerHTML='';return}
- // Sheet tabs: the game's own board letters, parsed from the track names.
  const sheets=[...new Set((d.tracks||[]).map(t=>sheetOf(t.track)))].sort();
  const showTabs=sheets.filter(s=>s!=='~').length>1;
  if(showTabs){
@@ -1161,48 +1082,93 @@ function renderYard(){
    .concat(sheets.filter(s=>s!=='~').map(s=>`<span class='tab mini${jmSheet===s?' on':''}' data-act='sheet' data-id='${s}'>${s}</span>`))
    .concat(sheets.includes('~')?[`<span class='tab mini${jmSheet==='~'?' on':''}' data-act='sheet' data-id='~'>sidings</span>`]:[]).join('')}
  else{$('sheetTabs').innerHTML='';jmSheet='ALL'}
- // Re-rendering wipes each track row's horizontal scroll; capture and restore.
- const scrolls={};
- box.querySelectorAll('.ytrack').forEach(el=>{
-  const sc=el.querySelector('.ycars');
-  if(el.dataset.track&&sc&&sc.scrollLeft)scrolls[el.dataset.track]=sc.scrollLeft});
+ const sc0=$('yardScroll'),keepX=sc0?sc0.scrollLeft:0,keepY=sc0?sc0.scrollTop:0;
  let total=0,selDropped=0;
  const inLine=lineCarSet();
  const shown=(d.tracks||[]).filter(t=>jmSheet==='ALL'||sheetOf(t.track)===jmSheet);
- const rows=shown.map(t=>{
+ if(!shown.length){box.innerHTML=`<div class='empty'>no yard tracks reported</div>`;return}
+ // Ladder layout: alternate tracks above and below one main; nearer index sits
+ // nearer the main, each tier joined ladder-style to the one before it.
+ const above=[],below=[];
+ shown.forEach((t,i)=>((i%2===0)?above:below).push(t));
+ const rowH=46,X0=88,FX=34,padTop=44;
+ const mainY=padTop+above.length*rowH;
+ const H=mainY+(below.length)*rowH+72;
+ const maxLen=Math.max(120,...shown.map(t=>t.lengthM||120));
+ const k=Math.min(2.2,Math.max(0.55,930/maxLen));
+ const tiers=Math.max(above.length,below.length);
+ const W=Math.max(1240,2*(X0+tiers*FX+50)+Math.round(maxLen*k));
+ const yOf=(side,tier)=>side<0?mainY-tier*rowH:mainY+tier*rowH;
+ let svg='',chips='',labels='';
+ // main line + dashed continuations
+ svg+=`<path d='M40,${mainY} H${W-40}' stroke='#4a4e60' stroke-width='3' fill='none' stroke-linecap='round'/>`;
+ svg+=`<g stroke='#3d4257' stroke-width='2.2' stroke-dasharray='8 7' fill='none'><path d='M40,${mainY} H8'/><path d='M${W-40},${mainY} H${W-8}'/></g>`;
+ let blobs='';
+ const laid=[];
+ for(const side of [-1,1]){
+  const list=side<0?above:below;
+  for(let t=1;t<=list.length;t++){
+   const yy=yOf(side,t),py=yOf(side,t-1);
+   const jx=X0+(t-1)*FX,x1=jx+FX,x2=W-(X0+(t-1)*FX)-FX;
+   svg+=`<path d='M${jx},${py} L${x1},${yy}' stroke='#3d4257' stroke-width='2.2' fill='none' stroke-linecap='round'/>`;
+   svg+=`<path d='M${W-jx},${py} L${x2},${yy}' stroke='#3d4257' stroke-width='2.2' fill='none' stroke-linecap='round'/>`;
+   svg+=`<path d='M${x1},${yy} H${x2}' stroke='#3d4257' stroke-width='2.2' fill='none' stroke-linecap='round'/>`;
+   blobs+=`<circle cx='${jx}' cy='${py}' r='9' fill='#8b5f5f' opacity='.9'/><circle cx='${jx}' cy='${py}' r='3.4' fill='#1b1d2b'/>`;
+   blobs+=`<circle cx='${W-jx}' cy='${py}' r='9' fill='#8b5f5f' opacity='.9'/><circle cx='${W-jx}' cy='${py}' r='3.4' fill='#1b1d2b'/>`;
+   laid.push({t:list[t-1],y:yy,x1:x1,x2:x2});
+  }}
+ svg+=blobs;
+ // one main-line entry per layout so the picker can use main-standing cuts too
+ const perTrackPicked={};
+ for(const L of laid){
+  const t=L.t;
   total+=t.carCount;
-  let loaded=0,free=0;
-  const cuts=(t.cuts||[]).map(cut=>`<span class='ycut'>`+cut.map(c=>{
-   if(c.cargo)loaded++;else if(c.usable)free++;
-   const banked=inLine.has(c.carId);
-   // A picked car that got loaded, booked or reserved since the pick is no
-   // longer the car the dispatcher chose: drop it rather than booklet it.
-   if(jmSelSet.has(c.carId)&&(c.loco||c.cargo||!c.usable)){jmSelSet.delete(c.carId);selDropped++}
-   const on=jmSelSet.has(c.carId);
-   const compat=jmCompat===null||jmCompat.has(c.carId);
-   const cls=on?'sel':c.loco?'loco':banked?'inline':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'busy');
-   const why=c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
-   return `<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' title='${esc(c.type)} · ${esc(why)}'>${esc(c.carId)}</span>`}).join('')+`</span>`)
-   .join(`<span class='meta' style='flex:none'>·</span>`);
-  const e=(t.ends||'').split('|');
+  let loaded=0,pickedHere=0,dormHere=0;
+  const kk=Math.min(k,Math.max(0.4,(L.x2-L.x1-56)/(Math.max(t.lengthM,40))));
+  if(t.warehouse){
+   const pw=Math.min(420,Math.round((L.x2-L.x1)*0.45));
+   svg+=`<rect x='${L.x1+40}' y='${L.y-14}' width='${pw}' height='7' fill='url(#fh)'/>`;
+   labels+=`<div style='position:absolute;left:${L.x1+40}px;top:${L.y-30}px;color:#d9b47a;font:600 9.5px Inter,sans-serif;letter-spacing:.1em'>FREIGHT LOADING · ${esc((t.warehouseCargos||[]).join(', ').toUpperCase()||'PLATFORM')}</div>`;
+  }
+  chips+=`<span class='tid' title='${esc(t.track)}' style='left:${L.x1-2}px;top:${L.y+8}px'>${esc(tidOf(t.track))}</span>`;
+  let cx=L.x1+34,selMin=null,selMax=null;
+  for(const cut of (t.cuts||[])){
+   for(const c of cut){
+    if(c.dormant)dormHere++;
+    if(c.cargo)loaded++;
+    const banked=inLine.has(c.carId);
+    if(jmSelSet.has(c.carId)&&(c.loco||c.cargo||!c.usable)){jmSelSet.delete(c.carId);selDropped++}
+    const on=jmSelSet.has(c.carId);
+    if(on){pickedHere++;if(selMin===null)selMin=cx;selMax=cx}
+    const compat=jmCompat===null||jmCompat.has(c.carId);
+    const cls=c.dormant?'gh':on?'sel':c.loco?'loco':banked?'inline':c.usable?(compat?'ok':'incompat'):(c.cargo?'loaded':'busy');
+    const why=c.dormant?'stored: respawns on approach or when a booklet claims it':c.loco?'locomotive':banked?'banked in a manifest line':c.cargo?('loaded: '+c.cargo):c.jobId?('on job '+c.jobId):c.reservedBy?('reserved for '+c.reservedBy):c.playerSpawned?'player car':compat?'empty and free':'cannot carry the chosen cargo';
+    const w=Math.max(40,Math.round((c.lengthM||18)*kk));
+    chips+=`<span class='ycar ${cls}' data-act='ycar' data-car='${esc(c.carId)}' style='left:${cx}px;top:${L.y-11}px;width:${w}px' title='${esc(c.type)} · ${esc(why)}'>${esc(c.carId)}</span>`;
+    if(on)selMax=cx+w;
+    cx+=w+3;
+   }
+   cx+=8;
+  }
+  if(pickedHere&&selMin!==null){
+   chips+=`<div style='position:absolute;left:${selMin}px;top:${L.y-22}px;width:${Math.max(40,selMax-selMin)}px;height:16px;border-top:1px solid #9184d9;border-left:1px solid #9184d9;border-right:1px solid #9184d9;border-radius:3px 3px 0 0;pointer-events:none'></div>`;
+   chips+=`<div style='position:absolute;left:${selMin+22}px;top:${L.y-32}px;padding:1px 6px;background:#3a2f6b;border:1px solid #9184d9;border-radius:3px;font:600 9.5px Inter,sans-serif;color:#f3f5fe;pointer-events:none'>${pickedHere} picked${$('hCargo').value?' · '+esc(disp($('hCargo').value)):''}</div>`;
+   perTrackPicked[t.track]=pickedHere;
+  }
   const n=t.carCount+(t.dormantCount||0);
   const summary=n===0?`clear · ${t.lengthM} m`
-   :`${n} cars · ${t.usedM}/${t.lengthM} m${loaded?` · <span class='ld'>${loaded} loaded</span>`:''}`;
-  return `<div class='ytrack${t.warehouse?' wh':''}' data-track='${esc(t.track)}'>
-   <span class='tid' title='${esc(t.track)}'>${esc(tidOf(t.track))}</span>
-   <span class='ytlabel'><b>${esc(trackDisp(t.track))}</b>`+
-   `${t.warehouse?`<span class='whlab' title='${esc((t.warehouseCargos||[]).join(', '))}'>loading</span>`:''}</span>`+
-   `<span class='yend'>${esc(e[0]||'')}</span>`+
-   `<div class='ycars'>${cuts||''}</div>`+
-   `<span class='yend r'>${esc(e[1]||'')}</span>`+
-   `<span class='ytmeta num'>${summary}</span></div>`});
- box.innerHTML=rows.join('')||`<div class='empty'>no yard tracks reported</div>`;
- box.querySelectorAll('.ytrack').forEach(el=>{
-  const sc=el.querySelector('.ycars');
-  if(el.dataset.track&&sc&&scrolls[el.dataset.track])sc.scrollLeft=scrolls[el.dataset.track]});
- $('jmMeta').textContent=jmSheet==='ALL'
-  ?(total+(d.dormantCars||0))+' cars in yard'
-  :total+' cars on sheet '+(jmSheet==='~'?'sidings':jmSheet);
+   :`${n} cars · ${t.usedM}/${t.lengthM} m${loaded?` · <span style='color:var(--amber)'>${loaded} loaded</span>`:''}${dormHere?` · <span style='color:#75798c'>${dormHere} stored</span>`:''}`;
+  const emph=pickedHere?`<span style='color:#d2cefd;font-weight:600'>PICKED ${pickedHere} · </span>`:(t.warehouse&&loaded?`<span style='color:var(--amber);font-weight:600'>LOADING · </span>`:'');
+  labels+=`<div class='k num' style='position:absolute;left:${L.x2-360}px;top:${L.y-26}px;width:350px;text-align:right'>${emph}${summary}</div>`;
+ }
+ box.innerHTML=`<div style='position:relative;width:${W}px;height:${H}px'>
+  <svg width='${W}' height='${H}' style='position:absolute;inset:0'>
+   <defs><pattern id='fh' width='9' height='9' patternTransform='rotate(45)' patternUnits='userSpaceOnUse'><rect width='4.5' height='9' fill='#6b5a34'/><rect x='4.5' width='4.5' height='9' fill='#2a2418'/></pattern></defs>
+   ${svg}</svg>${chips}${labels}</div>`;
+ if(sc0){sc0.scrollLeft=keepX;sc0.scrollTop=keepY}
+ const eco=(lastEconData||[]).find(e=>e.yardId===y);
+ $('jmMeta').textContent=(eco?Math.round(eco.totalCap||0)+' cap · '+Math.round(eco.totalStock||0)+' stored · ':'')
+  +(total+(d.dormantCars||0))+' cars on hand'+(jmSheet==='ALL'?'':' · sheet '+(jmSheet==='~'?'sidings':jmSheet));
  if(selDropped){toast(selDropped+' picked car(s) are no longer free; dropped',true);syncSelUi()}
 }
 // The persistent station bar (owner ruling): always at the bottom of the Logistics
@@ -1210,7 +1176,11 @@ function renderYard(){
 // to step back out.
 function renderStationBar(){
  const box=$('stationBar');if(!box)return;
- const show=lens==='logi'&&(surface==='map'||surface==='yard');
+ // v10 split: the map screen carries the haul lane, the station sheet carries
+ // the station strip. Both at once doubled the bottom chrome.
+ const show=lens==='logi'&&surface==='yard';
+ const lane=$('lane');
+ if(lane)lane.style.display=(lens==='logi'&&surface==='map')||lens==='fleet'||lens==='log'?'flex':'none';
  box.style.display=show?'flex':'none';
  if(!show)return;
  const ys=[...new Set((lastEconData||[]).map(e=>e.yardId))].sort();
@@ -1276,10 +1246,6 @@ const actions={
  lens:(id)=>{setLens(id)},
  backMap:()=>backToMap(),
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
- deskRow:(id,el)=>{deskSel=deskSel===el.dataset.id?null:el.dataset.id;last.desk=null;renderDesk()},
- deskF:(id,el)=>{deskF=el.dataset.id;
-  document.querySelectorAll('#deskBar .fchip').forEach(c=>c.classList.toggle('on',c.dataset.id===deskF));
-  last.desk=null;renderDesk()},
  saveNote:async(id,el)=>{const jid=el.dataset.id;
   const t=($('note_'+jid)||{}).value||'';
   const r=await j('/api/v1/jobs/'+encodeURIComponent(jid)+'/note','PUT',{text:t});
@@ -1554,8 +1520,6 @@ document.addEventListener('keydown',e=>{
  if(t&&(t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA'))return;
  if(lens==='logi'&&surface==='yard')backToMap()});
 syncDock();
-const dq=$('deskQ');
-if(dq)dq.addEventListener('input',()=>{deskQ=dq.value.trim();last.desk=null;renderDesk()});
 refresh();setInterval(refresh,5000);
 </script></body></html>
 ";
