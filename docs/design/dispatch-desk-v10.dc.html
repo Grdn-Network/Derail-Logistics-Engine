@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/nocturne-593bc811-3fe0-467e-8023-96d4e49c04de/styles.css">
+<script src="_ds/nocturne-593bc811-3fe0-467e-8023-96d4e49c04de/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#101220;font-family:Inter,system-ui,sans-serif;color:#e9e9ed}
+a{color:#b5abfc}a:hover{color:#d2cefd}
+.dv-turn{padding:44px 48px 36px;border-bottom:1px solid rgba(255,255,255,.07)}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 22px}
+.dv-tid{font:600 10px Inter;letter-spacing:.1em;padding:3px 7px;background:#e9e9ed;color:#161826;border-radius:4px;text-decoration:none}
+.dv-tname{font:500 13px Inter;color:#b2b6ca}
+.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px Inter;letter-spacing:.08em;padding:3px 7px;background:#2b2e3f;color:#cfd3e5;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:9px;font:400 11.5px Inter;color:#8b8fa3;max-width:900px}
+.dv-card{background:#161826;border:1px solid #2b2e3f;border-radius:10px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.dv-opt:target .dv-oid{background:#9184d9;color:#161826}
+.dv-next{margin:24px 0 0;font:12px/1.6 Inter;color:#75798c}
+.k{font:600 9.5px Inter;letter-spacing:.14em;text-transform:uppercase;color:#75798c}
+.n{font-variant-numeric:tabular-nums}
+.pill{display:inline-flex;align-items:center;gap:4px;height:17px;padding:0 7px;border-radius:4px;font:600 9.5px/1 Inter;letter-spacing:.06em;text-transform:uppercase;border:1px solid}
+.pav{color:#9397ab;border-color:#4a4e60}
+.ppr{color:#b5abfc;border-color:#5d5294;background:#241f3c}
+.pld{color:#d9b47a;border-color:#6b5a34;background:#241f16}
+.pun{color:#8b8fa3;border-color:#4a4e60;border-style:dashed}
+.plg{color:#a7a1db;border-color:#5c5783;border-style:dashed}
+.pal{color:#e09b95;border-color:#7a4a46;background:#2c1c1b}
+.pok{color:#84c6a1;border-color:#3f6b54}
+.p{background:#1b1d2b;border:1px solid #2b2e3f;border-radius:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 11px;border-radius:5px;border:1px solid #4a4e60;background:transparent;color:#cfd3e5;font:500 11.5px Inter;cursor:pointer}
+.btn:hover{border-color:#9184d9;color:#e9e9ed;background:rgba(145,132,217,.1)}
+.btnp{border-color:#9184d9;color:#d2cefd;background:rgba(145,132,217,.14)}
+.btnp:hover{background:rgba(145,132,217,.24)}
+.tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:5px;font:600 11px Inter;letter-spacing:.06em;text-transform:uppercase;color:#75798c;cursor:pointer}
+.tab:hover{color:#cfd3e5}
+.tabon{color:#e9e9ed;background:#262940;box-shadow:inset 0 -2px 0 #9184d9}
+.car{position:absolute;height:22px;border-radius:2px;border:1px solid #4a4e60;background:#232532;color:#b2b6ca;font:600 9px/21px Inter;text-align:center;letter-spacing:.02em;overflow:hidden;cursor:pointer}
+.car:hover{border-color:#9184d9}
+.sel{background:#3a2f6b;border-color:#9184d9;color:#f3f5fe;box-shadow:0 0 0 1px #9184d9}
+.ld{border-color:#6b5a34;color:#d9b47a;background:#241f16}
+.bz{opacity:.34;cursor:default}
+.lo{background:#16233a;border-color:#39597f;color:#8fb8e0}
+.gh{border-style:dashed;color:#75798c;background:transparent}
+.row{display:flex;align-items:center;gap:8px}
+.hb{height:5px;border-radius:3px;background:#2b2e3f;overflow:hidden}
+.hb i{display:block;height:100%}
+.jc{border:1px solid #2b2e3f;border-radius:6px;background:#1b1d2b;padding:8px 10px;display:flex;flex-direction:column;gap:5px}
+.sp{width:3px;border-radius:2px;align-self:stretch}
+.tid{position:absolute;margin-top:11px;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:3px;background:#5d5294;color:#f3f5fe;font:700 11px/1 Inter}
+.sc{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:22px;padding:0 5px;border-radius:2px;font:700 10px/1.05 Inter;color:#12141f;text-align:center;cursor:pointer}
+.sc:hover{outline:1px solid #e9e9ed;outline-offset:1px}
+.amn{display:flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:50%;font:700 9px Inter;color:#12141f}
+.lg{display:flex;align-items:center;gap:7px;font:11px Inter;color:#b2b6ca}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Station view rebuilt on the in-game schematic sheets — the surface that <a class="dv-oid" href="#1a">1a</a> drops into</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2n">
+<div class="dv-olabel"><a class="dv-oid" href="#2n">2n</a>What I took from the boards, and what I changed</div>
+<div class="dv-card" style="width:560px;padding:20px 22px;display:flex;flex-direction:column;gap:13px">
+<div style="font:600 15px Inter">Reading the station sheets</div>
+<div style="font:12.5px/1.65 Inter;color:#b2b6ca;display:flex;flex-direction:column;gap:8px">
+<div><b style="color:#e9e9ed">The sheet letters are the navigation.</b> A = overview, B…G = the individual yards. The board a crew reads at HB is the same board you dispatch from, so the tabs are lettered exactly the same way. No invented naming.</div>
+<div><b style="color:#e9e9ed">The station colour strip becomes the station switcher.</b> Twenty codes in their own game colours along the bottom edge, current one raised. It is the one place saturated colour is allowed — it is identity, not status, and every player already reads it.</div>
+<div><b style="color:#e9e9ed">Symbols kept:</b> switch blobs, track-ID chips, dead-end bars, dashed exits, the freight/passenger/military lozenges, amenity discs. <b style="color:#e9e9ed">Symbols added:</b> cars standing on the track, occupancy shading, signal lamps, and a clearance highlight for a lined-up route.</div>
+<div><b style="color:#e9e9ed">Two modes on one drawing.</b> <a class="dv-oid" href="#2a">2a</a> Logistics — cars are the objects, switches are scenery. <a class="dv-oid" href="#2b">2b</a> Control — switches and signals are the objects, cars go quiet. Same geometry, same muscle memory, one toggle. Control is gated on the dispatcher role.</div>
+<div><b style="color:#e9e9ed">Ink inverted.</b> The boards are dark-on-paper; on a second monitor at 2 a.m. that is a lamp in the face. Same drawing, same weights, paper→ground.</div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div style="font:11.5px/1.6 Inter;color:#75798c">Placeholders: the amenity discs are lettered stand-ins for the game's pictograms (D diesel, E charger, W water, C coal, R repairs, L loco storage, $ shop, ⌂ office) and the yard geometry here is HB's transfer yard idealised — real geometry comes from your track data.</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a><span><b style="color:#cfd3e5">Station view — Logistics mode.</b> Sheet E, HB transfer yard. Cars stand where they really stand, on the real ladder. Click them to build the booklet; the drawing is the form.</span></div>
+<div class="dv-card" style="width:1680px">
+<div class="row" style="height:44px;padding:0 16px;gap:12px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<span class="k" style="color:#595d6c">Network</span><span style="color:#4a4e60">/</span>
+<span class="sc" style="background:#a996cd">HB</span>
+<span style="font:600 14px Inter">Harbour &amp; Town</span>
+<div class="row" style="gap:3px;margin-left:8px">
+<span class="tab" style="height:24px;padding:0 9px">A overview</span><span class="tab" style="height:24px;padding:0 9px">B</span><span class="tab" style="height:24px;padding:0 9px">C</span><span class="tab" style="height:24px;padding:0 9px">D</span><span class="tab tabon" style="height:24px;padding:0 9px">E transfer</span><span class="tab" style="height:24px;padding:0 9px">F</span><span class="tab" style="height:24px;padding:0 9px">G</span>
+</div>
+<div style="flex:1"></div>
+<div class="row" style="gap:4px;padding:2px;border:1px solid #2b2e3f;border-radius:6px">
+<span class="tab tabon" style="height:22px;padding:0 10px">Logistics</span><span class="tab" style="height:22px;padding:0 10px">Control</span>
+</div>
+<span class="k n">600 cap · 412 stored · 31 cars on hand</span>
+<span class="btn" style="height:24px;font-size:11px">Esc</span>
+</div>
+<div style="display:flex;height:600px">
+<div style="flex:1;position:relative;overflow:hidden;background:linear-gradient(180deg,#151726,#111320)">
+<svg viewBox="0 0 1300 600" style="position:absolute;left:0;top:0;width:1300px;height:600px">
+<g stroke="#3d4257" stroke-width="2.2" fill="none" stroke-linecap="round">
+<path d="M40,300 H1240"></path>
+<path d="M150,256 H1130"></path><path d="M184,212 H1096"></path><path d="M218,168 H1062"></path><path d="M252,124 H1028"></path><path d="M286,80 H994"></path>
+<path d="M150,344 H1130"></path><path d="M184,388 H1096"></path><path d="M218,432 H1062"></path><path d="M252,476 H1028"></path><path d="M286,520 H994"></path>
+<path d="M116,300 L150,256"></path><path d="M150,256 L184,212"></path><path d="M184,212 L218,168"></path><path d="M218,168 L252,124"></path><path d="M252,124 L286,80"></path>
+<path d="M116,300 L150,344"></path><path d="M150,344 L184,388"></path><path d="M184,388 L218,432"></path><path d="M218,432 L252,476"></path><path d="M252,476 L286,520"></path>
+<path d="M1164,300 L1130,256"></path><path d="M1130,256 L1096,212"></path><path d="M1096,212 L1062,168"></path><path d="M1062,168 L1028,124"></path><path d="M1028,124 L994,80"></path>
+<path d="M1164,300 L1130,344"></path><path d="M1130,344 L1096,388"></path><path d="M1096,388 L1062,432"></path><path d="M1062,432 L1028,476"></path><path d="M1028,476 L994,520"></path>
+</g>
+<g stroke="#3d4257" stroke-width="2.2" stroke-dasharray="8 7" fill="none"><path d="M40,300 H8"></path><path d="M1240,300 H1292"></path></g>
+<g fill="#8b5f5f" opacity="0.9">
+<circle cx="116" cy="300" r="9"></circle><circle cx="150" cy="256" r="9"></circle><circle cx="184" cy="212" r="9"></circle><circle cx="218" cy="168" r="9"></circle><circle cx="252" cy="124" r="9"></circle>
+<circle cx="150" cy="344" r="9"></circle><circle cx="184" cy="388" r="9"></circle><circle cx="218" cy="432" r="9"></circle><circle cx="252" cy="476" r="9"></circle>
+<circle cx="1164" cy="300" r="9"></circle><circle cx="1130" cy="256" r="9"></circle><circle cx="1096" cy="212" r="9"></circle><circle cx="1062" cy="168" r="9"></circle><circle cx="1028" cy="124" r="9"></circle>
+<circle cx="1130" cy="344" r="9"></circle><circle cx="1096" cy="388" r="9"></circle><circle cx="1062" cy="432" r="9"></circle><circle cx="1028" cy="476" r="9"></circle>
+</g>
+<g fill="#1b1d2b"><circle cx="116" cy="300" r="3.4"></circle><circle cx="150" cy="256" r="3.4"></circle><circle cx="184" cy="212" r="3.4"></circle><circle cx="218" cy="168" r="3.4"></circle><circle cx="252" cy="124" r="3.4"></circle><circle cx="150" cy="344" r="3.4"></circle><circle cx="184" cy="388" r="3.4"></circle><circle cx="218" cy="432" r="3.4"></circle><circle cx="252" cy="476" r="3.4"></circle><circle cx="1164" cy="300" r="3.4"></circle><circle cx="1130" cy="256" r="3.4"></circle><circle cx="1096" cy="212" r="3.4"></circle><circle cx="1062" cy="168" r="3.4"></circle><circle cx="1028" cy="124" r="3.4"></circle><circle cx="1130" cy="344" r="3.4"></circle><circle cx="1096" cy="388" r="3.4"></circle><circle cx="1062" cy="432" r="3.4"></circle><circle cx="1028" cy="476" r="3.4"></circle></g>
+<defs><pattern id="fh" width="9" height="9" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="4.5" height="9" fill="#6b5a34"></rect><rect x="4.5" width="4.5" height="9" fill="#2a2418"></rect></pattern></defs>
+<rect x="208" y="236" width="520" height="7" fill="url(#fh)"></rect>
+<rect x="208" y="352" width="520" height="7" fill="url(#fh)"></rect>
+<text x="208" y="230" fill="#d9b47a" font-size="9.5" font-weight="600" letter-spacing="0.1em" font-family="Inter">FREIGHT LOADING PLATFORM · TRACK 5</text>
+<text x="740" y="360" fill="#d9b47a" font-size="9.5" font-weight="600" letter-spacing="0.1em" font-family="Inter">FREIGHT LOADING PLATFORM · TRACK 7</text>
+<text x="1252" y="292" fill="#75798c" font-size="10" font-family="Inter" text-anchor="middle">CS</text>
+<text x="18" y="292" fill="#75798c" font-size="10" font-family="Inter" text-anchor="middle">GF</text>
+</svg>
+<div style="position:absolute;inset:0">
+<div class="tid" style="left:296px;top:47px">1</div>
+<div class="tid" style="left:262px;top:91px">2</div>
+<div class="tid" style="left:228px;top:135px">3</div>
+<div class="tid" style="left:194px;top:179px">4</div>
+<div class="tid" style="left:160px;top:223px">5</div>
+<div class="tid" style="left:160px;top:311px">7</div>
+<div class="tid" style="left:194px;top:355px">8</div>
+<div class="tid" style="left:228px;top:399px">9</div>
+<div class="tid" style="left:262px;top:443px">10</div>
+<div class="tid" style="left:296px;top:487px">11</div>
+<div class="car" style="left:344px;top:58px;width:54px">GN-902</div>
+<div class="car" style="left:401px;top:58px;width:54px">GN-914</div>
+<div class="car bz" style="left:458px;top:58px;width:54px">GN-921</div>
+<div class="car bz" style="left:515px;top:58px;width:54px">GN-930</div>
+<div class="car ld" style="left:276px;top:146px;width:46px">TK-410</div>
+<div class="car ld" style="left:325px;top:146px;width:46px">TK-418</div>
+<div class="car ld" style="left:374px;top:146px;width:46px">TK-423</div>
+<div class="car" style="left:423px;top:146px;width:46px">TK-431</div>
+<div class="car" style="left:472px;top:146px;width:46px">TK-440</div>
+<div class="car" style="left:521px;top:146px;width:46px">TK-452</div>
+<div class="car sel" style="left:208px;top:234px;width:54px">BX-118</div>
+<div class="car sel" style="left:265px;top:234px;width:54px">BX-126</div>
+<div class="car sel" style="left:322px;top:234px;width:54px">BX-133</div>
+<div class="car" style="left:379px;top:234px;width:54px">BX-141</div>
+<div class="car" style="left:436px;top:234px;width:54px">BX-150</div>
+<div class="car ld" style="left:208px;top:322px;width:46px">HP-611</div>
+<div class="car ld" style="left:257px;top:322px;width:46px">HP-620</div>
+<div class="car ld" style="left:306px;top:322px;width:46px">HP-634</div>
+<div class="car" style="left:355px;top:322px;width:46px">HP-641</div>
+<div class="car" style="left:404px;top:322px;width:46px">HP-655</div>
+<div class="car" style="left:453px;top:322px;width:46px">HP-663</div>
+<div class="car bz" style="left:276px;top:410px;width:66px">FM-210</div>
+<div class="car bz" style="left:345px;top:410px;width:66px">FM-224</div>
+<div class="car bz" style="left:414px;top:410px;width:66px">FM-231</div>
+<div class="car" style="left:344px;top:498px;width:54px">GN-088</div>
+<div class="car" style="left:401px;top:498px;width:54px">GN-095</div>
+<div class="car bz" style="left:960px;top:278px;width:66px">FM-410</div>
+<div class="car bz" style="left:1029px;top:278px;width:66px">FM-421</div>
+<div class="car lo" style="left:1098px;top:278px;width:78px">DE6-042</div>
+<div class="k" style="position:absolute;left:700px;top:52px;width:280px;text-align:right">4 cars · 216/420 m · empty gondolas</div>
+<div class="k" style="position:absolute;left:700px;top:96px;width:346px;text-align:right">clear · 420 m</div>
+<div class="k" style="position:absolute;left:700px;top:140px;width:312px;text-align:right">6 cars · 276/420 m · 3 loaded Diesel</div>
+<div class="k" style="position:absolute;left:700px;top:184px;width:278px;text-align:right">clear · 380 m</div>
+<div style="position:absolute;left:700px;top:222px;width:244px;text-align:right"><span style="font:600 10.5px Inter;color:#d2cefd">LOADING · 5 cars · 3 picked</span></div>
+<div style="position:absolute;left:700px;top:310px;width:244px;text-align:right"><span style="font:600 10.5px Inter;color:#d9b47a">LOADING · 6 cars · 3 loaded</span></div>
+<div class="k" style="position:absolute;left:700px;top:354px;width:278px;text-align:right">clear · 380 m</div>
+<div class="k" style="position:absolute;left:700px;top:398px;width:312px;text-align:right">3 cars · 198/380 m · held for MF booklet</div>
+<div class="k" style="position:absolute;left:700px;top:442px;width:346px;text-align:right">clear · 380 m</div>
+<div class="k" style="position:absolute;left:700px;top:486px;width:280px;text-align:right">2 cars · 108/420 m</div>
+<div class="k" style="position:absolute;left:900px;top:246px;width:280px;text-align:right;color:#8fb8e0">MAIN · Ash inbound, 2 cars</div>
+<div style="position:absolute;left:208px;top:212px;width:171px;height:18px;border-top:1px solid #9184d9;border-left:1px solid #9184d9;border-right:1px solid #9184d9;border-radius:3px 3px 0 0"></div>
+<div style="position:absolute;left:246px;top:202px;padding:1px 6px;background:#3a2f6b;border:1px solid #9184d9;border-radius:3px;font:600 9.5px Inter;color:#f3f5fe">3 picked · Boards</div>
+<div class="row" style="position:absolute;left:820px;top:520px;gap:6px">
+<span class="amn" style="background:#c98fb4">L</span><span class="amn" style="background:#5fa8a0">R</span><span class="amn" style="background:#d08a4e">D</span><span class="amn" style="background:#5fbf8a">E</span><span class="amn" style="background:#6ba8cf">W</span><span class="amn" style="background:#4f8a86">C</span><span class="amn" style="background:#6b9fd0">$</span><span class="amn" style="background:#d09a4e">⌂</span>
+</div>
+<div class="k" style="position:absolute;left:820px;top:548px">services at HB · station office full</div>
+</div>
+<div class="row" style="position:absolute;left:16px;bottom:14px;gap:12px;background:rgba(22,24,38,.9);border:1px solid #2b2e3f;border-radius:6px;padding:8px 12px">
+<span class="k">Filter</span>
+<span class="btn btnp" style="height:22px;font-size:10.5px">Compatible</span><span class="btn" style="height:22px;font-size:10.5px">All</span><span class="btn" style="height:22px;font-size:10.5px">Idle &gt; 1 h</span>
+<div style="width:1px;height:16px;background:#2b2e3f"></div>
+<span class="lg"><i style="width:12px;height:12px;border-radius:50%;background:#8b5f5f;display:block"></i>switch</span>
+<span class="lg"><i style="width:16px;height:6px;background:#6b5a34;display:block"></i>loading platform</span>
+<span class="lg"><i style="width:16px;height:2px;background:#3d4257;display:block"></i>dark territory</span>
+</div>
+</div>
+<div style="width:340px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 13px;border-bottom:1px solid #2b2e3f"><span class="k">Booklet</span><div style="flex:1"></div><span class="k">HB → ?</span></div>
+<div style="padding:12px 13px;display:flex;flex-direction:column;gap:9px;flex:1">
+<div class="p" style="padding:8px 10px;display:flex;flex-direction:column;gap:4px;border-color:#5d5294">
+<div class="row"><span style="font:600 12.5px Inter;color:#d2cefd">Line 1 · Boards</span><div style="flex:1"></div><span class="n" style="font:12px Inter;color:#84c6a1">$6,900</span></div>
+<div class="row" style="gap:3px;flex-wrap:wrap"><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">BX-118</span><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">BX-126</span><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">BX-133</span></div>
+<div class="k">track 5 · 3 cars · 168 t · load 2m 15s</div>
+</div>
+<div class="p" style="padding:8px 10px;border-style:dashed;background:transparent;display:flex;flex-direction:column;gap:5px">
+<div class="row"><span class="k">Next line</span><div style="flex:1"></div><span class="k">pick cars on any track</span></div>
+<div class="row" style="gap:6px"><span class="p" style="padding:4px 8px;font:11.5px Inter;flex:1">Cargo ⌄</span><span class="btn" style="height:24px">+ Add</span></div>
+</div>
+<div class="k" style="margin-top:2px">Destination — shippable from HB</div>
+<div class="row" style="gap:5px;flex-wrap:wrap">
+<span class="sc" style="background:#eaa0c6">GF</span><span class="sc" style="background:#86a0c8">SM</span><span class="sc" style="background:#ec8f4f">MF</span><span class="sc" style="background:#b7c3cf">CS</span><span class="sc" style="background:#a2a7ac">CW</span><span class="sc" style="background:#7bb0e0">FF</span>
+</div>
+<div style="flex:1"></div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Pay</span><span class="n" style="color:#84c6a1;font-weight:600">$6,900</span></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Weight · length</span><span class="n">168 t · 63 m</span></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Staff load</span><span class="n">2m 15s</span></div>
+<div class="p" style="padding:6px 9px;display:flex;align-items:center;gap:8px"><span class="k">Crew</span><span style="font:12.5px Inter">Ash</span><div style="flex:1"></div><span class="k">assign + fax</span></div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1;height:30px">Create + load now</span><span class="btn" style="height:30px">Create</span></div>
+</div>
+</div>
+</div>
+<div class="row" style="height:38px;padding:0 12px;gap:3px;border-top:1px solid #2b2e3f;background:#1b1d2b;overflow:hidden">
+<span class="sc" style="background:#59595c;color:#e9e9ed">CM<br>E</span><span class="sc" style="background:#6e7566">CM<br>S</span><span class="sc" style="background:#4b3b33;color:#e9e9ed">CP</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#b7c3cf">CS</span><span class="sc" style="background:#a2a7ac">CW</span><span class="sc" style="background:#7bb0e0">FF</span><span class="sc" style="background:#e3a85c">FM</span><span class="sc" style="background:#a5c95f">FR<br>C</span><span class="sc" style="background:#77bd77">FR<br>S</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#eaa0c6">GF</span><span class="sc" style="background:#a996cd;outline:2px solid #e9e9ed;outline-offset:1px">HB</span><span class="sc" style="background:#c4735d">IM<br>E</span><span class="sc" style="background:#b96b52">IM<br>W</span><span class="sc" style="background:#d0b87e">MB</span><span class="sc" style="background:#ec8f4f">MF</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#b878b8">OR</span><span class="sc" style="background:#6f6e49;color:#e9e9ed">OW<br>C</span><span class="sc" style="background:#8f8f57">OW<br>N</span><span class="sc" style="background:#86a0c8">SM</span><span class="sc" style="background:#dcbf90">SW</span>
+<div style="flex:1"></div>
+<span class="k">station colours are the game's own · click to jump</span>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a><span><b style="color:#cfd3e5">Station view — Control mode.</b> Identical drawing, different job. Switches become live red markers, signals appear, a lined-up route lights through the ladder, cars drop back to scenery.</span></div>
+<div class="dv-card" style="width:1680px">
+<div class="row" style="height:44px;padding:0 16px;gap:12px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<span class="k" style="color:#595d6c">Network</span><span style="color:#4a4e60">/</span>
+<span class="sc" style="background:#a996cd">HB</span><span style="font:600 14px Inter">Harbour &amp; Town</span>
+<div class="row" style="gap:3px;margin-left:8px">
+<span class="tab" style="height:24px;padding:0 9px">A overview</span><span class="tab" style="height:24px;padding:0 9px">B</span><span class="tab" style="height:24px;padding:0 9px">C</span><span class="tab" style="height:24px;padding:0 9px">D</span><span class="tab tabon" style="height:24px;padding:0 9px">E transfer</span><span class="tab" style="height:24px;padding:0 9px">F</span><span class="tab" style="height:24px;padding:0 9px">G</span>
+</div>
+<div style="flex:1"></div>
+<div class="row" style="gap:4px;padding:2px;border:1px solid #5d5294;border-radius:6px">
+<span class="tab" style="height:22px;padding:0 10px">Logistics</span><span class="tab tabon" style="height:22px;padding:0 10px">Control</span>
+</div>
+<span class="pill pld">dispatcher role</span><span class="k n">3 movements · 1 request</span>
+</div>
+<div style="display:flex;height:600px">
+<div style="flex:1;position:relative;overflow:hidden;background:linear-gradient(180deg,#151726,#111320)">
+<svg viewBox="0 0 1300 600" style="position:absolute;left:0;top:0;width:1300px;height:600px">
+<g stroke="#2f3346" stroke-width="2.2" fill="none" stroke-linecap="round">
+<path d="M150,256 H1130"></path><path d="M184,212 H1096"></path><path d="M218,168 H1062"></path><path d="M252,124 H1028"></path><path d="M286,80 H994"></path>
+<path d="M150,344 H1130"></path><path d="M184,388 H1096"></path><path d="M218,432 H1062"></path><path d="M252,476 H1028"></path><path d="M286,520 H994"></path>
+<path d="M184,212 L218,168"></path><path d="M218,168 L252,124"></path><path d="M252,124 L286,80"></path>
+<path d="M150,344 L184,388"></path><path d="M184,388 L218,432"></path><path d="M218,432 L252,476"></path><path d="M252,476 L286,520"></path>
+<path d="M1164,300 L1130,256"></path><path d="M1130,256 L1096,212"></path><path d="M1096,212 L1062,168"></path><path d="M1062,168 L1028,124"></path><path d="M1028,124 L994,80"></path>
+<path d="M1130,344 L1096,388"></path><path d="M1096,388 L1062,432"></path><path d="M1062,432 L1028,476"></path><path d="M1028,476 L994,520"></path>
+</g>
+<path d="M40,300 H1240" stroke="#4a4e60" stroke-width="3" fill="none" stroke-linecap="round"></path>
+<g stroke="#3d4257" stroke-width="2.2" stroke-dasharray="8 7" fill="none"><path d="M40,300 H8"></path><path d="M1240,300 H1292"></path></g>
+<path d="M1240,300 H1164 L1130,256 H150 L116,300 H40" stroke="#84c6a1" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.9"></path>
+<path d="M1240,300 H1164 L1130,256 H150 L116,300 H40" stroke="#c9f0da" stroke-width="1.4" fill="none" stroke-dasharray="10 14" stroke-linecap="round"></path>
+<rect x="600" y="234" width="336" height="44" rx="4" fill="#3f6b54" opacity="0.28"></rect>
+<text x="612" y="248" fill="#84c6a1" font-size="10" font-weight="600" letter-spacing="0.1em" font-family="Inter">ROUTE LINED · TRACK 5 → MAIN → GF</text>
+<g fill="#8b5f5f"><circle cx="184" cy="212" r="9"></circle><circle cx="218" cy="168" r="9"></circle><circle cx="252" cy="124" r="9"></circle><circle cx="184" cy="388" r="9"></circle><circle cx="218" cy="432" r="9"></circle><circle cx="252" cy="476" r="9"></circle><circle cx="1096" cy="212" r="9"></circle><circle cx="1062" cy="168" r="9"></circle><circle cx="1028" cy="124" r="9"></circle><circle cx="1096" cy="388" r="9"></circle><circle cx="1062" cy="432" r="9"></circle><circle cx="1028" cy="476" r="9"></circle></g>
+<g fill="#1b1d2b"><circle cx="184" cy="212" r="3.4"></circle><circle cx="218" cy="168" r="3.4"></circle><circle cx="252" cy="124" r="3.4"></circle><circle cx="184" cy="388" r="3.4"></circle><circle cx="218" cy="432" r="3.4"></circle><circle cx="252" cy="476" r="3.4"></circle><circle cx="1096" cy="212" r="3.4"></circle><circle cx="1062" cy="168" r="3.4"></circle><circle cx="1028" cy="124" r="3.4"></circle><circle cx="1096" cy="388" r="3.4"></circle><circle cx="1062" cy="432" r="3.4"></circle><circle cx="1028" cy="476" r="3.4"></circle></g>
+<g fill="#e0655c" stroke="#f0b0aa" stroke-width="1.6"><circle cx="116" cy="300" r="11"></circle><circle cx="150" cy="256" r="11"></circle><circle cx="1164" cy="300" r="11"></circle><circle cx="1130" cy="256" r="11"></circle><circle cx="150" cy="344" r="11"></circle><circle cx="1130" cy="344" r="11"></circle></g>
+<g fill="#2c1c1b"><circle cx="116" cy="300" r="3.6"></circle><circle cx="150" cy="256" r="3.6"></circle><circle cx="1164" cy="300" r="3.6"></circle><circle cx="1130" cy="256" r="3.6"></circle><circle cx="150" cy="344" r="3.6"></circle><circle cx="1130" cy="344" r="3.6"></circle></g>
+<g font-family="Inter" font-size="9" font-weight="700" fill="#f0b0aa"><text x="116" y="330" text-anchor="middle">W1</text><text x="150" y="238" text-anchor="middle">W2</text><text x="1164" y="330" text-anchor="middle">E1</text><text x="1130" y="238" text-anchor="middle">E2</text><text x="150" y="372" text-anchor="middle">W3</text><text x="1130" y="372" text-anchor="middle">E3</text></g>
+<g>
+<rect x="86" y="262" width="13" height="34" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="92.5" cy="271" r="3.6" fill="#84c6a1"></circle><circle cx="92.5" cy="280" r="3.6" fill="#2b2e3f"></circle><circle cx="92.5" cy="289" r="3.6" fill="#2b2e3f"></circle>
+<rect x="1196" y="262" width="13" height="34" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="1202.5" cy="271" r="3.6" fill="#2b2e3f"></circle><circle cx="1202.5" cy="280" r="3.6" fill="#d9b47a"></circle><circle cx="1202.5" cy="289" r="3.6" fill="#2b2e3f"></circle>
+<rect x="1145" y="212" width="13" height="34" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="1151.5" cy="221" r="3.6" fill="#84c6a1"></circle><circle cx="1151.5" cy="230" r="3.6" fill="#2b2e3f"></circle><circle cx="1151.5" cy="239" r="3.6" fill="#2b2e3f"></circle>
+<rect x="1145" y="352" width="13" height="34" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="1151.5" cy="361" r="3.6" fill="#2b2e3f"></circle><circle cx="1151.5" cy="370" r="3.6" fill="#2b2e3f"></circle><circle cx="1151.5" cy="379" r="3.6" fill="#e0655c"></circle>
+<text x="1151" y="206" fill="#75798c" font-size="8.5" font-weight="700" text-anchor="middle" font-family="Inter">S-5</text>
+<text x="1151" y="400" fill="#75798c" font-size="8.5" font-weight="700" text-anchor="middle" font-family="Inter">S-7</text>
+</g>
+<rect x="330" y="286" width="220" height="28" rx="4" fill="#241f3c" stroke="#9184d9" stroke-width="1.4"></rect>
+<text x="344" y="305" fill="#f3f5fe" font-size="12" font-weight="600" font-family="Inter">◀ ASH · DE6-042 + 2</text>
+<text x="1252" y="292" fill="#75798c" font-size="10" font-family="Inter" text-anchor="middle">CS</text>
+<text x="18" y="292" fill="#75798c" font-size="10" font-family="Inter" text-anchor="middle">GF</text>
+</svg>
+<div style="position:absolute;inset:0">
+<div class="tid" style="left:296px;top:47px;background:#3f424d">1</div>
+<div class="tid" style="left:262px;top:91px;background:#3f424d">2</div>
+<div class="tid" style="left:228px;top:135px;background:#3f424d">3</div>
+<div class="tid" style="left:194px;top:179px;background:#3f424d">4</div>
+<div class="tid" style="left:160px;top:223px">5</div>
+<div class="tid" style="left:160px;top:311px;background:#3f424d">7</div>
+<div class="tid" style="left:194px;top:355px;background:#3f424d">8</div>
+<div class="tid" style="left:228px;top:399px;background:#3f424d">9</div>
+<div class="tid" style="left:262px;top:443px;background:#3f424d">10</div>
+<div class="tid" style="left:296px;top:487px;background:#3f424d">11</div>
+<div class="car bz" style="left:344px;top:58px;width:54px">GN-902</div>
+<div class="car bz" style="left:401px;top:58px;width:54px">GN-914</div>
+<div class="car bz" style="left:458px;top:58px;width:54px">GN-921</div>
+<div class="car bz" style="left:515px;top:58px;width:54px">GN-930</div>
+<div class="car bz" style="left:276px;top:146px;width:46px">TK-410</div>
+<div class="car bz" style="left:325px;top:146px;width:46px">TK-418</div>
+<div class="car bz" style="left:374px;top:146px;width:46px">TK-423</div>
+<div class="car bz" style="left:423px;top:146px;width:46px">TK-431</div>
+<div class="car" style="left:208px;top:234px;width:54px">BX-118</div>
+<div class="car" style="left:265px;top:234px;width:54px">BX-126</div>
+<div class="car" style="left:322px;top:234px;width:54px">BX-133</div>
+<div class="car bz" style="left:208px;top:322px;width:46px">HP-611</div>
+<div class="car bz" style="left:257px;top:322px;width:46px">HP-620</div>
+<div class="car bz" style="left:306px;top:322px;width:46px">HP-634</div>
+<div class="car bz" style="left:276px;top:410px;width:66px">FM-210</div>
+<div class="car bz" style="left:345px;top:410px;width:66px">FM-224</div>
+<div style="position:absolute;left:700px;top:222px;width:244px;text-align:right"><span style="font:600 10.5px Inter;color:#84c6a1">OCCUPIED BY ROUTE · 3 cars to lift</span></div>
+<div class="k" style="position:absolute;left:700px;top:52px;width:280px;text-align:right">4 cars standing</div>
+<div class="k" style="position:absolute;left:700px;top:140px;width:312px;text-align:right">4 cars standing</div>
+<div class="k" style="position:absolute;left:700px;top:310px;width:244px;text-align:right">3 cars standing</div>
+<div class="k" style="position:absolute;left:700px;top:398px;width:312px;text-align:right">2 cars standing</div>
+<div class="k" style="position:absolute;left:820px;top:120px">hover a red marker to throw the switch · click a track to line a route to it</div>
+</div>
+<div class="row" style="position:absolute;left:16px;bottom:14px;gap:12px;background:rgba(22,24,38,.9);border:1px solid #2b2e3f;border-radius:6px;padding:8px 12px">
+<span class="lg"><i style="width:13px;height:13px;border-radius:50%;background:#e0655c;border:1px solid #f0b0aa;display:block"></i>throwable switch</span>
+<span class="lg"><i style="width:13px;height:13px;border-radius:50%;background:#8b5f5f;display:block"></i>locked by route</span>
+<span class="lg"><i style="width:18px;height:5px;border-radius:3px;background:#84c6a1;display:block"></i>cleared route</span>
+<span class="lg"><i style="width:18px;height:4px;background:#4a4e60;display:block"></i>main track · clearance required</span>
+<span class="lg"><i style="width:18px;height:2px;background:#2f3346;display:block"></i>dark territory</span>
+</div>
+</div>
+<div style="width:340px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 13px;border-bottom:1px solid #2b2e3f"><span class="k">Control — HB</span><div style="flex:1"></div><span class="pill pld">1 request</span></div>
+<div style="padding:12px 13px;display:flex;flex-direction:column;gap:10px;flex:1">
+<div class="jc" style="border-color:#5d5294;gap:7px">
+<div class="row"><span style="font:600 13px Inter">Route lined</span><div style="flex:1"></div><span class="pill pok">granted</span></div>
+<div class="k">Track 5 → W2 → main → GF · Ash · holds 6 min</div>
+<div class="row" style="gap:6px"><span class="btn" style="flex:1">Cancel route</span><span class="btn">Extend</span></div>
+</div>
+<div class="jc" style="gap:7px">
+<div class="row"><span style="font:600 13px Inter">Yard entry — track 3</span><div style="flex:1"></div><span class="pill pld">requested 40s</span></div>
+<div class="k">Wren · 6 tankers for OR · needs a road to the platform</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Line to 3</span><span class="btn">Offer 1</span><span class="btn">Hold</span></div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Switches</div>
+<div style="display:flex;flex-direction:column;gap:4px;font:12px Inter;color:#b2b6ca">
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">W1</span><span>main ↔ track 5</span><div style="flex:1"></div><span class="pill pok">reverse</span></div>
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">W2</span><span>track 5 ↔ 4</span><div style="flex:1"></div><span class="pill pav">normal</span></div>
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">W3</span><span>main ↔ track 7</span><div style="flex:1"></div><span class="pill pav">normal</span></div>
+<div class="row" style="opacity:.5"><span class="n" style="width:30px;color:#e9e9ed">W4</span><span>track 7 ↔ 8</span><div style="flex:1"></div><span class="pill pun">locked</span></div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Signals</div>
+<div style="display:flex;flex-direction:column;gap:4px;font:12px Inter;color:#b2b6ca">
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">S-W</span><span>west home</span><div style="flex:1"></div><span class="pill pok">clear</span></div>
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">S-E</span><span>east home</span><div style="flex:1"></div><span class="pill pld">approach</span></div>
+<div class="row"><span class="n" style="width:30px;color:#e9e9ed">S-4</span><span>track 4 exit</span><div style="flex:1"></div><span class="pill pal">stop</span></div>
+</div>
+<div style="flex:1"></div>
+<div style="font:11px/1.55 Inter;color:#75798c">Control only appears for dispatcher and chief roles. Everything here mirrors what a crew sees on the lineside signal, so a granted route on this board is the same fact in the cab.</div>
+</div>
+</div>
+</div>
+<div class="row" style="height:38px;padding:0 12px;gap:3px;border-top:1px solid #2b2e3f;background:#1b1d2b;overflow:hidden">
+<span class="sc" style="background:#59595c;color:#e9e9ed">CM<br>E</span><span class="sc" style="background:#6e7566">CM<br>S</span><span class="sc" style="background:#4b3b33;color:#e9e9ed">CP</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#b7c3cf">CS</span><span class="sc" style="background:#a2a7ac">CW</span><span class="sc" style="background:#7bb0e0">FF</span><span class="sc" style="background:#e3a85c">FM</span><span class="sc" style="background:#a5c95f">FR<br>C</span><span class="sc" style="background:#77bd77">FR<br>S</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#eaa0c6">GF</span><span class="sc" style="background:#a996cd;outline:2px solid #e9e9ed;outline-offset:1px">HB</span><span class="sc" style="background:#c4735d">IM<br>E</span><span class="sc" style="background:#b96b52">IM<br>W</span><span class="sc" style="background:#d0b87e">MB</span><span class="sc" style="background:#ec8f4f">MF</span>
+<span style="width:8px"></span>
+<span class="sc" style="background:#b878b8">OR</span><span class="sc" style="background:#6f6e49;color:#e9e9ed">OW<br>C</span><span class="sc" style="background:#8f8f57">OW<br>N</span><span class="sc" style="background:#86a0c8">SM</span><span class="sc" style="background:#dcbf90">SW</span>
+<div style="flex:1"></div>
+<span class="k">W desk</span><span class="sp" style="background:#7aa2c2;height:14px"></span><span class="k">E desk</span><span class="sp" style="background:#86c0a8;height:14px"></span><span class="k">Hub</span><span class="sp" style="background:#b6a0dd;height:14px"></span>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a><span><b style="color:#cfd3e5">Clearances lens, v2 — <a class="dv-oid" href="#1e">1e</a> ironed out against the route map.</b> The game's own schematic geometry: orthogonal and 45° only, station chips in station colours, switch clusters where they really are. Main track carries clearance; everything thin is dark territory.</span></div>
+<div class="dv-card" style="width:1500px">
+<div class="row" style="height:42px;padding:0 16px;gap:12px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<div style="font:700 13px Inter;letter-spacing:.14em">DLE</div>
+<div class="row" style="gap:2px"><span class="tab">Logistics</span><span class="tab tabon">Clearances</span><span class="tab">Economy</span></div>
+<div style="flex:1"></div>
+<span class="pill ppr">9 movements</span><span class="pill pld">2 requests</span><span class="pill pal">1 conflict</span>
+<div style="width:1px;height:18px;background:#2b2e3f"></div><span class="k">RTC WEST · TOMMY</span>
+</div>
+<div style="display:flex;height:720px">
+<div style="flex:1;position:relative;background:#101220">
+<svg viewBox="0 0 1140 720" style="position:absolute;left:0;top:0;width:1140px;height:720px">
+<g stroke="#232636" stroke-width="1" fill="none">
+<path d="M0,90 H1140"></path><path d="M0,270 H1140"></path><path d="M0,450 H1140"></path><path d="M0,630 H1140"></path>
+<path d="M190,0 V720"></path><path d="M380,0 V720"></path><path d="M570,0 V720"></path><path d="M760,0 V720"></path><path d="M950,0 V720"></path>
+</g>
+<g stroke="#3d4257" stroke-width="2" fill="none" stroke-linecap="round">
+<path d="M150,150 H300 L360,210 H430"></path>
+<path d="M430,210 L500,140 H560"></path>
+<path d="M560,140 L640,60 H800"></path>
+<path d="M800,60 H900 L960,120 V240"></path>
+<path d="M700,240 L620,160"></path><path d="M700,240 V330"></path>
+<path d="M700,330 L790,420"></path>
+<path d="M150,150 V330"></path><path d="M150,330 V410"></path><path d="M150,410 V600"></path>
+<path d="M150,600 L230,680 H500"></path>
+<path d="M430,380 V210"></path><path d="M430,380 L500,450"></path><path d="M500,450 V500"></path>
+<path d="M500,500 L420,560"></path><path d="M420,560 H340"></path>
+<path d="M560,420 L500,450"></path><path d="M560,420 L640,340"></path>
+<path d="M560,420 V640"></path><path d="M560,640 H680"></path>
+<path d="M680,640 L790,690 H880"></path>
+<path d="M880,690 L1010,560"></path><path d="M1010,560 V440"></path>
+<path d="M1010,440 L960,390"></path><path d="M960,390 H880"></path>
+<path d="M960,240 V390"></path>
+<path d="M1060,300 V180"></path><path d="M1060,300 L1010,350"></path>
+</g>
+<g stroke="#5f6480" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.55">
+<path d="M150,150 H300 L360,210 H430"></path><path d="M430,210 L500,140 H560"></path><path d="M560,140 L640,60 H800"></path>
+<path d="M560,420 L640,340"></path><path d="M700,240 V330"></path><path d="M700,330 L790,420"></path>
+<path d="M880,690 L1010,560"></path><path d="M1010,560 V440"></path><path d="M150,410 V600"></path>
+</g>
+<path d="M430,210 L500,140 H560" stroke="#5d5294" stroke-width="7" fill="none" stroke-linecap="round"></path>
+<path d="M700,240 V330" stroke="#5d5294" stroke-width="7" fill="none" stroke-linecap="round"></path>
+<path d="M1010,560 V440" stroke="#d9b47a" stroke-width="7" fill="none" stroke-linecap="round"></path>
+<path d="M150,410 V600" stroke="#e0655c" stroke-width="7" fill="none" stroke-linecap="round"></path>
+<g fill="#8b5f5f" opacity="0.95">
+<circle cx="300" cy="150" r="8"></circle><circle cx="360" cy="210" r="8"></circle><circle cx="430" cy="210" r="8"></circle><circle cx="500" cy="140" r="8"></circle>
+<circle cx="640" cy="60" r="8"></circle><circle cx="900" cy="60" r="8"></circle><circle cx="960" cy="240" r="8"></circle><circle cx="620" cy="160" r="8"></circle>
+<circle cx="700" cy="240" r="8"></circle><circle cx="700" cy="330" r="8"></circle><circle cx="150" cy="330" r="8"></circle><circle cx="150" cy="410" r="8"></circle>
+<circle cx="150" cy="600" r="8"></circle><circle cx="230" cy="680" r="8"></circle><circle cx="430" cy="380" r="8"></circle><circle cx="500" cy="450" r="8"></circle>
+<circle cx="500" cy="500" r="8"></circle><circle cx="420" cy="560" r="8"></circle><circle cx="560" cy="420" r="8"></circle><circle cx="560" cy="640" r="8"></circle>
+<circle cx="680" cy="640" r="8"></circle><circle cx="790" cy="690" r="8"></circle><circle cx="1010" cy="560" r="8"></circle><circle cx="1010" cy="440" r="8"></circle>
+<circle cx="960" cy="390" r="8"></circle><circle cx="1060" cy="300" r="8"></circle><circle cx="790" cy="420" r="8"></circle>
+</g>
+<g>
+<rect x="86" y="132" width="12" height="32" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="92" cy="141" r="3.4" fill="#84c6a1"></circle><circle cx="92" cy="150" r="3.4" fill="#2b2e3f"></circle><circle cx="92" cy="159" r="3.4" fill="#2b2e3f"></circle>
+<rect x="464" y="112" width="12" height="32" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="470" cy="121" r="3.4" fill="#2b2e3f"></circle><circle cx="470" cy="130" r="3.4" fill="#2b2e3f"></circle><circle cx="470" cy="139" r="3.4" fill="#e0655c"></circle>
+<rect x="712" y="272" width="12" height="32" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="718" cy="281" r="3.4" fill="#2b2e3f"></circle><circle cx="718" cy="290" r="3.4" fill="#d9b47a"></circle><circle cx="718" cy="299" r="3.4" fill="#2b2e3f"></circle>
+<rect x="1022" y="480" width="12" height="32" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="1028" cy="489" r="3.4" fill="#2b2e3f"></circle><circle cx="1028" cy="498" r="3.4" fill="#d9b47a"></circle><circle cx="1028" cy="507" r="3.4" fill="#2b2e3f"></circle>
+<rect x="162" y="492" width="12" height="32" rx="6" fill="#101320" stroke="#3d4257"></rect><circle cx="168" cy="501" r="3.4" fill="#2b2e3f"></circle><circle cx="168" cy="510" r="3.4" fill="#2b2e3f"></circle><circle cx="168" cy="519" r="3.4" fill="#e0655c"></circle>
+</g>
+<g><rect x="424" y="84" width="92" height="24" rx="4" fill="#3a2f6b" stroke="#9184d9" stroke-width="1.4"></rect><text x="470" y="101" fill="#f3f5fe" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▶ HALDEN</text></g>
+<g><rect x="654" y="272" width="92" height="24" rx="4" fill="#3a2f6b" stroke="#9184d9" stroke-width="1.4"></rect><text x="700" y="289" fill="#f3f5fe" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▼ WREN</text></g>
+<g><rect x="964" y="486" width="92" height="24" rx="4" fill="#241f16" stroke="#d9b47a" stroke-width="1.4"></rect><text x="1010" y="503" fill="#d9b47a" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▲ IVES</text></g>
+<g><rect x="98" y="492" width="104" height="24" rx="4" fill="#2c1c1b" stroke="#e0655c" stroke-width="1.4"></rect><text x="150" y="509" fill="#e09b95" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▲▼ ASH · ROOK</text></g>
+<g font-family="Inter" font-size="9" font-weight="600" letter-spacing="0.08em" fill="#595d6c">
+<text x="424" y="76">BLK 7 · GRANTED</text><text x="654" y="262">BLK 4 · GRANTED</text><text x="964" y="476">BLK 11 · REQUESTED</text><text x="98" y="480">BLK 2 · CONFLICT</text>
+<text x="20" y="40">A</text><text x="210" y="40">B</text><text x="400" y="40">C</text><text x="590" y="40">D</text><text x="780" y="40">E</text><text x="970" y="40">F</text>
+</g>
+</svg>
+<div style="position:absolute;inset:0">
+<div style="position:absolute;left:126px;top:139px"><span class="sc" style="background:#b96b52">IM<br>W</span></div>
+<div style="position:absolute;left:546px;top:129px"><span class="sc" style="background:#7bb0e0">FF</span></div>
+<div style="position:absolute;left:786px;top:49px"><span class="sc" style="background:#d0b87e">MB</span></div>
+<div style="position:absolute;left:946px;top:109px"><span class="sc" style="background:#c4735d">IM<br>E</span></div>
+<div style="position:absolute;left:1046px;top:169px"><span class="sc" style="background:#59595c;color:#e9e9ed">CM<br>E</span></div>
+<div style="position:absolute;left:606px;top:149px"><span class="sc" style="background:#8f8f57">OW<br>N</span></div>
+<div style="position:absolute;left:416px;top:199px"><span class="sc" style="background:#b878b8">OR</span></div>
+<div style="position:absolute;left:776px;top:409px"><span class="sc" style="background:#eaa0c6">GF</span></div>
+<div style="position:absolute;left:136px;top:319px"><span class="sc" style="background:#ec8f4f">MF</span></div>
+<div style="position:absolute;left:136px;top:399px"><span class="sc" style="background:#4b3b33;color:#e9e9ed">CP</span></div>
+<div style="position:absolute;left:136px;top:589px"><span class="sc" style="background:#a2a7ac">CW</span></div>
+<div style="position:absolute;left:326px;top:549px"><span class="sc" style="background:#dcbf90">SW</span></div>
+<div style="position:absolute;left:416px;top:369px"><span class="sc" style="background:#a5c95f">FR<br>C</span></div>
+<div style="position:absolute;left:486px;top:489px"><span class="sc" style="background:#e3a85c">FM</span></div>
+<div style="position:absolute;left:546px;top:409px"><span class="sc" style="background:#86a0c8">SM</span></div>
+<div style="position:absolute;left:546px;top:629px"><span class="sc" style="background:#77bd77">FR<br>S</span></div>
+<div style="position:absolute;left:666px;top:629px"><span class="sc" style="background:#6e7566">CM<br>S</span></div>
+<div style="position:absolute;left:866px;top:679px"><span class="sc" style="background:#b7c3cf">CS</span></div>
+<div style="position:absolute;left:996px;top:549px"><span class="sc" style="background:#a996cd">HB</span></div>
+<div style="position:absolute;left:486px;top:439px"><span class="sc" style="background:#6f6e49;color:#e9e9ed">OW<br>C</span></div>
+</div>
+<div class="row" style="position:absolute;left:14px;bottom:14px;gap:12px;background:rgba(22,24,38,.92);border:1px solid #2b2e3f;border-radius:6px;padding:8px 12px;flex-wrap:wrap;max-width:640px">
+<span class="lg"><i style="width:18px;height:5px;border-radius:3px;background:#5f6480;display:block"></i>main track · clearance required</span>
+<span class="lg"><i style="width:18px;height:2px;background:#3d4257;display:block"></i>dark territory</span>
+<span class="lg"><i style="width:18px;height:6px;border-radius:3px;background:#5d5294;display:block"></i>granted</span>
+<span class="lg"><i style="width:18px;height:6px;border-radius:3px;background:#d9b47a;display:block"></i>requested</span>
+<span class="lg"><i style="width:18px;height:6px;border-radius:3px;background:#e0655c;display:block"></i>conflict</span>
+<span class="lg"><i style="width:12px;height:12px;border-radius:50%;background:#8b5f5f;display:block"></i>switch cluster</span>
+</div>
+<div class="row" style="position:absolute;right:14px;top:12px;gap:6px"><span class="btn btnp" style="height:24px;font-size:11px">RTC West</span><span class="btn" style="height:24px;font-size:11px">RTC East</span><span class="btn" style="height:24px;font-size:11px">Whole road</span></div>
+</div>
+<div style="width:340px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 13px;border-bottom:1px solid #2b2e3f"><span class="k">Clearance board</span><div style="flex:1"></div><span class="n k">4</span></div>
+<div style="padding:12px 13px;display:flex;flex-direction:column;gap:9px;flex:1">
+<div class="jc" style="border-color:#7a4a46;gap:7px">
+<div class="row"><span style="font:600 13px Inter">Block 2 — CP ↔ CW</span><div style="flex:1"></div><span class="pill pal">conflict</span></div>
+<div class="k">Ash northbound · Rook southbound · single main</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Hold Rook at CW</span><span class="btn">Hold Ash</span></div>
+</div>
+<div class="jc" style="gap:7px">
+<div class="row"><span style="font:600 13px Inter">Block 11 — HB ↔ CME</span><div style="flex:1"></div><span class="pill pld">requested 40s</span></div>
+<div class="k">Ives · 4 cars · GF→CS booklet · 12 km</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Grant to CME</span><span class="btn">Grant short</span><span class="btn">Deny</span></div>
+</div>
+<div class="jc" style="gap:6px;opacity:.85">
+<div class="row"><span style="font:600 13px Inter">Block 7 — OR ↔ FF</span><div style="flex:1"></div><span class="pill pok">granted</span></div>
+<div class="k">Halden · expires in 6 min · auto-releases on arrival</div>
+</div>
+<div class="jc" style="gap:6px;opacity:.85">
+<div class="row"><span style="font:600 13px Inter">Block 4 — OWN ↔ SM</span><div style="flex:1"></div><span class="pill pok">granted</span></div>
+<div class="k">Wren · expires in 11 min</div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Out on the road</div>
+<div style="display:flex;flex-direction:column;gap:5px;font:12px Inter;color:#b2b6ca">
+<div class="row"><span class="sp" style="background:#b6a0dd;height:14px"></span><span style="width:52px;color:#e9e9ed">Halden</span><span>blk 7 · FF in 6</span><div style="flex:1"></div><span class="k">DE6</span></div>
+<div class="row"><span class="sp" style="background:#b6a0dd;height:14px"></span><span style="width:52px;color:#e9e9ed">Wren</span><span>blk 4 · SM in 11</span><div style="flex:1"></div><span class="k">DM3</span></div>
+<div class="row"><span class="sp" style="background:#86c0a8;height:14px"></span><span style="width:52px;color:#e9e9ed">Ives</span><span>blk 11 · waiting</span><div style="flex:1"></div><span class="k">DE2</span></div>
+<div class="row"><span class="sp" style="background:#7aa2c2;height:14px"></span><span style="width:52px;color:#e9e9ed">Ash</span><span>blk 2 · held</span><div style="flex:1"></div><span class="k">DE6</span></div>
+<div class="row"><span class="sp" style="background:#7aa2c2;height:14px"></span><span style="width:52px;color:#e9e9ed">Rook</span><span>blk 2 · held</span><div style="flex:1"></div><span class="k">S060</span></div>
+<div class="row" style="opacity:.6"><span class="sp" style="background:#4a4e60;height:14px"></span><span style="width:52px;color:#e9e9ed">Pike</span><span>dark territory · FRS yard</span></div>
+</div>
+<div style="flex:1"></div>
+<div style="font:11px/1.55 Inter;color:#75798c">Only main track needs a clearance. Anything on a branch or in a yard is dark territory — shown, never granted, and crews there are on their own.</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "the yard ladder should come from real track data, here's the shape of it" · "add cargo type to each car chip in <a class="dv-oid" href="#2a">2a</a>" · "sheet A overview for a station" · "now assemble <a class="dv-oid" href="#1a">1a</a> + <a class="dv-oid" href="#2a">2a</a> into the working single-file page"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Workstation concepts — shell, navigation, station view, visual system</span></div>
+
+<div class="dv-opts">
+
+<div class="dv-opt" id="1r">
+<div class="dv-olabel"><a class="dv-oid" href="#1r">1r</a>How I read the brief, before the pictures</div>
+<div class="dv-card" style="width:520px;padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+<div style="font:600 15px Inter">Assumptions I designed against</div>
+<div style="font:12.5px/1.65 Inter;color:#b2b6ca;display:flex;flex-direction:column;gap:9px">
+<div><b style="color:#e9e9ed">The page never scrolls again.</b> A dispatcher's screen is a fixed frame: chrome on the edges, one work surface in the middle that swaps. Scrolling happens inside panes only. That kills pain #1 and #4 at once.</div>
+<div><b style="color:#e9e9ed">Two maps, two jobs.</b> Logistics = the economy graph (who needs what, who can ship). Clearances = the railway itself (where the trains are, who is cleared onto what). They share the same geography so muscle memory carries over, but they never share a screen.</div>
+<div><b style="color:#e9e9ed">Cars are clicked where they stand.</b> The manifest is a byproduct of picking cars in a real yard drawing, not a form you fill in above one.</div>
+<div><b style="color:#e9e9ed">Status is color, desk is position.</b> Job state gets the hues. Desk ownership gets a 3px spine on the left edge of every object plus a faint territory wash on the map — so the two never fight.</div>
+<div><b style="color:#e9e9ed">Still one file.</b> Everything here is DOM + inline SVG, no images, no webfonts required (Inter falls back to system UI), 5s poll, personal state in localStorage.</div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div style="font:11.5px/1.6 Inter;color:#75798c">Open questions I guessed on: whether a crew can hold more than one booklet; whether Clearances needs signal/switch control or only occupancy awareness; whether "desk" is a saved preset or a live claim. Tell me and I'll correct.</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><span><b style="color:#cfd3e5">Map-first workstation.</b> Lens tabs across the top, map owns the screen, one inspector dock on the right, a live haul lane along the bottom. Drill-down replaces the map in place with a breadcrumb back.</span></div>
+<div class="dv-card" style="width:1300px">
+<div style="height:44px;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<div style="font:700 13px Inter;letter-spacing:.14em">DLE</div>
+<div style="width:1px;height:18px;background:#2b2e3f"></div>
+<div class="row" style="gap:2px">
+<span class="tab tabon">Logistics</span><span class="tab">Clearances</span><span class="tab">Dispatch</span><span class="tab">Economy</span>
+</div>
+<div style="flex:1"></div>
+<span class="pill pok">● board live · 3s</span>
+<span class="k n">21 stations · 700 cars · 118 idle</span>
+<span class="pill pld">boost 1.32×</span>
+<span class="pill pal">2 stations starving</span>
+<div style="width:1px;height:18px;background:#2b2e3f"></div>
+<div class="row" style="gap:7px"><div class="sp" style="background:#b6a0dd;height:18px"></div><span style="font:600 11.5px Inter">HUB DESK</span><span class="k">TOMMY</span></div>
+</div>
+<div style="display:flex;height:560px">
+<div style="flex:1;position:relative;background:radial-gradient(120% 90% at 50% 0%,#1a1d2e 0%,#141626 70%)">
+<svg viewBox="0 0 1060 780" style="position:absolute;inset:0;width:100%;height:100%">
+<ellipse cx="250" cy="400" rx="290" ry="330" fill="#7aa2c2" opacity="0.05"></ellipse>
+<ellipse cx="860" cy="220" rx="260" ry="240" fill="#86c0a8" opacity="0.05"></ellipse>
+<ellipse cx="660" cy="600" rx="290" ry="200" fill="#b6a0dd" opacity="0.06"></ellipse>
+<g stroke="#3a3e55" stroke-width="1.2" fill="none">
+<path d="M161,133 L503,413"></path><path d="M950,60 L503,413"></path><path d="M966,237 L503,413"></path>
+<path d="M552,594 L161,339"></path><path d="M966,237 L161,339"></path><path d="M379,350 L113,644"></path>
+<path d="M357,577 L113,644"></path><path d="M394,447 L612,127"></path><path d="M740,218 L421,232"></path>
+<path d="M310,470 L421,232"></path><path d="M421,232 L154,489"></path><path d="M421,232 L638,690"></path>
+<path d="M834,594 L822,243"></path><path d="M834,594 L176,246"></path><path d="M113,644 L834,594"></path>
+<path d="M822,243 L154,489"></path><path d="M176,246 L834,594"></path>
+</g>
+<g stroke="#9184d9" stroke-width="2.2" fill="none" opacity="0.85">
+<path d="M503,413 L822,243"></path><path d="M503,413 L176,246"></path><path d="M113,644 L822,243"></path>
+<path d="M612,127 L154,489"></path><path d="M612,127 L638,690"></path><path d="M503,413 L834,594"></path>
+</g>
+<g stroke="#d9b47a" stroke-width="2.6" fill="none" stroke-dasharray="7 5"><path d="M394,447 L612,127"></path></g>
+<circle cx="161" cy="133" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="161" y="137" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IMW</text>
+<circle cx="950" cy="60" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="950" y="64" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IME</text>
+<circle cx="966" cy="237" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="966" y="241" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CME</text>
+<circle cx="552" cy="594" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="552" y="598" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CMS</text>
+<circle cx="379" cy="350" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="379" y="354" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FRC</text>
+<circle cx="357" cy="577" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="357" y="581" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FRS</text>
+<circle cx="740" cy="218" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="740" y="222" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">OWN</text>
+<circle cx="310" cy="470" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="310" y="474" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">OWC</text>
+<circle cx="394" cy="447" r="14" fill="#16233a" stroke="#4a7fae" stroke-width="1.4"></circle><text x="394" y="451" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FM</text>
+<circle cx="503" cy="413" r="19" fill="#241f3c" stroke="#9184d9" stroke-width="1.8"></circle><text x="503" y="418" fill="#d2cefd" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">SM</text>
+<circle cx="822" cy="243" r="19" fill="#241f3c" stroke="#9184d9" stroke-width="1.8"></circle><text x="822" y="248" fill="#d2cefd" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">GF</text>
+<circle cx="176" cy="246" r="17" fill="#241f3c" stroke="#796cbf" stroke-width="1.6"></circle><text x="176" y="251" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">MF</text>
+<circle cx="612" cy="127" r="17" fill="#241f3c" stroke="#796cbf" stroke-width="1.6"></circle><text x="612" y="132" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">FF</text>
+<circle cx="113" cy="644" r="17" fill="#241f3c" stroke="#796cbf" stroke-width="1.6"></circle><text x="113" y="649" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">SW</text>
+<circle cx="421" cy="232" r="17" fill="#241f3c" stroke="#796cbf" stroke-width="1.6"></circle><text x="421" y="237" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">OR</text>
+<circle cx="154" cy="489" r="16" fill="#1a2a24" stroke="#4f9679" stroke-width="1.5"></circle><text x="154" y="494" fill="#84c6a1" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CW</text>
+<circle cx="638" cy="690" r="16" fill="#2c1c1b" stroke="#a8615c" stroke-width="1.8"></circle><text x="638" y="695" fill="#e09b95" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CS</text>
+<circle cx="161" cy="339" r="16" fill="#2c1c1b" stroke="#a8615c" stroke-width="1.8"></circle><text x="161" y="344" fill="#e09b95" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CP</text>
+<circle cx="834" cy="594" r="22" fill="#1b2340" stroke="#7d8fd0" stroke-width="2"></circle><text x="834" y="600" fill="#c3caf0" font-size="13" font-weight="700" text-anchor="middle" font-family="Inter">HB</text>
+<circle cx="796" cy="73" r="9" fill="#1b1d2b" stroke="#4a4e60"></circle><text x="796" y="76" fill="#75798c" font-size="7.5" font-weight="700" text-anchor="middle" font-family="Inter">MB</text>
+<circle cx="860" cy="105" r="9" fill="#1b1d2b" stroke="#4a4e60"></circle><text x="860" y="108" fill="#75798c" font-size="7.5" font-weight="700" text-anchor="middle" font-family="Inter">HMB</text>
+<text x="161" y="317" fill="#e09b95" font-size="9" font-weight="600" text-anchor="middle" font-family="Inter">STARVING</text>
+<text x="638" y="668" fill="#e09b95" font-size="9" font-weight="600" text-anchor="middle" font-family="Inter">STARVING</text>
+<text x="503" y="443" fill="#75798c" font-size="9" text-anchor="middle" font-family="Inter">Steel Mill</text>
+<text x="834" y="626" fill="#75798c" font-size="9" text-anchor="middle" font-family="Inter">Harbour</text>
+<g><rect x="470" y="335" width="66" height="17" rx="3" fill="#241f3c" stroke="#9184d9"></rect><text x="503" y="347" fill="#d2cefd" font-size="9.5" font-weight="600" text-anchor="middle" font-family="Inter">3 hauls out</text></g>
+</svg>
+<div style="position:absolute;left:14px;bottom:14px;display:flex;gap:14px;align-items:center;background:rgba(22,24,38,.86);border:1px solid #2b2e3f;border-radius:6px;padding:7px 11px">
+<span class="k">Edges</span>
+<span class="row" style="gap:5px"><i style="width:16px;height:2px;background:#9184d9;display:block"></i><span style="font:11px Inter;color:#b2b6ca">shippable now</span></span>
+<span class="row" style="gap:5px"><i style="width:16px;height:2px;background:#3a3e55;display:block"></i><span style="font:11px Inter;color:#b2b6ca">route exists, no stock</span></span>
+<span class="row" style="gap:5px"><i style="width:16px;height:2px;background:#d9b47a;display:block"></i><span style="font:11px Inter;color:#b2b6ca">demand unmet</span></span>
+</div>
+<div style="position:absolute;right:14px;top:14px;display:flex;gap:6px">
+<span class="btn" style="height:24px;font-size:11px">All desks</span><span class="btn btnp" style="height:24px;font-size:11px">Hub only</span><span class="btn" style="height:24px;font-size:11px">Needs ▾</span>
+</div>
+</div>
+<div style="width:352px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div style="padding:13px 15px;border-bottom:1px solid #2b2e3f;display:flex;flex-direction:column;gap:8px">
+<div class="row"><div class="sp" style="background:#b6a0dd;height:26px"></div>
+<div><div style="font:600 15px Inter">SM · Steel Mill</div><div class="k" style="margin-top:3px">Factory · Hub desk · remote load 45s/car</div></div>
+<div style="flex:1"></div><span class="btn btnp">Open yard →</span></div>
+<div class="row" style="gap:6px"><span class="pill pok">producing</span><span class="pill pav">2 machines</span><span class="pill pld">tools 3d left</span></div>
+</div>
+<div style="padding:12px 15px;border-bottom:1px solid #2b2e3f">
+<div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="k">Storage</span><span class="n" style="font:600 11.5px Inter;color:#b2b6ca">148 / 200</span></div>
+<div class="hb"><i style="width:74%;background:linear-gradient(90deg,#796cbf,#9184d9)"></i></div>
+</div>
+<div style="padding:12px 15px;border-bottom:1px solid #2b2e3f;display:flex;flex-direction:column;gap:7px">
+<div class="k">Needs</div>
+<div class="row" style="justify-content:space-between"><span style="font:12.5px Inter">Iron Ore</span><div class="hb" style="flex:1;margin:0 10px"><i style="width:22%;background:#e09b95"></i></div><span class="n" style="font:11.5px Inter;color:#e09b95">4 / 18</span></div>
+<div class="row" style="justify-content:space-between"><span style="font:12.5px Inter">Coal</span><div class="hb" style="flex:1;margin:0 10px"><i style="width:66%;background:#d9b47a"></i></div><span class="n" style="font:11.5px Inter;color:#d9b47a">12 / 18</span></div>
+<div class="row" style="justify-content:space-between"><span style="font:12.5px Inter">Scrap Metal</span><div class="hb" style="flex:1;margin:0 10px"><i style="width:90%;background:#84c6a1"></i></div><span class="n" style="font:11.5px Inter;color:#84c6a1">27 / 30</span></div>
+</div>
+<div style="padding:12px 15px;border-bottom:1px solid #2b2e3f;display:flex;flex-direction:column;gap:7px">
+<div class="k">Can ship</div>
+<div class="row" style="gap:6px;flex-wrap:wrap">
+<span class="p" style="padding:3px 8px;font:12px Inter">Steel Rolls <b class="n" style="color:#84c6a1">14</b></span>
+<span class="p" style="padding:3px 8px;font:12px Inter">Billets <b class="n" style="color:#84c6a1">9</b></span>
+<span class="p" style="padding:3px 8px;font:12px Inter">Slabs <b class="n" style="color:#84c6a1">11</b></span>
+<span class="p" style="padding:3px 8px;font:12px Inter">Bent Plates <b class="n" style="color:#84c6a1">6</b></span>
+<span class="p" style="padding:3px 8px;font:12px Inter">Rails <b class="n" style="color:#d9b47a">2</b></span>
+</div>
+<div style="font:11.5px Inter;color:#75798c">Consumers: GF · MF · HB · CW</div>
+</div>
+<div style="padding:12px 15px;display:flex;flex-direction:column;gap:7px;flex:1">
+<div class="k">Hauls touching SM</div>
+<div class="jc" style="flex-direction:row;align-items:center;gap:9px;padding:7px 9px"><div class="sp" style="background:#b6a0dd;height:24px"></div><div style="flex:1"><div style="font:600 12px Inter">SM → GF · Steel Rolls ×6</div><div class="k" style="margin-top:2px">crew Wren · loading 4/6</div></div><span class="pill pld">loaded</span></div>
+<div class="jc" style="flex-direction:row;align-items:center;gap:9px;padding:7px 9px"><div class="sp" style="background:#b6a0dd;height:24px"></div><div style="flex:1"><div style="font:600 12px Inter">IMW → SM · Iron Ore ×8</div><div class="k" style="margin-top:2px">crew Halden · rolling</div></div><span class="pill ppr">in progress</span></div>
+<div class="jc" style="flex-direction:row;align-items:center;gap:9px;padding:7px 9px"><div class="sp" style="background:#7aa2c2;height:24px"></div><div style="flex:1"><div style="font:600 12px Inter">SM → MF · Slabs ×4</div><div class="k" style="margin-top:2px">unassigned · posted 6m ago</div></div><span class="pill pav">available</span></div>
+</div>
+</div>
+</div>
+<div style="height:104px;border-top:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:28px;padding:0 14px;gap:10px;border-bottom:1px solid #2b2e3f">
+<span class="k">Board</span>
+<span class="row" style="gap:5px"><span class="pill pav">available 7</span><span class="pill ppr">in progress 11</span><span class="pill pld">loaded 4</span><span class="pill pun">unpaid 2</span><span class="pill plg">logi 3</span><span class="pill pal">stalled 1</span></span>
+<div style="flex:1"></div><span class="k">scroll ⇄ · click to inspect · ⌘K to search</span>
+</div>
+<div class="row" style="flex:1;gap:9px;padding:0 14px;overflow:hidden">
+<div class="jc" style="width:206px;flex:none;padding:7px 9px"><div class="row" style="gap:6px"><div class="sp" style="background:#b6a0dd;height:14px"></div><span class="n" style="font:600 11.5px Inter">SM→GF 6</span><span style="flex:1"></span><span class="pill pld">loaded</span></div><div class="k">Wren · $12,480 · 372t</div></div>
+<div class="jc" style="width:206px;flex:none;padding:7px 9px"><div class="row" style="gap:6px"><div class="sp" style="background:#b6a0dd;height:14px"></div><span class="n" style="font:600 11.5px Inter">IMW→SM 8</span><span style="flex:1"></span><span class="pill ppr">rolling</span></div><div class="k">Halden · $9,140 · 41 km out</div></div>
+<div class="jc" style="width:206px;flex:none;padding:7px 9px"><div class="row" style="gap:6px"><div class="sp" style="background:#7aa2c2;height:14px"></div><span class="n" style="font:600 11.5px Inter">FRS→SW 5</span><span style="flex:1"></span><span class="pill pav">open</span></div><div class="k">unassigned · $6,020</div></div>
+<div class="jc" style="width:206px;flex:none;padding:7px 9px;border-color:#7a4a46"><div class="row" style="gap:6px"><div class="sp" style="background:#86c0a8;height:14px"></div><span class="n" style="font:600 11.5px Inter">GF→CS 4</span><span style="flex:1"></span><span class="pill pal">stalled 22m</span></div><div class="k">Ives · no movement</div></div>
+<div class="jc" style="width:206px;flex:none;padding:7px 9px"><div class="row" style="gap:6px"><div class="sp" style="background:#86c0a8;height:14px"></div><span class="n" style="font:600 11.5px Inter">HB→GF 6</span><span style="flex:1"></span><span class="pill pun">unpaid</span></div><div class="k">Ash · relocating imports</div></div>
+<div class="jc" style="width:206px;flex:none;padding:7px 9px"><div class="row" style="gap:6px"><div class="sp" style="background:#b6a0dd;height:14px"></div><span class="n" style="font:600 11.5px Inter">CMS→HB 9</span><span style="flex:1"></span><span class="pill plg">logi</span></div><div class="k">empties · closes on arrival</div></div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><span><b style="color:#cfd3e5">Console with a standing work queue.</b> Same lenses, but hauls live in a permanent left rail grouped by what they're waiting on. The map is smaller; nothing you're babysitting is ever off-screen.</span></div>
+<div class="dv-card" style="width:1300px">
+<div style="height:42px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<div style="font:700 13px Inter;letter-spacing:.14em">DLE</div>
+<div class="row" style="gap:2px"><span class="tab tabon">Logistics</span><span class="tab">Clearances</span><span class="tab">Economy</span></div>
+<div style="flex:1"></div>
+<div class="row" style="gap:5px"><span class="k">Desk</span><span class="btn btnp" style="height:24px;font-size:11px">Hub</span><span class="btn" style="height:24px;font-size:11px">East</span><span class="btn" style="height:24px;font-size:11px">West</span><span class="btn" style="height:24px;font-size:11px">All</span></div>
+<div style="width:1px;height:18px;background:#2b2e3f"></div>
+<span class="pill pok">live</span><span class="k">TOMMY</span>
+</div>
+<div style="display:flex;height:600px">
+<div style="width:286px;border-right:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 12px;border-bottom:1px solid #2b2e3f;gap:8px"><span class="k">Work queue</span><span class="n k">24</span><div style="flex:1"></div><span class="k">sort: urgency</span></div>
+<div style="padding:10px 12px;display:flex;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="row"><span class="k" style="color:#e09b95">Needs you</span><div style="flex:1;height:1px;background:#2b2e3f;margin-left:8px"></div></div>
+<div class="jc" style="border-color:#7a4a46"><div class="row"><div class="sp" style="background:#86c0a8;height:16px"></div><span style="font:600 12.5px Inter">GF → CS</span><div style="flex:1"></div><span class="pill pal">stalled 22m</span></div><div class="k">Ives · 4 cars · no movement since 14:02</div></div>
+<div class="jc" style="border-color:#7a4a46"><div class="row"><div class="sp" style="background:#b6a0dd;height:16px"></div><span style="font:600 12.5px Inter">CP</span><div style="flex:1"></div><span class="pill pal">starving</span></div><div class="k">Coal 0 · city output stopped</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="row"><span class="k" style="color:#d9b47a">Loaded, waiting on a crew</span><div style="flex:1;height:1px;background:#2b2e3f;margin-left:8px"></div></div>
+<div class="jc"><div class="row"><div class="sp" style="background:#b6a0dd;height:16px"></div><span style="font:600 12.5px Inter">SM → GF</span><div style="flex:1"></div><span class="pill pld">6/6 loaded</span></div><div class="k">Steel Rolls · $12,480 · T1 spot 3</div><div class="row" style="gap:5px"><span class="btn" style="height:22px;font-size:10.5px">Assign…</span><span class="btn" style="height:22px;font-size:10.5px">Fax</span></div></div>
+<div class="jc"><div class="row"><div class="sp" style="background:#7aa2c2;height:16px"></div><span style="font:600 12.5px Inter">SW → HB</span><div style="flex:1"></div><span class="pill pld">5/5 loaded</span></div><div class="k">Boards + Plywood · $8,300</div></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="row"><span class="k" style="color:#b5abfc">Rolling</span><div style="flex:1;height:1px;background:#2b2e3f;margin-left:8px"></div></div>
+<div class="jc"><div class="row"><div class="sp" style="background:#b6a0dd;height:16px"></div><span style="font:600 12.5px Inter">IMW → SM</span><div style="flex:1"></div><span class="pill ppr">41 km</span></div><div class="k">Halden · Iron Ore ×8</div></div>
+<div class="jc"><div class="row"><div class="sp" style="background:#86c0a8;height:16px"></div><span style="font:600 12.5px Inter">HB → GF</span><div style="flex:1"></div><span class="pill pun">unpaid</span></div><div class="k">Ash · imports onward</div></div>
+<div class="jc" style="opacity:.75"><div class="row"><div class="sp" style="background:#b6a0dd;height:16px"></div><span style="font:600 12.5px Inter">CMS → HB</span><div style="flex:1"></div><span class="pill plg">logi</span></div><div class="k">9 empties · closes on arrival</div></div>
+</div>
+</div>
+</div>
+<div style="flex:1;position:relative;background:radial-gradient(120% 90% at 50% 0%,#1a1d2e 0%,#141626 70%)">
+<svg viewBox="0 0 1060 780" style="position:absolute;inset:0;width:100%;height:100%" preserveAspectRatio="xMidYMid meet">
+<ellipse cx="660" cy="600" rx="290" ry="200" fill="#b6a0dd" opacity="0.07"></ellipse>
+<g stroke="#3a3e55" stroke-width="1.2" fill="none">
+<path d="M161,133 L503,413"></path><path d="M950,60 L503,413"></path><path d="M966,237 L503,413"></path>
+<path d="M552,594 L161,339"></path><path d="M379,350 L113,644"></path><path d="M357,577 L113,644"></path>
+<path d="M740,218 L421,232"></path><path d="M310,470 L421,232"></path><path d="M421,232 L154,489"></path>
+<path d="M834,594 L822,243"></path><path d="M113,644 L834,594"></path><path d="M176,246 L834,594"></path>
+<path d="M394,447 L612,127"></path><path d="M421,232 L638,690"></path>
+</g>
+<g stroke="#9184d9" stroke-width="2.2" fill="none" opacity="0.9">
+<path d="M503,413 L822,243"></path><path d="M503,413 L176,246"></path><path d="M612,127 L638,690"></path><path d="M503,413 L834,594"></path>
+</g>
+<circle cx="161" cy="133" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="161" y="137" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IMW</text>
+<circle cx="950" cy="60" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="950" y="64" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IME</text>
+<circle cx="966" cy="237" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="966" y="241" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CME</text>
+<circle cx="552" cy="594" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="552" y="598" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CMS</text>
+<circle cx="379" cy="350" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="379" y="354" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FRC</text>
+<circle cx="357" cy="577" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="357" y="581" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FRS</text>
+<circle cx="740" cy="218" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="740" y="222" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">OWN</text>
+<circle cx="310" cy="470" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="310" y="474" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">OWC</text>
+<circle cx="394" cy="447" r="13" fill="#16233a" stroke="#4a7fae"></circle><text x="394" y="451" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FM</text>
+<circle cx="503" cy="413" r="18" fill="#241f3c" stroke="#9184d9" stroke-width="1.8"></circle><text x="503" y="418" fill="#d2cefd" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">SM</text>
+<circle cx="822" cy="243" r="17" fill="#241f3c" stroke="#796cbf"></circle><text x="822" y="248" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">GF</text>
+<circle cx="176" cy="246" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="176" y="251" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">MF</text>
+<circle cx="612" cy="127" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="612" y="132" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">FF</text>
+<circle cx="113" cy="644" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="113" y="649" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">SW</text>
+<circle cx="421" cy="232" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="421" y="237" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">OR</text>
+<circle cx="154" cy="489" r="15" fill="#1a2a24" stroke="#4f9679"></circle><text x="154" y="494" fill="#84c6a1" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CW</text>
+<circle cx="638" cy="690" r="15" fill="#2c1c1b" stroke="#a8615c" stroke-width="1.8"></circle><text x="638" y="695" fill="#e09b95" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CS</text>
+<circle cx="161" cy="339" r="15" fill="#2c1c1b" stroke="#a8615c" stroke-width="1.8"></circle><text x="161" y="344" fill="#e09b95" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CP</text>
+<circle cx="834" cy="594" r="21" fill="#1b2340" stroke="#7d8fd0" stroke-width="2"></circle><text x="834" y="600" fill="#c3caf0" font-size="13" font-weight="700" text-anchor="middle" font-family="Inter">HB</text>
+</svg>
+<div class="row" style="position:absolute;left:12px;top:12px;gap:6px"><span class="btn btnp" style="height:24px;font-size:11px">Stock</span><span class="btn" style="height:24px;font-size:11px">Demand</span><span class="btn" style="height:24px;font-size:11px">Traffic</span><span class="btn" style="height:24px;font-size:11px">Machines</span></div>
+</div>
+<div style="width:300px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 12px;border-bottom:1px solid #2b2e3f"><span class="k">Inspector — SM</span><div style="flex:1"></div><span class="k">pin</span></div>
+<div style="padding:12px;display:flex;flex-direction:column;gap:11px">
+<div><div style="font:600 14px Inter">Steel Mill</div><div class="k" style="margin-top:3px">Hub desk · 148/200 stored</div></div>
+<div class="hb"><i style="width:74%;background:linear-gradient(90deg,#796cbf,#9184d9)"></i></div>
+<div style="display:flex;flex-direction:column;gap:5px">
+<div class="k">Recipe · Iron Ore ×6 + Coal ×2</div>
+<div class="row" style="gap:6px;flex-wrap:wrap"><span class="p" style="padding:3px 7px;font:11.5px Inter;color:#e09b95">Iron Ore 4/18</span><span class="p" style="padding:3px 7px;font:11.5px Inter;color:#d9b47a">Coal 12/18</span></div>
+<div class="k" style="margin-top:4px">Yields</div>
+<div class="row" style="gap:6px;flex-wrap:wrap"><span class="p" style="padding:3px 7px;font:11.5px Inter">Rolls 14</span><span class="p" style="padding:3px 7px;font:11.5px Inter">Billets 9</span><span class="p" style="padding:3px 7px;font:11.5px Inter">Slabs 11</span><span class="p" style="padding:3px 7px;font:11.5px Inter">Plates 6</span></div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="k">Yard at a glance</div>
+<div class="row" style="gap:4px;flex-wrap:wrap">
+<span class="car gh" style="position:static;width:44px">T1 ×6</span><span class="car ld" style="position:static;width:44px">T2 ×4</span><span class="car" style="position:static;width:44px">T3 ×5</span><span class="car" style="position:static;width:44px">T4 ×3</span><span class="car bz" style="position:static;width:44px">T5 ×5</span>
+</div>
+<span class="btn btnp" style="width:100%">Open SM yard</span>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Last 5 events</div>
+<div style="display:flex;flex-direction:column;gap:4px;font:11.5px/1.5 Inter;color:#8b8fa3">
+<div><span class="n" style="color:#595d6c">14:22</span> staff loaded 4× Steel Rolls</div>
+<div><span class="n" style="color:#595d6c">14:19</span> made 1× Billets from Scrap</div>
+<div><span class="n" style="color:#595d6c">14:11</span> received 8× Iron Ore from IMW</div>
+<div><span class="n" style="color:#595d6c">14:04</span> haul SM→MF posted</div>
+<div><span class="n" style="color:#595d6c">13:58</span> machine wear 46/50</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><span><b style="color:#cfd3e5">Split desk — map and yard at once.</b> Built for the "hauls back to back" complaint: pick cars in the bottom half, pick the destination on the top half, the booklet assembles itself in the right drawer. Two surfaces, never a mode switch.</span></div>
+<div class="dv-card" style="width:1300px">
+<div style="height:40px;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<div style="font:700 13px Inter;letter-spacing:.14em">DLE</div>
+<div class="row" style="gap:2px"><span class="tab tabon">Logistics</span><span class="tab">Clearances</span><span class="tab">Economy</span></div>
+<div style="flex:1"></div><span class="k">pinned yard: SM</span><span class="pill pok">live</span>
+</div>
+<div style="display:flex;height:404px;border-bottom:1px solid #2b2e3f">
+<div style="flex:1;position:relative;background:#141626">
+<svg viewBox="0 0 1060 780" style="position:absolute;inset:0;width:100%;height:100%" preserveAspectRatio="xMidYMid slice">
+<g stroke="#3a3e55" stroke-width="1.4" fill="none">
+<path d="M161,133 L503,413"></path><path d="M950,60 L503,413"></path><path d="M966,237 L503,413"></path>
+<path d="M552,594 L161,339"></path><path d="M379,350 L113,644"></path><path d="M740,218 L421,232"></path>
+<path d="M421,232 L154,489"></path><path d="M834,594 L822,243"></path><path d="M113,644 L834,594"></path>
+</g>
+<g stroke="#9184d9" stroke-width="3" fill="none"><path d="M503,413 L822,243"></path><path d="M503,413 L176,246"></path><path d="M503,413 L834,594"></path></g>
+<circle cx="503" cy="413" r="24" fill="#3a2f6b" stroke="#9184d9" stroke-width="2.4"></circle><text x="503" y="419" fill="#f3f5fe" font-size="14" font-weight="700" text-anchor="middle" font-family="Inter">SM</text>
+<circle cx="822" cy="243" r="20" fill="#241f3c" stroke="#b5abfc" stroke-width="2.4"></circle><text x="822" y="249" fill="#d2cefd" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">GF</text>
+<rect x="778" y="196" width="88" height="18" rx="3" fill="#3a2f6b" stroke="#9184d9"></rect><text x="822" y="209" fill="#e9e9ed" font-size="10" font-weight="600" text-anchor="middle" font-family="Inter">destination</text>
+<circle cx="176" cy="246" r="18" fill="#241f3c" stroke="#796cbf"></circle><text x="176" y="251" fill="#d2cefd" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">MF</text>
+<circle cx="834" cy="594" r="22" fill="#1b2340" stroke="#7d8fd0" stroke-width="2"></circle><text x="834" y="600" fill="#c3caf0" font-size="13" font-weight="700" text-anchor="middle" font-family="Inter">HB</text>
+<circle cx="161" cy="133" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="161" y="137" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IMW</text>
+<circle cx="950" cy="60" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="950" y="64" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">IME</text>
+<circle cx="966" cy="237" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="966" y="241" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CME</text>
+<circle cx="552" cy="594" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="552" y="598" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">CMS</text>
+<circle cx="379" cy="350" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="379" y="354" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">FRC</text>
+<circle cx="740" cy="218" r="14" fill="#16233a" stroke="#4a7fae"></circle><text x="740" y="222" fill="#8fb8e0" font-size="10" font-weight="700" text-anchor="middle" font-family="Inter">OWN</text>
+<circle cx="421" cy="232" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="421" y="237" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">OR</text>
+<circle cx="161" cy="339" r="15" fill="#2c1c1b" stroke="#a8615c" stroke-width="1.8"></circle><text x="161" y="344" fill="#e09b95" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CP</text>
+<circle cx="154" cy="489" r="15" fill="#1a2a24" stroke="#4f9679"></circle><text x="154" y="494" fill="#84c6a1" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">CW</text>
+<circle cx="113" cy="644" r="16" fill="#241f3c" stroke="#796cbf"></circle><text x="113" y="649" fill="#d2cefd" font-size="11" font-weight="700" text-anchor="middle" font-family="Inter">SW</text>
+</svg>
+<div style="position:absolute;left:12px;top:10px" class="k">Logistics map — click any lit station to set the destination</div>
+</div>
+<div style="width:300px;border-left:1px solid #2b2e3f;background:#181a29;padding:12px;display:flex;flex-direction:column;gap:9px">
+<div class="row"><span class="k">Booklet in progress</span><div style="flex:1"></div><span class="pill plg">draft</span></div>
+<div class="row" style="gap:8px;font:600 15px Inter"><span>SM</span><span style="color:#75798c">→</span><span style="color:#b5abfc">GF</span></div>
+<div class="p" style="padding:7px 9px;display:flex;flex-direction:column;gap:3px"><div class="row"><span style="font:600 12px Inter">Steel Rolls</span><div style="flex:1"></div><span class="n" style="font:12px Inter;color:#84c6a1">$7,240</span></div><div class="k">3 cars · GN-482 GN-517 GN-233</div></div>
+<div class="p" style="padding:7px 9px;display:flex;flex-direction:column;gap:3px"><div class="row"><span style="font:600 12px Inter">Bent Plates</span><div style="flex:1"></div><span class="n" style="font:12px Inter;color:#84c6a1">$5,240</span></div><div class="k">2 cars · HP-118 HP-140</div></div>
+<div class="p" style="padding:7px 9px;border-style:dashed;background:transparent"><div class="row"><span class="k">picking now</span><div style="flex:1"></div><span class="n k">1 car</span></div></div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="row" style="justify-content:space-between;font:12px Inter;color:#b2b6ca"><span>Total pay</span><span class="n" style="color:#84c6a1;font-weight:600">$12,480</span></div>
+<div class="row" style="justify-content:space-between;font:12px Inter;color:#b2b6ca"><span>Weight · length</span><span class="n">372 t · 148 m</span></div>
+<div class="row" style="justify-content:space-between;font:12px Inter;color:#b2b6ca"><span>Staff load time</span><span class="n">3m 45s</span></div>
+<div class="p" style="padding:6px 9px;display:flex;align-items:center;gap:7px"><span class="k">Crew</span><span style="font:12.5px Inter;color:#e9e9ed">Wren</span><div style="flex:1"></div><span class="k">⌄</span></div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Create + load</span><span class="btn">Create</span></div>
+<div style="font:11px/1.5 Inter;color:#75798c">Cars stay reserved to this draft until you clear it. Another dispatcher sees them greyed.</div>
+</div>
+</div>
+<div style="height:358px;display:flex">
+<div style="flex:1;position:relative;overflow:hidden">
+<div class="row" style="height:30px;padding:0 14px;gap:10px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<span style="font:600 12px Inter">SM · Steel Mill yard</span><span class="k">5 tracks · 23 cars · 9 usable</span>
+<div style="flex:1"></div><span class="k">click a car to add it · shift-click a range · ⌥ click to drop</span>
+</div>
+<svg viewBox="0 0 1300 320" style="position:absolute;left:0;top:30px;width:1300px;height:320px">
+<g stroke="#33374a" stroke-width="2" fill="none">
+<path d="M40,286 H1270"></path>
+<path d="M96,286 L136,242"></path><path d="M136,242 H1270"></path>
+<path d="M152,242 L192,198"></path><path d="M192,198 H1270"></path>
+<path d="M208,198 L248,154"></path><path d="M248,154 H1270"></path>
+<path d="M264,154 L304,110"></path><path d="M304,110 H1270"></path>
+<path d="M320,110 L360,66"></path><path d="M360,66 H1270"></path>
+</g>
+<rect x="360" y="40" width="330" height="4" fill="#6b5a34"></rect>
+<text x="366" y="34" fill="#d9b47a" font-size="9.5" font-weight="600" font-family="Inter">WAREHOUSE · LOADING TRACK</text>
+</svg>
+<div style="position:absolute;left:0;top:30px;width:100%;height:314px;pointer-events:none">
+<div class="car sel" style="left:380px;top:44px;width:54px">GN-482</div>
+<div class="car sel" style="left:437px;top:44px;width:54px">GN-517</div>
+<div class="car sel" style="left:494px;top:44px;width:54px">GN-233</div>
+<div class="car sel" style="left:551px;top:44px;width:46px">HP-118</div>
+<div class="car sel" style="left:600px;top:44px;width:46px">HP-140</div>
+<div class="car" style="left:649px;top:44px;width:46px">HP-162</div>
+<div class="car ld" style="left:324px;top:88px;width:66px">FM-901</div>
+<div class="car ld" style="left:393px;top:88px;width:66px">FM-914</div>
+<div class="car bz" style="left:462px;top:88px;width:66px">FM-927</div>
+<div class="car bz" style="left:531px;top:88px;width:66px">FM-933</div>
+<div class="car" style="left:268px;top:132px;width:46px">TK-330</div>
+<div class="car" style="left:317px;top:132px;width:46px">TK-341</div>
+<div class="car" style="left:366px;top:132px;width:46px">TK-352</div>
+<div class="car bz" style="left:415px;top:132px;width:46px">TK-364</div>
+<div class="car" style="left:464px;top:132px;width:46px">TK-377</div>
+<div class="car" style="left:212px;top:176px;width:58px">BX-771</div>
+<div class="car" style="left:273px;top:176px;width:58px">BX-780</div>
+<div class="car bz" style="left:334px;top:176px;width:58px">BX-788</div>
+<div class="car ld" style="left:156px;top:220px;width:54px">GN-601</div>
+<div class="car ld" style="left:213px;top:220px;width:54px">GN-612</div>
+<div class="car" style="left:270px;top:220px;width:46px">HP-205</div>
+<div class="car" style="left:319px;top:220px;width:46px">HP-219</div>
+<div class="car" style="left:368px;top:220px;width:66px">FM-088</div>
+<div class="car lo" style="left:907px;top:264px;width:84px">DE6-042</div>
+<div class="car bz" style="left:838px;top:264px;width:66px">FM-433</div>
+<div class="car bz" style="left:769px;top:264px;width:66px">FM-421</div>
+<div class="car bz" style="left:700px;top:264px;width:66px">FM-410</div>
+<div class="k" style="position:absolute;left:700px;top:22px;width:290px;text-align:right">T1 · 6 cars · 240/420 m</div>
+<div class="k" style="position:absolute;left:700px;top:66px;width:290px;text-align:right">T2 · 4 cars · 264/420 m</div>
+<div class="k" style="position:absolute;left:700px;top:110px;width:290px;text-align:right">T3 · 5 cars · 230/380 m</div>
+<div class="k" style="position:absolute;left:700px;top:154px;width:290px;text-align:right">T4 · 3 cars · 174/380 m</div>
+<div class="k" style="position:absolute;left:700px;top:198px;width:290px;text-align:right">T5 · 5 cars · 266/380 m</div>
+<div class="k" style="position:absolute;left:46px;top:242px">MAIN · arriving: Halden, DE6-042</div>
+</div>
+</div>
+<div style="width:300px;border-left:1px solid #2b2e3f;background:#181a29;padding:12px;display:flex;flex-direction:column;gap:10px">
+<div class="k">Car legend</div>
+<div style="display:flex;flex-direction:column;gap:6px;font:11.5px Inter;color:#b2b6ca">
+<div class="row"><span class="car" style="position:static;width:52px">free</span><span>usable, compatible</span></div>
+<div class="row"><span class="car sel" style="position:static;width:52px">picked</span><span>in this draft</span></div>
+<div class="row"><span class="car ld" style="position:static;width:52px">loaded</span><span>already carrying cargo</span></div>
+<div class="row"><span class="car bz" style="position:static;width:52px">busy</span><span>on a job, reserved, player-owned</span></div>
+<div class="row"><span class="car lo" style="position:static;width:52px">loco</span><span>not selectable</span></div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Station shortcuts</div>
+<div class="row" style="gap:5px;flex-wrap:wrap">
+<span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">SM</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">GF</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">HB</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">MF</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">CS</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">FF</span><span class="btn" style="height:22px;font-size:10.5px;padding:0 8px">+ pin</span>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Compatible empties elsewhere</div>
+<div style="display:flex;flex-direction:column;gap:5px;font:11.5px Inter;color:#b2b6ca">
+<div class="row"><span class="n" style="width:34px;color:#e9e9ed">CMS</span><span>7 gondolas</span><div style="flex:1"></div><span class="btn" style="height:20px;font-size:10px">Call in</span></div>
+<div class="row"><span class="n" style="width:34px;color:#e9e9ed">HB</span><span>12 hoppers</span><div style="flex:1"></div><span class="btn" style="height:20px;font-size:10px">Call in</span></div>
+<div class="row"><span class="n" style="width:34px;color:#e9e9ed">siding 1437</span><span>3 flats</span></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a><span><b style="color:#cfd3e5">Station view, drawn properly.</b> This is the detail that any of the three shells drops into. Real ladder geometry, cars in consist order at true relative length, selection lives on the cars themselves.</span></div>
+<div class="dv-card" style="width:1660px">
+<div class="row" style="height:46px;padding:0 16px;gap:12px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<span class="k" style="color:#595d6c">Network</span><span style="color:#4a4e60">/</span>
+<div class="row" style="gap:8px"><div class="sp" style="background:#b6a0dd;height:20px"></div><span style="font:600 14px Inter">SM · Steel Mill</span></div>
+<span class="pill pok">producing</span><span class="pill pld">tools 3d</span>
+<div style="flex:1"></div>
+<div class="row" style="gap:14px">
+<div style="text-align:right"><div class="k">Storage</div><div class="n" style="font:600 12.5px Inter">148/200</div></div>
+<div style="text-align:right"><div class="k">Cars on hand</div><div class="n" style="font:600 12.5px Inter">23 · 9 free</div></div>
+<div style="text-align:right"><div class="k">Staff load</div><div class="n" style="font:600 12.5px Inter">45 s/car</div></div>
+<span class="btn">Esc · back to map</span>
+</div>
+</div>
+<div style="display:flex;height:504px">
+<div style="flex:1;position:relative;overflow:hidden;background:linear-gradient(180deg,#141626,#12141f)">
+<svg viewBox="0 0 1340 400" style="position:absolute;left:0;top:0;width:1340px;height:400px">
+<g stroke="#2b2e3f" stroke-width="1" fill="none" stroke-dasharray="3 6">
+<path d="M40,66 H1300"></path><path d="M40,110 H1300"></path><path d="M40,154 H1300"></path><path d="M40,198 H1300"></path><path d="M40,242 H1300"></path>
+</g>
+<g stroke="#3d4257" stroke-width="2.4" fill="none">
+<path d="M40,330 H1300"></path>
+<path d="M96,330 L136,286"></path><path d="M136,286 H1300"></path>
+<path d="M152,286 L192,242"></path><path d="M192,242 H1300"></path>
+<path d="M208,242 L248,198"></path><path d="M248,198 H1300"></path>
+<path d="M264,198 L304,154"></path><path d="M304,154 H1300"></path>
+<path d="M320,154 L360,110"></path><path d="M360,110 H1300"></path>
+<path d="M376,110 L416,66"></path><path d="M416,66 H1300"></path>
+</g>
+<g fill="#9184d9"><circle cx="96" cy="330" r="3"></circle><circle cx="152" cy="286" r="3"></circle><circle cx="208" cy="242" r="3"></circle><circle cx="264" cy="198" r="3"></circle><circle cx="320" cy="154" r="3"></circle><circle cx="376" cy="110" r="3"></circle></g>
+<rect x="416" y="38" width="360" height="5" fill="#6b5a34"></rect>
+<text x="422" y="31" fill="#d9b47a" font-size="10" font-weight="600" font-family="Inter" letter-spacing="0.08em">WAREHOUSE · STAFF CAN LOAD HERE</text>
+<rect x="416" y="82" width="360" height="5" fill="#6b5a34"></rect>
+<text x="422" y="75" fill="#d9b47a" font-size="10" font-weight="600" font-family="Inter" letter-spacing="0.08em">WAREHOUSE · STAFF CAN LOAD HERE</text>
+<text x="1150" y="352" fill="#595d6c" font-size="10" font-family="Inter">→ to mainline, CMS 14 km</text>
+</svg>
+<div style="position:absolute;left:0;top:0;width:100%;height:400px">
+<div class="car sel" style="left:436px;top:44px;width:54px">GN-482</div>
+<div class="car sel" style="left:493px;top:44px;width:54px">GN-517</div>
+<div class="car sel" style="left:550px;top:44px;width:54px">GN-233</div>
+<div class="car" style="left:607px;top:44px;width:54px">GN-244</div>
+<div class="car" style="left:664px;top:44px;width:46px">HP-162</div>
+<div class="car bz" style="left:713px;top:44px;width:46px">HP-171</div>
+<div class="car sel" style="left:380px;top:88px;width:46px">HP-118</div>
+<div class="car sel" style="left:429px;top:88px;width:46px">HP-140</div>
+<div class="car" style="left:478px;top:88px;width:46px">HP-153</div>
+<div class="car ld" style="left:527px;top:88px;width:66px">FM-901</div>
+<div class="car ld" style="left:596px;top:88px;width:66px">FM-914</div>
+<div class="car" style="left:324px;top:132px;width:66px">FM-927</div>
+<div class="car" style="left:393px;top:132px;width:66px">FM-933</div>
+<div class="car bz" style="left:462px;top:132px;width:66px">FM-948</div>
+<div class="car bz" style="left:531px;top:132px;width:66px">FM-955</div>
+<div class="car" style="left:268px;top:176px;width:46px">TK-330</div>
+<div class="car" style="left:317px;top:176px;width:46px">TK-341</div>
+<div class="car" style="left:366px;top:176px;width:46px">TK-352</div>
+<div class="car bz" style="left:415px;top:176px;width:46px">TK-364</div>
+<div class="car" style="left:464px;top:176px;width:46px">TK-377</div>
+<div class="car ld" style="left:212px;top:220px;width:58px">BX-771</div>
+<div class="car ld" style="left:273px;top:220px;width:58px">BX-780</div>
+<div class="car bz" style="left:334px;top:220px;width:58px">BX-788</div>
+<div class="car" style="left:395px;top:220px;width:58px">BX-796</div>
+<div class="car ld" style="left:156px;top:264px;width:54px">GN-601</div>
+<div class="car ld" style="left:213px;top:264px;width:54px">GN-612</div>
+<div class="car" style="left:270px;top:264px;width:46px">HP-205</div>
+<div class="car" style="left:319px;top:264px;width:46px">HP-219</div>
+<div class="car" style="left:368px;top:264px;width:66px">FM-088</div>
+<div class="car lo" style="left:1060px;top:308px;width:84px">DE6-042</div>
+<div class="car bz" style="left:991px;top:308px;width:66px">FM-433</div>
+<div class="car bz" style="left:922px;top:308px;width:66px">FM-421</div>
+<div class="car bz" style="left:853px;top:308px;width:66px">FM-410</div>
+<div style="position:absolute;left:800px;top:16px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T1 · LOADING</div><div class="k">6 cars · 296/420 m · 3 picked</div></div>
+<div style="position:absolute;left:800px;top:60px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T2 · LOADING</div><div class="k">5 cars · 270/420 m · 2 picked</div></div>
+<div style="position:absolute;left:800px;top:104px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T3 · STORAGE</div><div class="k">4 cars · 264/380 m</div></div>
+<div style="position:absolute;left:800px;top:148px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T4 · STORAGE</div><div class="k">5 cars · 230/380 m</div></div>
+<div style="position:absolute;left:800px;top:192px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T5 · HOLDING</div><div class="k">4 cars · 232/380 m</div></div>
+<div style="position:absolute;left:800px;top:236px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#cfd3e5">T6 · HOLDING</div><div class="k">5 cars · 266/380 m</div></div>
+<div style="position:absolute;left:46px;top:282px;display:flex;flex-direction:column;gap:1px"><div style="font:600 11px Inter;color:#8fb8e0">MAIN</div><div class="k">Halden arriving · 4 cars behind DE6-042</div></div>
+<div style="position:absolute;left:436px;top:22px;height:18px;width:171px;border-top:1px solid #9184d9;border-left:1px solid #9184d9;border-right:1px solid #9184d9;border-radius:3px 3px 0 0"></div>
+<div style="position:absolute;left:498px;top:12px;padding:1px 6px;background:#3a2f6b;border:1px solid #9184d9;border-radius:3px;font:600 9.5px Inter;color:#f3f5fe">3 picked · Steel Rolls</div>
+</div>
+<div class="row" style="position:absolute;left:16px;bottom:14px;gap:10px;background:rgba(22,24,38,.9);border:1px solid #2b2e3f;border-radius:6px;padding:8px 12px">
+<span class="k">Filter</span>
+<span class="btn btnp" style="height:22px;font-size:10.5px">Compatible only</span>
+<span class="btn" style="height:22px;font-size:10.5px">All cars</span>
+<span class="btn" style="height:22px;font-size:10.5px">Loaded</span>
+<span class="btn" style="height:22px;font-size:10.5px">Idle &gt; 1 h</span>
+<div style="width:1px;height:16px;background:#2b2e3f"></div>
+<span class="k">23 shown · 9 selectable · 5 picked</span>
+</div>
+</div>
+<div style="width:340px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 13px;border-bottom:1px solid #2b2e3f"><span class="k">Manifest</span><div style="flex:1"></div><span class="k">SM → ?</span></div>
+<div style="padding:12px 13px;display:flex;flex-direction:column;gap:9px;flex:1">
+<div class="p" style="padding:8px 10px;display:flex;flex-direction:column;gap:4px;border-color:#5d5294">
+<div class="row"><span style="font:600 12.5px Inter;color:#d2cefd">Line 1 · Steel Rolls</span><div style="flex:1"></div><span class="n" style="font:12px Inter;color:#84c6a1">$7,240</span></div>
+<div class="row" style="gap:3px;flex-wrap:wrap"><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">GN-482</span><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">GN-517</span><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">GN-233</span></div>
+<div class="k">3 cars · 186 t · load 2m 15s</div>
+</div>
+<div class="p" style="padding:8px 10px;display:flex;flex-direction:column;gap:4px;border-color:#5d5294">
+<div class="row"><span style="font:600 12.5px Inter;color:#d2cefd">Line 2 · Bent Plates</span><div style="flex:1"></div><span class="n" style="font:12px Inter;color:#84c6a1">$5,240</span></div>
+<div class="row" style="gap:3px;flex-wrap:wrap"><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">HP-118</span><span class="car sel" style="position:static;width:52px;height:18px;line-height:17px">HP-140</span></div>
+<div class="k">2 cars · 128 t · load 1m 30s</div>
+</div>
+<div class="p" style="padding:8px 10px;border-style:dashed;background:transparent;display:flex;flex-direction:column;gap:5px">
+<div class="row"><span class="k">Next line</span><div style="flex:1"></div><span class="k">pick cars, then choose cargo</span></div>
+<div class="row" style="gap:6px"><span class="p" style="padding:4px 8px;font:11.5px Inter;flex:1">Cargo ⌄</span><span class="btn" style="height:24px">+ Add line</span></div>
+</div>
+<div style="flex:1"></div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Destination</span><span style="color:#b5abfc;font-weight:600">GF · Goods Factory</span></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Pay</span><span class="n" style="color:#84c6a1;font-weight:600">$12,480</span></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Weight · length</span><span class="n">314 t · 122 m</span></div>
+<div class="row" style="justify-content:space-between;font:12.5px Inter"><span style="color:#8b8fa3">Staff load</span><span class="n">3m 45s</span></div>
+<div class="p" style="padding:6px 9px;display:flex;align-items:center;gap:8px"><span class="k">Crew</span><span style="font:12.5px Inter">Wren</span><div style="flex:1"></div><span class="k">assign + fax</span></div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1;height:30px">Create + load now</span><span class="btn" style="height:30px">Create</span></div>
+<div style="font:11px/1.5 Inter;color:#75798c">Create + load has station staff fill these exact cars where they stand — no shunting to the warehouse spot.</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a><span><b style="color:#cfd3e5">Clearances lens.</b> The second map: geography straightened into blocks. Occupancy, who holds what, and clearance requests queued on the right. Same station positions, different truth.</span></div>
+<div class="dv-card" style="width:1300px">
+<div class="row" style="height:40px;padding:0 14px;gap:12px;border-bottom:1px solid #2b2e3f;background:#1b1d2b">
+<div style="font:700 13px Inter;letter-spacing:.14em">DLE</div>
+<div class="row" style="gap:2px"><span class="tab">Logistics</span><span class="tab tabon">Clearances</span><span class="tab">Economy</span></div>
+<div style="flex:1"></div>
+<span class="pill ppr">9 trains out</span><span class="pill pld">3 awaiting clearance</span><span class="pill pal">1 conflict</span>
+</div>
+<div style="display:flex;height:470px">
+<div style="flex:1;position:relative;background:#12141f">
+<svg viewBox="0 0 980 470" style="position:absolute;inset:0;width:100%;height:100%">
+<g stroke="#3d4257" stroke-width="8" stroke-linecap="round" fill="none">
+<path d="M70,80 H300"></path><path d="M300,80 L360,140"></path><path d="M360,140 H620"></path>
+<path d="M620,140 L680,80"></path><path d="M680,80 H900"></path>
+<path d="M360,140 L360,260"></path><path d="M360,260 H600"></path><path d="M600,260 L660,320"></path>
+<path d="M660,320 H900"></path><path d="M360,260 L300,320"></path><path d="M300,320 H140"></path>
+<path d="M140,320 L80,380"></path><path d="M80,380 H320"></path><path d="M620,140 L620,260"></path>
+</g>
+<g stroke="#5d5294" stroke-width="8" stroke-linecap="round" fill="none" opacity="0.95">
+<path d="M360,140 H620"></path><path d="M360,260 H600"></path>
+</g>
+<g stroke="#d9b47a" stroke-width="8" stroke-linecap="round" fill="none"><path d="M660,320 H900"></path></g>
+<g stroke="#e09b95" stroke-width="8" stroke-linecap="round" fill="none"><path d="M300,320 H140"></path></g>
+<g fill="#161826" stroke="#75798c" stroke-width="1.6">
+<rect x="42" y="62" width="56" height="36" rx="4"></rect><rect x="272" y="62" width="56" height="36" rx="4"></rect>
+<rect x="332" y="122" width="56" height="36" rx="4"></rect><rect x="592" y="122" width="56" height="36" rx="4"></rect>
+<rect x="872" y="62" width="56" height="36" rx="4"></rect><rect x="332" y="242" width="56" height="36" rx="4"></rect>
+<rect x="572" y="242" width="56" height="36" rx="4"></rect><rect x="872" y="302" width="56" height="36" rx="4"></rect>
+<rect x="112" y="302" width="56" height="36" rx="4"></rect><rect x="52" y="362" width="56" height="36" rx="4"></rect>
+<rect x="292" y="362" width="56" height="36" rx="4"></rect><rect x="592" y="242" width="0" height="0"></rect>
+</g>
+<g fill="#cfd3e5" font-size="12" font-weight="700" text-anchor="middle" font-family="Inter">
+<text x="70" y="85">IMW</text><text x="300" y="85">FF</text><text x="360" y="145">OR</text><text x="620" y="145">GF</text>
+<text x="900" y="85">IME</text><text x="360" y="265">SM</text><text x="600" y="265">CME</text><text x="900" y="325">HB</text>
+<text x="140" y="325">CP</text><text x="80" y="385">CW</text><text x="320" y="385">SW</text>
+</g>
+<g><rect x="430" y="126" width="92" height="26" rx="4" fill="#3a2f6b" stroke="#9184d9" stroke-width="1.4"></rect>
+<text x="476" y="144" fill="#f3f5fe" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▶ HALDEN</text></g>
+<g><rect x="418" y="246" width="92" height="26" rx="4" fill="#3a2f6b" stroke="#9184d9" stroke-width="1.4"></rect>
+<text x="464" y="264" fill="#f3f5fe" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">◀ WREN</text></g>
+<g><rect x="720" y="306" width="92" height="26" rx="4" fill="#241f16" stroke="#d9b47a" stroke-width="1.4"></rect>
+<text x="766" y="324" fill="#d9b47a" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">▶ IVES</text></g>
+<g><rect x="176" y="306" width="104" height="26" rx="4" fill="#2c1c1b" stroke="#e09b95" stroke-width="1.4"></rect>
+<text x="228" y="324" fill="#e09b95" font-size="11" font-weight="600" text-anchor="middle" font-family="Inter">◀▶ CONFLICT</text></g>
+<g font-size="9.5" font-family="Inter" fill="#75798c" font-weight="600" letter-spacing="0.06em">
+<text x="440" y="112">BLOCK 7 · GRANTED TO HALDEN</text><text x="400" y="232">BLOCK 4 · GRANTED TO WREN</text>
+<text x="700" y="296">BLOCK 11 · REQUESTED</text><text x="170" y="356">BLOCK 2 · TWO CREWS</text>
+</g>
+</svg>
+<div class="row" style="position:absolute;left:14px;bottom:14px;gap:14px;background:rgba(22,24,38,.9);border:1px solid #2b2e3f;border-radius:6px;padding:8px 12px">
+<span class="k">Blocks</span>
+<span class="row" style="gap:5px"><i style="width:16px;height:5px;background:#3d4257;display:block;border-radius:3px"></i><span style="font:11px Inter;color:#b2b6ca">clear</span></span>
+<span class="row" style="gap:5px"><i style="width:16px;height:5px;background:#5d5294;display:block;border-radius:3px"></i><span style="font:11px Inter;color:#b2b6ca">granted</span></span>
+<span class="row" style="gap:5px"><i style="width:16px;height:5px;background:#d9b47a;display:block;border-radius:3px"></i><span style="font:11px Inter;color:#b2b6ca">requested</span></span>
+<span class="row" style="gap:5px"><i style="width:16px;height:5px;background:#e09b95;display:block;border-radius:3px"></i><span style="font:11px Inter;color:#b2b6ca">conflict</span></span>
+</div>
+</div>
+<div style="width:330px;border-left:1px solid #2b2e3f;background:#181a29;display:flex;flex-direction:column">
+<div class="row" style="height:32px;padding:0 13px;border-bottom:1px solid #2b2e3f"><span class="k">Clearance requests</span><div style="flex:1"></div><span class="n k">3</span></div>
+<div style="padding:12px 13px;display:flex;flex-direction:column;gap:9px">
+<div class="jc" style="border-color:#7a4a46;gap:7px">
+<div class="row"><span style="font:600 13px Inter">Block 2 — CP ↔ CW</span><div style="flex:1"></div><span class="pill pal">conflict</span></div>
+<div class="k">Ash westbound · Rook eastbound · single track</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Hold Rook at CP</span><span class="btn">Hold Ash</span></div>
+</div>
+<div class="jc" style="gap:7px">
+<div class="row"><span style="font:600 13px Inter">Block 11 — CME → HB</span><div style="flex:1"></div><span class="pill pld">requested 40s</span></div>
+<div class="k">Ives · 4 cars · GF→CS booklet</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Grant</span><span class="btn">Grant to HB</span><span class="btn">Deny</span></div>
+</div>
+<div class="jc" style="gap:7px">
+<div class="row"><span style="font:600 13px Inter">Yard entry — SM T1</span><div style="flex:1"></div><span class="pill pld">requested 2m</span></div>
+<div class="k">Halden · needs the loading track for 8 empties</div>
+<div class="row" style="gap:6px"><span class="btn btnp" style="flex:1">Grant T1</span><span class="btn">Offer T4</span></div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div class="k">Out on the road</div>
+<div style="display:flex;flex-direction:column;gap:5px;font:12px Inter;color:#b2b6ca">
+<div class="row"><span class="sp" style="background:#b6a0dd;height:14px"></span><span style="width:56px;color:#e9e9ed">Halden</span><span>blk 7 · SM in 6 min</span></div>
+<div class="row"><span class="sp" style="background:#b6a0dd;height:14px"></span><span style="width:56px;color:#e9e9ed">Wren</span><span>blk 4 · GF in 11 min</span></div>
+<div class="row"><span class="sp" style="background:#86c0a8;height:14px"></span><span style="width:56px;color:#e9e9ed">Ives</span><span>blk 11 · waiting</span></div>
+<div class="row"><span class="sp" style="background:#7aa2c2;height:14px"></span><span style="width:56px;color:#e9e9ed">Ash</span><span>blk 2 · held</span></div>
+<div class="row"><span class="sp" style="background:#7aa2c2;height:14px"></span><span style="width:56px;color:#e9e9ed">Rook</span><span>blk 2 · held</span></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a><span><b style="color:#cfd3e5">Visual system.</b> Nocturne tokens plus six status roles derived on the same lightness step, so no state shouts louder than its urgency deserves.</span></div>
+<div class="dv-card" style="width:980px;padding:22px 24px;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;gap:28px">
+<div style="flex:1;display:flex;flex-direction:column;gap:9px">
+<div class="k">Type — Inter, tabular numerals everywhere a number can change</div>
+<div style="font:600 20px Inter">20 / 600 — station name, view title</div>
+<div style="font:600 14px Inter">14 / 600 — panel heading, haul route</div>
+<div style="font:12.5px Inter;color:#b2b6ca">12.5 / 400 — body, list rows, the reading size</div>
+<div style="font:600 11px Inter;color:#cfd3e5">11 / 600 — control labels, buttons</div>
+<div class="k">9.5 / 600 / .14em — the only uppercase, for section keys</div>
+<div style="font:11px/1.6 Inter;color:#75798c;margin-top:2px">Nothing below 11px carries meaning; car IDs at 9px are labels on objects you can also hover. Row height 26–30px at density 6 — one notch airier than the current page, which is where the eye strain comes from.</div>
+</div>
+<div style="width:1px;background:#2b2e3f"></div>
+<div style="width:400px;display:flex;flex-direction:column;gap:9px">
+<div class="k">Ground &amp; surface</div>
+<div class="row" style="gap:8px">
+<div style="flex:1;height:44px;border-radius:5px;background:#161826;border:1px solid #2b2e3f;display:flex;align-items:flex-end;padding:4px"><span class="k">bg 161826</span></div>
+<div style="flex:1;height:44px;border-radius:5px;background:#1b1d2b;border:1px solid #2b2e3f;display:flex;align-items:flex-end;padding:4px"><span class="k">panel 1b1d2b</span></div>
+<div style="flex:1;height:44px;border-radius:5px;background:#232532;border:1px solid #2b2e3f;display:flex;align-items:flex-end;padding:4px"><span class="k">raised 232532</span></div>
+</div>
+<div class="k" style="margin-top:4px">Accent — selection, focus, "a human has this"</div>
+<div class="row" style="gap:8px">
+<div style="flex:1;height:32px;border-radius:5px;background:#9184d9"></div>
+<div style="flex:1;height:32px;border-radius:5px;background:#5d5294"></div>
+<div style="flex:1;height:32px;border-radius:5px;background:#2b2741"></div>
+</div>
+<div style="font:11px/1.6 Inter;color:#75798c">The accent is never a large fill — it's an outline, a spine, a selected car. Large fills stay in the greys.</div>
+</div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div style="display:flex;gap:28px">
+<div style="flex:1;display:flex;flex-direction:column;gap:10px">
+<div class="k">Job state roles</div>
+<div style="display:flex;flex-direction:column;gap:7px;font:12px Inter;color:#8b8fa3">
+<div class="row" style="gap:10px"><span class="pill pav" style="width:92px;justify-content:center">available</span><span>posted, nobody holds it — quiet grey, it is not a problem</span></div>
+<div class="row" style="gap:10px"><span class="pill ppr" style="width:92px;justify-content:center">in progress</span><span>a crew took it — the accent means a human is attached</span></div>
+<div class="row" style="gap:10px"><span class="pill pld" style="width:92px;justify-content:center">loaded</span><span>cargo is aboard — warm, valuable, don't lose it</span></div>
+<div class="row" style="gap:10px"><span class="pill pun" style="width:92px;justify-content:center">unpaid</span><span>relocation of received goods — dashed, grey, pays nothing</span></div>
+<div class="row" style="gap:10px"><span class="pill plg" style="width:92px;justify-content:center">logi</span><span>dispatcher's own empty move — dashed accent, closes itself</span></div>
+<div class="row" style="gap:10px"><span class="pill pal" style="width:92px;justify-content:center">stalled</span><span>the only red: needs a dispatcher decision now</span></div>
+<div class="row" style="gap:10px"><span class="pill pok" style="width:92px;justify-content:center">delivered</span><span>closed and paid — shown briefly, then it leaves the board</span></div>
+</div>
+</div>
+<div style="width:1px;background:#2b2e3f"></div>
+<div style="width:400px;display:flex;flex-direction:column;gap:10px">
+<div class="k">Desk ownership — position, not hue</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div class="row" style="gap:9px"><div class="sp" style="background:#7aa2c2;height:22px"></div><span style="font:12.5px Inter">West — IMW MF CP CW SW OWC FM FRS FRC</span></div>
+<div class="row" style="gap:9px"><div class="sp" style="background:#86c0a8;height:22px"></div><span style="font:12.5px Inter">East — IME CME GF OWN FF MB HMB</span></div>
+<div class="row" style="gap:9px"><div class="sp" style="background:#b6a0dd;height:22px"></div><span style="font:12.5px Inter">Hub — SM OR CMS CS HB</span></div>
+</div>
+<div style="font:11px/1.6 Inter;color:#75798c">A 3px spine on the leading edge of every haul card, queue row and station header, plus a 5% territory wash on the map. Never a fill, never a pill — so it can sit beside a status colour without competing. A haul belongs to a desk if either end is in it; contested hauls get a split spine.</div>
+<div class="row" style="gap:8px;margin-top:2px">
+<div class="jc" style="flex:1;flex-direction:row;align-items:center;gap:8px;padding:6px 8px"><div class="sp" style="background:linear-gradient(180deg,#7aa2c2 50%,#b6a0dd 50%);height:22px"></div><div><div style="font:600 11.5px Inter">CW → SM</div><div class="k">West / Hub · split</div></div></div>
+<div class="jc" style="flex:1;flex-direction:row;align-items:center;gap:8px;padding:6px 8px"><div class="sp" style="background:#4a4e60;height:22px"></div><div><div style="font:600 11.5px Inter">Unclaimed</div><div class="k">no desk has taken it</div></div></div>
+</div>
+</div>
+</div>
+<div style="height:1px;background:#2b2e3f"></div>
+<div style="display:flex;gap:28px">
+<div style="flex:1;display:flex;flex-direction:column;gap:9px">
+<div class="k">Navigation model</div>
+<div style="font:12.5px/1.7 Inter;color:#b2b6ca">
+<b style="color:#e9e9ed">Lens</b> (top tabs, persistent, per browser) → <b style="color:#e9e9ed">Surface</b> (map, yard, board) → <b style="color:#e9e9ed">Inspector</b> (right dock, follows the last thing you clicked).<br>
+Clicking a station on the map fills the inspector. <b style="color:#e9e9ed">Enter</b> or "Open yard" swaps the surface to that yard with a breadcrumb; <b style="color:#e9e9ed">Esc</b> returns. The inspector never changes what surface you are on, so you can never get lost — there is exactly one back.
+</div>
+</div>
+<div style="width:1px;background:#2b2e3f"></div>
+<div style="width:400px;display:flex;flex-direction:column;gap:9px">
+<div class="k">Login / roles — the minimum for now</div>
+<div style="display:flex;gap:10px">
+<div class="p" style="flex:1;padding:10px;display:flex;flex-direction:column;gap:7px">
+<div style="font:700 12px Inter;letter-spacing:.14em">DLE</div>
+<div class="k">sign in to the board</div>
+<div class="p" style="padding:5px 8px;font:12px Inter;color:#75798c">dispatcher name</div>
+<div class="p" style="padding:5px 8px;font:12px Inter;color:#75798c">••••••••</div>
+<div class="row" style="gap:5px"><span class="btn btnp" style="flex:1">Sign in</span></div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:6px;font:11.5px/1.5 Inter;color:#8b8fa3">
+<div><b style="color:#cfd3e5">Chief</b> — everything, plus lock and roles</div>
+<div><b style="color:#cfd3e5">Dispatcher</b> — own desk: create, assign, load</div>
+<div><b style="color:#cfd3e5">Observer</b> — read only, useful for streamers</div>
+<div style="margin-top:2px;color:#75798c">Desk is picked after sign-in and remembered per browser. Actions outside your desk are visible but greyed with "ask Hub".</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "build out <a class="dv-oid" href="#1a">1a</a> as the real thing" · "merge <a class="dv-oid" href="#1c">1c</a>'s bottom yard into <a class="dv-oid" href="#1b">1b</a>" · "the yard in <a class="dv-oid" href="#1d">1d</a> should show cargo type on each car" · "more ideas for the Clearances lens"</p>
+</section>
+
+</x-dc>
+</body>
+</html>
