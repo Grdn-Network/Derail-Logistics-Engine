@@ -58,6 +58,10 @@ namespace DLE.Jobs
         /// <summary>The cargo a specific car of this haul is meant to carry.</summary>
         public CargoType CargoFor(string carId) => LineOf(carId)?.Cargo ?? transportedCargo;
 
+        /// <summary>Dispatcher-authored free text (#225): typed on the Desk, printed as
+        /// a DISPATCH page in the booklet. Null or empty means no page.</summary>
+        public string dispatcherNote;
+
         /// <summary>Whether to include a leading load task (finite/persistence mode).</summary>
         public bool includeLoadTask = false;
 

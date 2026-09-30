@@ -41,6 +41,8 @@ namespace DLE.Data
             // Additive since 0.6.1: mixed cargo manifest (#118). Null on single-cargo
             // jobs and in older saves, which restore exactly as before.
             public List<LineSnapshot> Lines;
+            // Additive since 0.8: the dispatcher's free-text note (#225). Null before.
+            public string Note;
         }
 
         [Serializable]
@@ -84,6 +86,7 @@ namespace DLE.Data
                     UnpaidMove = def.unpaidMove,
                     WasTaken = def.LiveJob?.State == JobState.InProgress,
                     Lines = SnapshotLines(def),
+                    Note = def.dispatcherNote,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -256,6 +259,7 @@ namespace DLE.Data
                     if (snap.LoadedCarloads > 0 && rebuilt.loadedCarloads < snap.LoadedCarloads)
                         rebuilt.loadedCarloads = snap.LoadedCarloads;
                     rebuilt.unpaidMove = snap.UnpaidMove;
+                    rebuilt.dispatcherNote = snap.Note;
 
                     // #94: a haul that was in progress at save comes back in progress, the
                     // same way the vanilla save restores taken jobs. The rebuild leaves it

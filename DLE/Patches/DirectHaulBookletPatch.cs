@@ -340,7 +340,11 @@ namespace DLE.Patches
             }
 
             bool haveFront = origin != null && destination != null;
-            int totalPages = 1 + (haveFront ? 1 : 0)
+            // The dispatcher's note (#225) rides as its own DISPATCH page right behind
+            // the front sheet: free text typed on the Desk, in the crew's hands.
+            string note = def?.dispatcherNote;
+            if (string.IsNullOrEmpty(note)) note = null;
+            int totalPages = 1 + (haveFront ? 1 : 0) + (note != null ? 1 : 0)
                 + (hasLoadStep ? carPages.Count : 0) + carPages.Count + 1;
             string total = totalPages.ToString();
             int pageNo = 1;
@@ -354,6 +358,18 @@ namespace DLE.Patches
             {
                 var frontPage = DirectHaulBooklet.BuildFrontPage(job, pageNo.ToString(), total);
                 if (frontPage != null) { pages.Add(frontPage); pageNo++; }
+            }
+            if (note != null)
+            {
+                pages.Add(new TaskTemplatePaperData(
+                    "!",
+                    "DISPATCH",
+                    note,
+                    origin?.YardID ?? string.Empty,
+                    origin?.StationColor ?? DirectHaulBooklet.DIRECT_HAUL_COLOR,
+                    string.Empty, C.TRACK_COLOR,
+                    string.Empty, string.Empty, TemplatePaperData.NOT_USED_COLOR,
+                    new List<Car_data>(), null, pageNo++.ToString(), total));
             }
 
             // Booklet text rework (#87): each step teaches the DLE mechanic it uses,

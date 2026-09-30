@@ -252,6 +252,24 @@ border-radius:999px;padding:1px 8px;color:var(--dim);cursor:pointer;white-space:
 .toast{background:var(--raised);border:1px solid var(--line2);border-left:3px solid var(--green);
 border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0,0,0,.55);animation:tin .18s ease-out}
 .toast.err{border-left-color:var(--red)}
+#surfDesk{display:none;flex-direction:column;background:#0b0c14}
+#surfDesk.on{display:flex}
+#deskBar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:#10121d}
+#deskBar .fchip{font:600 10px Inter,sans-serif;letter-spacing:.1em;color:#8a92a8;border:1px solid #2a2d40;border-radius:3px;padding:3px 8px;cursor:pointer;user-select:none}
+#deskBar .fchip.on{color:#e8ecf8;background:#1d2133;border-color:#3d4361}
+#deskQ{background:#0d0f1a;border:1px solid #262a3d;border-radius:3px;color:#c8cede;font:500 12px Inter,sans-serif;padding:4px 8px;width:230px}
+#deskScroll{flex:1;overflow:auto}
+#deskT{width:100%;border-collapse:collapse;font:500 12px Inter,sans-serif}
+#deskT th{position:sticky;top:0;background:#0e1019;color:#6b7288;font:600 10px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;text-align:left;padding:7px 10px;border-bottom:1px solid #262a3d;z-index:1}
+#deskT td{padding:6px 10px;border-bottom:1px solid #171a28;color:#c2c8d8;white-space:nowrap}
+#deskT th.num,#deskT td.num{text-align:right;font-variant-numeric:tabular-nums}
+#deskT tr.wb{cursor:pointer}
+#deskT tr.wb:hover td{background:#121524}
+#deskT tr.wb.cur td{background:#181c30}
+#deskT .wbid{font:600 12px 'Cascadia Mono',Consolas,monospace;color:#e4e9f6}
+#deskT .dim{color:#5f6880}
+#deskT tr.det td{background:#0e111d;white-space:normal;padding:10px 14px}
+.deskNote{width:100%;min-height:44px;background:#0d0f1a;border:1px solid #262a3d;border-radius:3px;color:#d6dbec;font:500 12px Inter,sans-serif;padding:6px 8px;resize:vertical}
 @keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media(max-width:1080px){body{overflow:auto}}
 </style></head><body>
@@ -259,7 +277,8 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 <header id='topbar'>
  <div class='brand'>DLE</div>
  <div class='tbdiv'></div>
- <span class='tab on' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
+ <span class='tab on' id='tabDesk' data-act='lens' data-id='desk'>Desk</span>
+ <span class='tab' id='tabLogi' data-act='lens' data-id='logi'>Logistics</span>
  <span class='tab' id='tabFleet' data-act='lens' data-id='fleet'>Fleet</span>
  <span class='tab' id='tabLog' data-act='lens' data-id='log'>Log</span>
  <div class='spacer'></div>
@@ -275,7 +294,26 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
 </header>
 <div id='stage'>
  <div id='surface'>
-  <div class='surf on' id='surfMap'>
+  <div class='surf on' id='surfDesk'>
+   <div id='deskBar'>
+    <span class='k' style='letter-spacing:.14em'>WAYBILLS</span>
+    <span class='fchip on' data-act='deskF' data-id='all'>ALL</span>
+    <span class='fchip' data-act='deskF' data-id='open'>OPEN</span>
+    <span class='fchip' data-act='deskF' data-id='working'>WORKING</span>
+    <span class='fchip' data-act='deskF' data-id='loaded'>LOADED</span>
+    <input id='deskQ' placeholder='search id, cargo, station, crew' spellcheck='false'>
+    <span class='spacer'></span>
+    <span class='k num' id='deskCount'></span>
+   </div>
+   <div id='deskScroll'>
+    <table id='deskT'>
+     <thead><tr><th>waybill</th><th>from</th><th>to</th><th>cargo</th>
+      <th class='num'>cars</th><th>crew</th><th class='num'>pay</th><th>state</th></tr></thead>
+     <tbody id='deskRows'></tbody>
+    </table>
+   </div>
+  </div>
+  <div class='surf' id='surfMap'>
    <div id='mapWrap'>
     <svg id='net' viewBox='0 0 1040 760' preserveAspectRatio='xMidYMid meet'></svg>
     <div class='maplegend'>
@@ -405,7 +443,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;'}[c]));
 let options=[],lockOn=false,expanded=new Set(),pickOpen=new Set(),pickers={},last={},lastJobs=[];
 // Shell state: which lens, which surface inside Logistics, what the inspector shows.
-let lens='logi',surface='map',dockMode='hint',haulSel=null;
+let lens='desk',surface='map',dockMode='hint',haulSel=null;
+let deskF='all',deskQ='',deskSel=null;
 // Job maker state: the picked cars, the compatible-car set for the chosen cargo,
 // the banked manifest lines, and the last yard snapshot. Selection survives
 // refreshes; a station change clears everything.
@@ -482,9 +521,13 @@ function unpaidPill(x){
 // #224 strip; the console returns RD-style in 0.9.)
 function dockVis(){$('dock').classList.toggle('hidden',lens!=='logi')}
 function setLens(l){lens=l;
+ if(l==='desk'){haulSel=null;dockMode='hint';renderDockHaul()}
+ else if(deskSel){deskSel=null;last.desk=null;renderDesk()}
+ $('tabDesk').classList.toggle('on',l==='desk');
  $('tabLogi').classList.toggle('on',l==='logi');
  $('tabFleet').classList.toggle('on',l==='fleet');
  $('tabLog').classList.toggle('on',l==='log');
+ $('surfDesk').classList.toggle('on',l==='desk');
  $('surfMap').classList.toggle('on',l==='logi'&&surface==='map');
  $('surfYard').classList.toggle('on',l==='logi'&&surface==='yard');
  $('surfFleet').classList.toggle('on',l==='fleet');
@@ -571,7 +614,85 @@ async function refresh(){
  pollYard();
  const hKey=JSON.stringify(hist);
  if(last.hist!==hKey){last.hist=hKey;renderLog(hist)}
+ const dKey=jKey+'|'+deskF+'|'+deskQ+'|'+(deskSel||'');
+ if(lens==='desk'&&last.desk!==dKey){last.desk=dKey;
+  const snap=snapshotCrew();renderDesk();restoreCrew(snap)}
 }
+// ── the Dispatch Desk (#225 first pass): the waybill sheet ────────────────
+// One row per waybill: a manifest line of an order, or the whole order when it
+// has a single cargo. Dark, dense, keyboard-light: the sheet IS the screen.
+// Actions reuse the exact endpoints the dock uses, so nothing here is new logic.
+function wbRows(){
+ const rows=[];
+ for(const x of lastJobs){
+  const state=(x.state||'').toLowerCase();
+  const lines=(x.lines&&x.lines.length)?x.lines:[null];
+  lines.forEach((l,i)=>{
+   rows.push({
+    wb:lines.length>1?x.id+'-'+(i+1):x.id,
+    job:x,line:l,
+    cargo:l?l.cargo:(x.logi?'Logistics move':x.cargo),
+    cars:l?l.cars:(x.cars||x.plannedCars||0),
+    loadedCars:l?(l.loaded||0):(x.loadedCars||0),
+    pay:l?l.pay:x.wage,
+    open:state==='available',working:state==='inprogress'})})}
+ return rows}
+function deskMatch(r){
+ if(deskF==='open'&&!r.open)return false;
+ if(deskF==='working'&&!r.working)return false;
+ if(deskF==='loaded'&&!(r.loadedCars>0))return false;
+ if(!deskQ)return true;
+ const q=deskQ.toLowerCase();
+ return [r.wb,r.cargo,r.job.origin,r.job.destination,r.job.assignedTo||'']
+  .some(v=>String(v||'').toLowerCase().includes(q))}
+function deskDetail(x){
+ const avail=x.state==='Available';
+ const plates=(x.lines||[]).flatMap(l=>l.plates||[]);
+ const acts=x.logi
+  ?`<button data-act='fax' data-id='${esc(x.id)}'>Fax</button>`
+  :(avail?`<button class='primary' data-act='take' data-id='${esc(x.id)}'>Take</button>`
+   :`<button data-act='${x.awaitingEmpties?'pickAuto':'load'}' data-id='${esc(x.id)}'>Load</button>
+     <button data-act='unload' data-id='${esc(x.id)}'>Unload</button>
+     <button class='primary' data-act='complete' data-id='${esc(x.id)}'>Turn in</button>`)
+   +`<button data-act='fax' data-id='${esc(x.id)}'>Fax</button>`;
+ return `<div style='display:flex;flex-direction:column;gap:8px'>
+  <div class='meta'>${plates.length?'cars: <b>'+plates.map(esc).join(' ')+'</b>':(x.awaitingEmpties?'awaiting empties':'')}
+   ${x.pickupTrack?' · pickup <b>'+esc(trackDisp(x.pickupTrack))+'</b>':''}
+   ${x.tonnes?' · '+x.tonnes+' t loaded':''}</div>
+  <div class='acts'>${acts}
+   <input class='crew' id='a_${esc(x.id)}' placeholder='crew, or a loco: L049' list='crewNames'>
+   <button class='mini' data-act='assign' data-id='${esc(x.id)}'>Assign</button>
+   <button class='mini' data-act='unassign' data-id='${esc(x.id)}'>Unassign</button>
+   <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Cancel; supply returns'>×</button>
+  </div>
+  ${x.logi?'':`<div style='display:flex;gap:8px;align-items:flex-start'>
+   <textarea class='deskNote' id='note_${esc(x.id)}' maxlength='500'
+    placeholder='dispatcher note: prints as a DISPATCH page in the booklet on the next fax'>${esc(x.note||'')}</textarea>
+   <button class='mini' data-act='saveNote' data-id='${esc(x.id)}'>Save note</button>
+  </div>`}
+ </div>`}
+function renderDesk(){
+ const box=$('deskRows');if(!box)return;
+ const rows=wbRows().filter(deskMatch);
+ $('deskCount').textContent=rows.length+' waybill(s)';
+ if(!rows.length){box.innerHTML=`<tr><td colspan='8' class='dim' style='padding:18px'>nothing on the sheet${lockOn?' · the director is paused (lock on)':''}</td></tr>`;return}
+ let h='';
+ for(const r of rows){
+  const x=r.job;
+  const cur=deskSel===r.wb;
+  const crew=x.assignedTo?esc(x.assignedTo)+(x.crewLoco?' <span class=\'dim\'>in '+esc(x.crewLoco)+'</span>':''):`<span class='dim'>${r.open?'unassigned':'crewless'}</span>`;
+  h+=`<tr class='wb${cur?' cur':''}' data-act='deskRow' data-id='${esc(r.wb)}'>
+   <td class='wbid'>${esc(r.wb)}</td>
+   <td><span style='color:${SC[x.origin]||'#7f879c'};font-weight:700'>${esc(x.origin||'?')}</span></td>
+   <td><span style='color:${SC[x.destination]||'#7f879c'};font-weight:700'>${esc(x.destination||'?')}</span></td>
+   <td>${esc(disp(r.cargo))}${x.note?` <span title='has a dispatcher note'>✎</span>`:''}</td>
+   <td class='num'>${r.loadedCars?r.loadedCars+'/':''}${r.cars}</td>
+   <td>${crew}</td>
+   <td class='num'>${r.pay?money(r.pay):'<span class=\'dim\'>—</span>'}</td>
+   <td>${statusPill(x)}${x.awaitingEmpties?` <span class='tag'>empties</span>`:''}</td>
+  </tr>`;
+  if(cur)h+=`<tr class='det'><td colspan='8'>${deskDetail(x)}</td></tr>`}
+ box.innerHTML=h}
 // ── haul lane: the whole board in one strip, filter chips included ───────
 function laneCard(x){
  const cars=x.cars||x.plannedCars||0;
@@ -1155,6 +1276,14 @@ const actions={
  lens:(id)=>{setLens(id)},
  backMap:()=>backToMap(),
  sheet:(id,el)=>{jmSheet=el.dataset.id;renderYard()},
+ deskRow:(id,el)=>{deskSel=deskSel===el.dataset.id?null:el.dataset.id;last.desk=null;renderDesk()},
+ deskF:(id,el)=>{deskF=el.dataset.id;
+  document.querySelectorAll('#deskBar .fchip').forEach(c=>c.classList.toggle('on',c.dataset.id===deskF));
+  last.desk=null;renderDesk()},
+ saveNote:async(id,el)=>{const jid=el.dataset.id;
+  const t=($('note_'+jid)||{}).value||'';
+  const r=await j('/api/v1/jobs/'+encodeURIComponent(jid)+'/note','PUT',{text:t});
+  toast(r.message||(r.ok?'note saved':'note failed'),!r.ok);last.desk=null;refresh()},
  stripJump:(id,el)=>{openYard(el.dataset.id)},
  stBar:(id,el)=>{const y=el.dataset.id;
   if(lens==='logi'&&surface==='yard'&&$('hOrigin').value===y){backToMap();renderStationBar();return}
@@ -1425,6 +1554,8 @@ document.addEventListener('keydown',e=>{
  if(t&&(t.tagName==='INPUT'||t.tagName==='SELECT'||t.tagName==='TEXTAREA'))return;
  if(lens==='logi'&&surface==='yard')backToMap()});
 syncDock();
+const dq=$('deskQ');
+if(dq)dq.addEventListener('input',()=>{deskQ=dq.value.trim();last.desk=null;renderDesk()});
 refresh();setInterval(refresh,5000);
 </script></body></html>
 ";

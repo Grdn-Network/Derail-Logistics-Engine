@@ -397,6 +397,27 @@ namespace DLE.Dispatch
                 // The rails console endpoints (trackmap, traffic, interlocking, junction
                 // throws, signal clears, CTC) left with the Clearance strip (#224); the
                 // console returns RD-style in 0.9.
+
+                // Dispatcher note (#225): free text typed on the Desk, printed as a
+                // DISPATCH page in the booklet. Shows on the next fax or print; live
+                // in-hand redraw rides the servicing redraw when the consist changes.
+                if (method == "PUT" && path.StartsWith("/api/v1/jobs/", StringComparison.Ordinal)
+                    && path.EndsWith("/note", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var nSeg = path.Split('/');
+                    if (nSeg.Length < 6) { Json(ctx, 400, new { error = "bad job id" }); return; }
+                    var nJobId = Uri.UnescapeDataString(nSeg[4]);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(nJobId, out var nDef))
+                    { Json(ctx, 404, new { error = $"unknown job '{nJobId}'" }); return; }
+                    var nReq = JsonConvert.DeserializeObject<NoteRequest>(ReadBody(ctx) ?? "");
+                    var text = (nReq?.text ?? "").Trim();
+                    if (text.Length > 500) text = text.Substring(0, 500);
+                    nDef.dispatcherNote = text.Length == 0 ? null : text;
+                    Main.LogAlways($"[Dispatch] {nJobId}: dispatcher note {(text.Length == 0 ? "cleared" : "set (" + text.Length + " chars)")}.");
+                    Json(ctx, 200, new { ok = true, message = text.Length == 0 ? "note cleared" : "note saved; it prints on the next fax", note = nDef.dispatcherNote });
+                    return;
+                }
                 if (method == "GET" && path == "/api/v1/fleet")
                 {
                     var payload = FleetPayload(ctx.Request.QueryString["cargo"], ctx.Request.QueryString["yard"], out var fleetError);
@@ -800,6 +821,7 @@ namespace DLE.Dispatch
         private class AssignRequest { public string player = null; public string assignedBy = null; }
         private class TakeRequest { public string player = null; }
         private class LockRequest { public bool? enabled = null; }
+        private class NoteRequest { public string text = null; }
         private class HaulRequest
         {
             public string origin = null; public string destination = null;
@@ -1349,9 +1371,12 @@ namespace DLE.Dispatch
                 {
                     cargo = l.Cargo.ToString(),
                     cars = l.CarIds?.Count ?? 0,
+                    plates = l.CarIds,
+                    pay = l.Pay,
                     loaded = l.Loaded,
                     unpaid = l.Unpaid,
                 }),
+                note = kv.Value.dispatcherNote,
                 cars = kv.Value.carsToTransport?.Count ?? 0,
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
