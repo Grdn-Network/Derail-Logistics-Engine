@@ -179,6 +179,7 @@ namespace DLE.Data
 
             var fitting = FittingTracks(length);
 
+
             // A station whose remaining empty tracks are all short loses the whole output
             // when the full cut cannot fit anywhere; half a cut on a short track beats
             // zero cars for that cargo.
@@ -214,18 +215,7 @@ namespace DLE.Data
             // spawn the pool used before centers every cut on the track midpoint with no
             // overlap check at all, which is what piled cuts on top of each other. A
             // Blocked anchor just means try the next spot along the track.
-            List<TrainCar> spawned = null;
-            double margin = 5.0;
-            double maxStart = track.length - length - margin;
-            if (maxStart >= margin)
-            {
-                for (int attempt = 0; attempt < 5 && (spawned == null || spawned.Count == 0); attempt++)
-                {
-                    double startSpan = margin + (maxStart - margin) * attempt / 4.0;
-                    spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
-                        liveries, railTrack, true, true, startSpan, false, true, false);
-                }
-            }
+            var spawned = SpawnCutWithClearance(track, railTrack, liveries, length);
             if (spawned == null || spawned.Count == 0)
             {
                 Main.LogAlways($"[CarPool] {station.stationInfo.YardID}: no clear spot for {count} car(s) on {track.ID?.FullDisplayID}; nothing spawned.");
@@ -835,6 +825,74 @@ namespace DLE.Data
         }
 
         /// <summary>
+        /// Strict-spawn a cut with the END CLEARANCE the vanilla spawner never enforces
+        /// (#206): its fit check lets a cut end exactly at the last point of the rails
+        /// (the end-distance parameter exists but defaults to zero and the public entry
+        /// never sets it), and the logic track length our anchors measured against can
+        /// disagree with the physical span on stub tracks. Anchors here measure against
+        /// the shorter of the logic and physical lengths and keep a hard margin off both
+        /// ends; then the RESULT is verified, because the placement math has lied before:
+        /// any car whose body reaches within half a car of either physical rail end fails
+        /// the whole cut, the cars are deleted, and the next anchor tries instead.
+        /// </summary>
+        private static List<TrainCar> SpawnCutWithClearance(
+            JobTrack track, RailTrack railTrack, List<TrainCarLivery> liveries, float length)
+        {
+            const double StartMargin = 5.0, EndMargin = 8.0;
+            double span = track.length;
+            try
+            {
+                var curve = railTrack != null ? railTrack.curve : null;
+                if (curve != null && curve.length > 1f) span = Math.Min(span, curve.length);
+            }
+            catch { }
+            double maxStart = span - length - EndMargin;
+            if (maxStart < StartMargin) return null;
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                double startSpan = StartMargin + (maxStart - StartMargin) * attempt / 4.0;
+                List<TrainCar> spawned = null;
+                try
+                {
+                    spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
+                        liveries, railTrack, true, true, startSpan, false, true, false);
+                }
+                catch { }
+                if (spawned == null || spawned.Count == 0) continue;
+                if (PlacementClearOfEnds(railTrack, spawned)) return spawned;
+                Main.LogAlways($"[CarPool] a {spawned.Count}-car cut landed over a rail end on " +
+                    $"{track.ID?.FullDisplayID}; deleted and re-anchored (#206).");
+                foreach (var tc in spawned)
+                    try { CarSpawner.Instance.DeleteCar(tc); } catch { }
+            }
+            return null;
+        }
+
+        /// <summary>Every spawned car's center must sit at least half its own length
+        /// plus a buffer from BOTH physical rail ends. Mechanism-agnostic: whatever
+        /// placement math slipped, an overhanging car cannot pass this.</summary>
+        private static bool PlacementClearOfEnds(RailTrack railTrack, List<TrainCar> cars)
+        {
+            try
+            {
+                var curve = railTrack != null ? railTrack.curve : null;
+                if (curve == null || curve.pointCount < 2) return true; // nothing to judge against
+                var a = curve[0].position;
+                var b = curve[curve.pointCount - 1].position;
+                foreach (var tc in cars)
+                {
+                    if (tc == null) continue;
+                    float half = (tc.logicCar != null ? tc.logicCar.length : 20f) / 2f + 1.5f;
+                    var p = tc.transform.position;
+                    if ((p - a).sqrMagnitude < half * half || (p - b).sqrMagnitude < half * half)
+                        return false;
+                }
+            }
+            catch { }
+            return true;
+        }
+
+        /// <summary>
         /// Fill one empty storage track with a random mix of empty cars matching the
         /// producer's outputs, up to the configured fill fraction of the track and the
         /// pool cap. The track was empty when collected and is re-checked here; the cut
@@ -900,23 +958,13 @@ namespace DLE.Data
 
             // Spawn Strict, trimming the cut when the spawner refuses: a physically
             // blocked stretch costs cars, not the whole track.
-            const double margin = 5.0;
             List<TrainCar> spawned = null;
             var railTrack = RailTrackRegistry.LogicToRailTrack[track];
             while (liveries.Count >= 2)
             {
                 float length = CarSpawner.Instance.GetTotalCarLiveriesLength(liveries, true);
-                double maxStart = track.length - length - margin;
-                if (maxStart >= margin)
-                {
-                    for (int attempt = 0; attempt < 5 && (spawned == null || spawned.Count == 0); attempt++)
-                    {
-                        double startSpan = margin + (maxStart - margin) * attempt / 4.0;
-                        spawned = CarSpawner.Instance.SpawnCarTypesOnTrackStrict(
-                            liveries, railTrack, true, true, startSpan, false, true, false);
-                    }
-                    if (spawned != null && spawned.Count > 0) break;
-                }
+                spawned = SpawnCutWithClearance(track, railTrack, liveries, length);
+                if (spawned != null && spawned.Count > 0) break;
                 liveries.RemoveRange(liveries.Count - Math.Max(1, liveries.Count / 4), Math.Max(1, liveries.Count / 4));
             }
             if (spawned == null || spawned.Count == 0)
