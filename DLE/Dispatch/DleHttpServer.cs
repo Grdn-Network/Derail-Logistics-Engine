@@ -410,6 +410,10 @@ namespace DLE.Dispatch
                     var nJobId = Uri.UnescapeDataString(nSeg[4]);
                     if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(nJobId, out var nDef))
                     { Json(ctx, 404, new { error = $"unknown job '{nJobId}'" }); return; }
+                    // Stamped paper never changes without re-signing (owner rule, #225):
+                    // the note prints in the booklet, so it counts as the paper's terms.
+                    if (nDef.signState == "signed")
+                    { Json(ctx, 409, new { error = $"{nJobId} is signed; amend it first (that unsigns the paper)" }); return; }
                     var nReq = JsonConvert.DeserializeObject<NoteRequest>(ReadBody(ctx) ?? "");
                     var text = (nReq?.text ?? "").Trim();
                     if (text.Length > 500) text = text.Substring(0, 500);
@@ -432,6 +436,73 @@ namespace DLE.Dispatch
                         ctx.Request.QueryString["cargo"], ctx.Request.QueryString["cars"], out var estError);
                     if (payload == null) { Json(ctx, 400, new { error = estError }); return; }
                     Json(ctx, 200, payload);
+                    return;
+                }
+                // Desk signatures (#225, Desk v20): fax the paper to its consignee; the
+                // reply prints in the inbox a few seconds later, verdict judged at
+                // delivery (see SignDesk). Amend unsigns stamped paper for re-editing.
+                if (method == "POST" && path.StartsWith("/api/v1/jobs/", StringComparison.Ordinal)
+                    && path.EndsWith("/sign-request", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var sSeg = path.Split('/');
+                    if (sSeg.Length < 6) { Json(ctx, 400, new { error = "bad job id" }); return; }
+                    var sJobId = Uri.UnescapeDataString(sSeg[4]);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(sJobId, out var sDef))
+                    { Json(ctx, 404, new { error = $"unknown job '{sJobId}'" }); return; }
+                    if (sDef.signState == "signed")
+                    { Json(ctx, 409, new { error = $"{sJobId} is already signed by {sDef.signedBy}" }); return; }
+                    if (sDef.signState == "pending")
+                    { Json(ctx, 409, new { error = $"{sJobId} is already on the wire; wait for the reply" }); return; }
+                    var sDest = sDef.chainData?.chainDestinationYardId ?? "?";
+                    sDef.signState = "pending";
+                    sDef.signReason = null;
+                    DeskInbox.QueueSignReply(sJobId, sDest);
+                    Json(ctx, 202, new { ok = true, message = $"faxed to {sDest}; the reply prints in the tray shortly" });
+                    return;
+                }
+                if (method == "POST" && path.StartsWith("/api/v1/jobs/", StringComparison.Ordinal)
+                    && path.EndsWith("/amend", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var aSeg = path.Split('/');
+                    if (aSeg.Length < 6) { Json(ctx, 400, new { error = "bad job id" }); return; }
+                    var aJobId = Uri.UnescapeDataString(aSeg[4]);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(aJobId, out var aDef))
+                    { Json(ctx, 404, new { error = $"unknown job '{aJobId}'" }); return; }
+                    if (aDef.signState == "pending")
+                    { Json(ctx, 409, new { error = $"{aJobId} is on the wire; wait for the reply before amending" }); return; }
+                    aDef.signState = "unsigned";
+                    aDef.signedBy = null;
+                    aDef.signReason = null;
+                    Main.LogAlways($"[SignDesk] {aJobId} amended: paper is unsigned and editable again.");
+                    Json(ctx, 200, new { ok = true, message = $"{aJobId} unsigned; edit away, then fax for a new signature" });
+                    return;
+                }
+                // Desk sticky (#225): board-only shorthand, never printed in a booklet.
+                if (method == "PUT" && path.StartsWith("/api/v1/jobs/", StringComparison.Ordinal)
+                    && path.EndsWith("/label", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var lSeg = path.Split('/');
+                    if (lSeg.Length < 6) { Json(ctx, 400, new { error = "bad job id" }); return; }
+                    var lJobId = Uri.UnescapeDataString(lSeg[4]);
+                    if (!StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(lJobId, out var lDef))
+                    { Json(ctx, 404, new { error = $"unknown job '{lJobId}'" }); return; }
+                    var lReq = JsonConvert.DeserializeObject<NoteRequest>(ReadBody(ctx) ?? "");
+                    var lText = (lReq?.text ?? "").Trim();
+                    if (lText.Length > 60) lText = lText.Substring(0, 60);
+                    lDef.deskLabel = lText.Length == 0 ? null : lText;
+                    Json(ctx, 200, new { ok = true, label = lDef.deskLabel });
+                    return;
+                }
+                // The fax tray (#225): matured replies, newest first; ack clears the pill.
+                if (method == "GET" && path == "/api/v1/inbox")
+                { Json(ctx, 200, DeskInbox.Payload()); return; }
+                if (method == "POST" && path == "/api/v1/inbox/ack")
+                {
+                    var iReq = JsonConvert.DeserializeObject<AckRequest>(ReadBody(ctx) ?? "");
+                    Json(ctx, 200, new { ok = true, acked = DeskInbox.Ack(iReq?.ids) });
                     return;
                 }
                 // Real ladder geometry (Desk v10 backbone): the yard's rails as world
@@ -561,6 +632,7 @@ namespace DLE.Dispatch
                         }
                         var mixedJobId = EconomyDirector.CreateMixed(req.origin, req.destination, kvLines, out var mixedReason);
                         if (mixedJobId == null) { Json(ctx, 409, new { error = mixedReason ?? "could not create haul; see game log" }); return; }
+                        MarkUnsigned(mixedJobId);
                         Json(ctx, 201, new { ok = true, jobId = mixedJobId });
                         return;
                     }
@@ -571,6 +643,7 @@ namespace DLE.Dispatch
                     { Json(ctx, 400, new { error = $"unknown cargo '{req.cargo}'" }); return; }
                     var jobId = EconomyDirector.CreateSpecific(req.origin, req.destination, cargoType, req.cars, req.reserveCars, out var createReason, out var unpaidMove);
                     if (jobId == null) { Json(ctx, 409, new { error = createReason ?? "could not create haul; see game log" }); return; }
+                    MarkUnsigned(jobId);
                     Json(ctx, 201, new { ok = true, jobId, unpaid = unpaidMove });
                     return;
                 }
@@ -803,6 +876,13 @@ namespace DLE.Dispatch
                             { Json(ctx, 409, new { error = $"nobody is in {locoRef} right now" }); return; }
                             assignee = occupant;
                         }
+                        // Unsigned paper cannot go to a crew while dispatch is on duty
+                        // (#225): the consignee signs first. Away mode (lock off) and
+                        // pre-desk paper (null state) skip the sign desk entirely.
+                        if (AssignmentStore.Instance.LockEnabled &&
+                            StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var signDef) &&
+                            signDef?.signState != null && signDef.signState != "signed")
+                        { Json(ctx, 409, new { error = $"{jobId} is {signDef.signState}; fax the consignee for a signature first" }); return; }
                         AssignmentStore.Instance.Assign(jobId, assignee, req.assignedBy ?? "dispatcher");
                         // Echo what the store actually recorded (issue #79 forensics): the
                         // caller can verify the assignment landed under the id it expects.
@@ -1346,6 +1426,8 @@ namespace DLE.Dispatch
         {
             modVersion = Main.ModEntry?.Info?.Version,
             lockEnabled = AssignmentStore.Instance.LockEnabled,
+            gameTime = GameTimeText(),
+            inboxUnacked = DeskInbox.UnackedCount(),
             stationCount = EconomyState.Instance.Facilities.Count,
             jobCount = StaticDirectHaulJobDefinition.jobDefinitions.Count,
             dormantCars = Data.DleCarPool.Instance.DormantCount,
@@ -1430,6 +1512,12 @@ namespace DLE.Dispatch
                     unpaid = l.Unpaid,
                 }),
                 note = kv.Value.dispatcherNote,
+                // Desk signatures (#225): null state is pre-desk or director paper and
+                // reads as signed so old saves and away-mode jobs never gate.
+                sign = kv.Value.signState ?? "signed",
+                signedBy = kv.Value.signedBy,
+                signReason = kv.Value.signReason,
+                label = kv.Value.deskLabel,
                 cars = kv.Value.carsToTransport?.Count ?? 0,
                 plannedCars = kv.Value.plannedCarCount,
                 awaitingEmpties = kv.Value.includeLoadTask && (kv.Value.carsToTransport?.Count ?? 0) == 0,
@@ -1694,6 +1782,32 @@ namespace DLE.Dispatch
                 status = jobsByPlayer.TryGetValue(n, out var j2) && j2.Count > 0 ? "out" : "idle",
                 yard = (string)null,
             }).ToList();
+        }
+
+        /// <summary>Desk paper (#225): a dispatcher-created haul starts unsigned.
+        /// Director and away-mode paper never passes here and stays null = signed.</summary>
+        private static void MarkUnsigned(string jobId)
+        {
+            if (jobId != null && StaticDirectHaulJobDefinition.jobDefinitions.TryGetValue(jobId, out var def) && def != null)
+                def.signState = "unsigned";
+        }
+
+        /// <summary>The header clock: in-game time of day off the TOD sky, null while
+        /// the world is still loading. Same source the economy clock samples.</summary>
+        private static string GameTimeText()
+        {
+            try
+            {
+                var sky = TOD_Sky.Instance;
+                if (sky?.Cycle == null) return null;
+                return new DateTime(sky.Cycle.Ticks).ToString("HH:mm");
+            }
+            catch { return null; }
+        }
+
+        private class AckRequest
+        {
+            public int[] ids = null;
         }
 
         private class PacketRequest

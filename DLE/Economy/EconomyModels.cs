@@ -308,6 +308,12 @@ namespace DLE.Economy
         public float factoryBoostFactor = 2f;
         public int toolsSeed = 2;
 
+        // Desk signatures (#225): flavor chance [0..1] that a consignee station refuses
+        // a dispatcher's sign request even when the reasoned checks pass. Default 0
+        // until the owner rules on paperwork RNG; reasoned refusals (no room at the
+        // consignee) always apply regardless of this knob.
+        public float stationDenyChance = 0f;
+
         // Living demand: consumer stations eat this much per game hour; every
         // scrapPerConsumed consumed carloads at a scrap-emitting city yields one scrap.
         public float cityConsumptionPerHour = 1f;

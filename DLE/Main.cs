@@ -140,6 +140,9 @@ namespace DLE
                     SafeRestore("assignments", () => AssignmentStore.Instance.LoadFrom(data));
                     SafeRestore("logistics board", () => LogisticsBoard.Instance.LoadFrom(data));
                     SafeRestore("packets", () => Dispatch.PacketStore.Instance.LoadFrom(data));
+                    // The fax tray is session paper: a fresh world starts with an empty
+                    // tray, and restored "pending" jobs already reverted to unsigned.
+                    Dispatch.DeskInbox.Clear();
                 }
                 DleHttpServer.StartOnHost();
                 // The director behaviour also runs the one-time pool seeding once the

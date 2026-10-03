@@ -119,3 +119,45 @@ job validator (honor system otherwise).
 - `POST /api/v1/logistics` `{ "from": "OWN", "to": "FRS", "cars": 4, "cargo": "Logs", "note": "stage empties" }`
 - `PUT /api/v1/logistics/{id}` `{ "status": "InProgress" }` (Open, InProgress, Done)
 - `DELETE /api/v1/logistics/{id}`
+
+## Desk wave (0.8 beta)
+
+Everything below is 0.8 Dispatch Desk backbone. BETA: shapes may still move
+until the first 0.8 release; roll back to tag `v0.8.0-beta.6` for the pre-desk
+server.
+
+### Read
+- `GET /api/v1/yard?yard=GF` tracks with cars in consist order (the yard sheet).
+- `GET /api/v1/yard/geometry?yard=GF` the yard's REAL rails as world polylines
+  plus junctions (`tracks[].pts` = `[x,z,...]`, `junctions[].outs[].t` indexes
+  `tracks`). Built once per world per yard, cached by track hash.
+- `GET /api/v1/orders` the order spike: per factory, per input family short of
+  its next batch: `{ dest, cargo, have, want, enRouteCars, suppliers: [{yard, stock}] }`.
+- `GET /api/v1/crews` `{ name, loco, jobs, packets, status: idle|out, yard: null }`.
+- `GET /api/v1/estimate?origin=..&destination=..&cargo=..&cars=N` pay/weight/length.
+- `GET /api/v1/inbox` the fax tray: matured reply faxes, newest first
+  (`{ id, type, jobId, yard, verdict, text, acked }`).
+- `GET /api/v1/state` now also carries `gameTime` ("HH:mm") and `inboxUnacked`.
+- `GET /api/v1/jobs` rows now carry `note`, `label`, `sign` (`unsigned`,
+  `pending`, `signed`, `refused`; pre-desk and director paper reads `signed`),
+  `signedBy`, `signReason`, per-line `plates` and `pay`.
+
+### Act
+- `POST /api/v1/jobs/{id}/sign-request` fax the paper to its consignee; 202,
+  the reply prints in the inbox ~5s later. Verdict is judged at delivery:
+  reasoned first (room at the destination), then `settings.stationDenyChance`
+  flavor RNG (default 0).
+- `POST /api/v1/jobs/{id}/amend` unsign stamped paper to edit it (409 while a
+  reply is pending). Signed paper refuses note edits until amended.
+- `PUT /api/v1/jobs/{id}/note` `{ "text": "..." }` prints as a DISPATCH page.
+- `PUT /api/v1/jobs/{id}/label` `{ "text": "..." }` desk-only sticky, 60 chars,
+  never printed.
+- `POST /api/v1/inbox/ack` `{ "ids": [1,2] }` (empty ids acks everything).
+- `GET/POST /api/v1/packets`, `DELETE /api/v1/packets/{id}` draft packets:
+  ordered runs of booklets (`entries[]` each `{ jobId }` or `{ draft }`, draft
+  is the board's own opaque blob). POST with no `id` creates (`PK-N`), with an
+  `id` replaces. Persisted with the save.
+- `POST /api/v1/wake` `{ "yard": "GF" }` wake a yard's dormant cars.
+- Assignments: while the lock is on, a job whose `sign` is not `signed` is
+  refused with 409 (fax the consignee first). Lock off (away mode) skips the
+  sign desk entirely.
