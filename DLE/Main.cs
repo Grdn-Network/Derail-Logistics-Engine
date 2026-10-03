@@ -163,6 +163,10 @@ namespace DLE
 
         private static void OnAboutToSave(SaveType saveType)
         {
+            // Client worlds hold empty, never-loaded stores: writing them would stamp
+            // blank DLE state into whatever save data the client carries. Host state
+            // is the only state worth persisting, so clients write nothing at all.
+            if (!IsHostOrSingleplayer()) return;
             var data = SaveGameManager.Instance?.data;
             if (data == null) return;
             // Each store writes under its own guard. One store throwing must not skip the
