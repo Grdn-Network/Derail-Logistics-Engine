@@ -434,6 +434,59 @@ namespace DLE.Dispatch
                     Json(ctx, 200, payload);
                     return;
                 }
+                // Real ladder geometry (Desk v10 backbone): the yard's rails as world
+                // polylines with the junctions that join them; scan-once cached, see
+                // YardGeometry. The board draws the actual yard from this.
+                if (method == "GET" && path == "/api/v1/yard/geometry")
+                {
+                    var geoBytes = YardGeometry.Payload(ctx.Request.QueryString["yard"], out var geoError);
+                    if (geoBytes == null) { Json(ctx, 400, new { error = geoError }); return; }
+                    ctx.RespStatus = 200;
+                    ctx.RespType = "application/json";
+                    ctx.RespBytes = geoBytes;
+                    return;
+                }
+                // The order spike (Desk v10): every factory's shortfall toward its next
+                // batch, derived on the spot; see OrderBook for what a slip is and is not.
+                if (method == "GET" && path == "/api/v1/orders")
+                { Json(ctx, 200, Economy.OrderBook.OrdersPayload()); return; }
+                // The crew board (Desk v10): who is on shift, on what power, with what work.
+                if (method == "GET" && path == "/api/v1/crews")
+                { Json(ctx, 200, CrewsPayload()); return; }
+                // Draft packets (Desk v10): ordered runs of booklets. GET lists the
+                // tray; POST creates (no id) or replaces (id) one packet; DELETE
+                // removes one. Grouping only: filing stays with /api/v1/hauls.
+                if (method == "GET" && path == "/api/v1/packets")
+                {
+                    Json(ctx, 200, PacketStore.Instance.All(JobAliveForPackets)
+                        .Select(p => new
+                        {
+                            id = p.Id,
+                            crew = p.Crew,
+                            entries = p.Entries.Select(e => new { jobId = e.JobId, draft = e.Draft }),
+                        }).ToList());
+                    return;
+                }
+                if (method == "POST" && path == "/api/v1/packets")
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var pReq = JsonConvert.DeserializeObject<PacketRequest>(ReadBody(ctx) ?? "");
+                    if (pReq == null) { Json(ctx, 400, new { error = "bad body" }); return; }
+                    var pEntries = (pReq.entries ?? new List<PacketEntryDto>())
+                        .Select(e => new PacketStore.Entry { JobId = e?.jobId, Draft = e?.draft }).ToList();
+                    var packet = PacketStore.Instance.Upsert(pReq.id, pReq.crew, pEntries, out var pErr);
+                    if (packet == null) { Json(ctx, 400, new { error = pErr }); return; }
+                    Json(ctx, 200, new { ok = true, id = packet.Id });
+                    return;
+                }
+                if (method == "DELETE" && path.StartsWith("/api/v1/packets/", StringComparison.Ordinal))
+                {
+                    if (!Main.IsHostOrSingleplayer()) { Json(ctx, 403, new { error = "host only" }); return; }
+                    var pid = Uri.UnescapeDataString(path.Substring("/api/v1/packets/".Length));
+                    if (PacketStore.Instance.Delete(pid)) Json(ctx, 200, new { ok = true });
+                    else Json(ctx, 404, new { error = $"unknown packet '{pid}'" });
+                    return;
+                }
                 // Yard view (#119): a station's tracks with their cars in consist order.
                 // The Job maker draws this as its canvas; read-only on its own.
                 if (method == "GET" && path == "/api/v1/yard")
@@ -1595,8 +1648,70 @@ namespace DLE.Dispatch
             return string.Equals(key, s.BoardPassword, StringComparison.Ordinal);
         }
 
+        /// <summary>A packet entry's job ref is alive while its paper is: a live DLE
+        /// def, or a logi order still working. Anything else fell off the board and
+        /// falls out of the packet.</summary>
+        private static bool JobAliveForPackets(string jobId)
+        {
+            if (string.IsNullOrEmpty(jobId)) return false;
+            if (Jobs.StaticDirectHaulJobDefinition.jobDefinitions.ContainsKey(jobId)) return true;
+            foreach (var o in LogisticsBoard.Instance.All)
+                if (o.JobId == jobId && o.Status != "Done") return true;
+            return false;
+        }
+
+        /// <summary>The crew board (Desk v10): connected players plus anyone still
+        /// holding an assignment, each with their live loco and work. WHERE a crew is
+        /// (which yard) needs a player position source the host does not read yet, so
+        /// it ships null until DVMP positions are wired; the board renders it blank.</summary>
+        private static object CrewsPayload()
+        {
+            var jobsByPlayer = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in AssignmentStore.Instance.All)
+                if (!string.IsNullOrEmpty(kv.Value?.Player))
+                {
+                    if (!jobsByPlayer.TryGetValue(kv.Value.Player, out var l))
+                        jobsByPlayer[kv.Value.Player] = l = new List<string>();
+                    l.Add(kv.Key);
+                }
+            var packetsByCrew = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var p in PacketStore.Instance.All(null))
+                if (!string.IsNullOrEmpty(p.Crew))
+                {
+                    if (!packetsByCrew.TryGetValue(p.Crew, out var l))
+                        packetsByCrew[p.Crew] = l = new List<string>();
+                    l.Add(p.Id);
+                }
+            var names = new List<string>(DispatchFax.GetPlayerNames());
+            foreach (var extra in jobsByPlayer.Keys)
+                if (!names.Contains(extra, StringComparer.OrdinalIgnoreCase)) names.Add(extra);
+            return names.Select(n => new
+            {
+                name = n,
+                loco = CrewLocoOf(n),
+                jobs = jobsByPlayer.TryGetValue(n, out var jl) ? jl : new List<string>(),
+                packets = packetsByCrew.TryGetValue(n, out var pl) ? pl : new List<string>(),
+                status = jobsByPlayer.TryGetValue(n, out var j2) && j2.Count > 0 ? "out" : "idle",
+                yard = (string)null,
+            }).ToList();
+        }
+
+        private class PacketRequest
+        {
+            public string id = null;
+            public string crew = null;
+            public List<PacketEntryDto> entries = null;
+        }
+
+        private class PacketEntryDto
+        {
+            public string jobId = null;
+            public string draft = null;
+        }
+
         private static readonly HashSet<string> CacheablePaths = new HashSet<string>(StringComparer.Ordinal)
-        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players" };
+        { "/api/v1/state", "/api/v1/economy", "/api/v1/options", "/api/v1/jobs", "/api/v1/players",
+          "/api/v1/orders", "/api/v1/crews", "/api/v1/packets" };
         private static readonly Dictionary<string, (float at, byte[] bytes)> _payloadCache =
             new Dictionary<string, (float, byte[])>(StringComparer.Ordinal);
 

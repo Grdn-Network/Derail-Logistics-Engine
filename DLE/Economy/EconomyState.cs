@@ -1002,6 +1002,12 @@ namespace DLE.Economy
         private float StackReserved(string yardId, CargoStack s) =>
             StackMembers(s).Sum(c => GetReserved(yardId, c));
 
+        /// <summary>Available stack stock (stock minus reservations), read-only for
+        /// the dispatcher API: the order spike's have-vs-want reads exactly what
+        /// HasInputs counts toward the next batch.</summary>
+        public float AvailableOf(string yardId, CargoStack s) =>
+            StackStock(yardId, s) - StackReserved(yardId, s);
+
         private void ConsumeStack(string yardId, CargoStack s)
         {
             float remaining = s.Amount;

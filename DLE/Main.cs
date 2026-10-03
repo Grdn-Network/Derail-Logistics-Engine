@@ -139,6 +139,7 @@ namespace DLE
                     SafeRestore("taken-order reconcile", () => Dispatch.DispatchLifecycle.ReconcileTakenOrders());
                     SafeRestore("assignments", () => AssignmentStore.Instance.LoadFrom(data));
                     SafeRestore("logistics board", () => LogisticsBoard.Instance.LoadFrom(data));
+                    SafeRestore("packets", () => Dispatch.PacketStore.Instance.LoadFrom(data));
                 }
                 DleHttpServer.StartOnHost();
                 // The director behaviour also runs the one-time pool seeding once the
@@ -168,6 +169,7 @@ namespace DLE
             SafeRestore("assignments save", () => AssignmentStore.Instance.SaveTo(data));
             SafeRestore("car pool save", () => DleCarPool.Instance.SaveTo(data));
             SafeRestore("logistics board save", () => LogisticsBoard.Instance.SaveTo(data));
+            SafeRestore("packets save", () => Dispatch.PacketStore.Instance.SaveTo(data));
         }
 
         /// <summary>Run one save/restore step under its own guard so a single failure is
