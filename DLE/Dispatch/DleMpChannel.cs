@@ -243,6 +243,7 @@ namespace DLE.Dispatch
             ClientJobCars.Clear();
             _pendingAttaches.Clear();
             _pendingFaxes.Clear();
+            FaxPaperLedger.Clear();
             ClientLockOn = false;
         }
 
@@ -374,6 +375,9 @@ namespace DLE.Dispatch
                 Main.Log($"[MpChannel] fax for {jobId}: job still not in this world; will retry.");
                 return false;
             }
+            // Re-fax = refresh (Desk v20): recall the copy this machine already
+            // printed before a new one comes out, so repeat faxes never stack paper.
+            FaxPaperLedger.DestroyLive(jobId);
             var target = PlayerManager.PlayerTransform;
             if (target == null) return false;
             var pos = target.position + target.forward * 0.6f + Vector3.up * 1.1f;
@@ -391,6 +395,7 @@ namespace DLE.Dispatch
                 return true;
             }
             if (booklet == null) return true;
+            FaxPaperLedger.Remember(jobId, booklet);
             try
             {
                 var inv = SingletonBehaviour<DV.InventorySystem.Inventory>.Instance;

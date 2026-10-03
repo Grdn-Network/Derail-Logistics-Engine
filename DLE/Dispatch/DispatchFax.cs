@@ -44,6 +44,13 @@ namespace DLE.Dispatch
             }
             if (job == null) return Result.Fail($"unknown job '{jobId}'");
 
+            // Re-fax = refresh, never a duplicate (Desk v20, fax doubles as assign):
+            // any live paper THIS machine printed for the job is recalled before the
+            // new copy prints. A DLE-running crew's copy lives on their machine; their
+            // own ledger recalls it in the client print path.
+            int recalled = FaxPaperLedger.DestroyLive(jobId);
+            string refresh = recalled > 0 ? "; old copy recalled" : "";
+
             // No name given: the assigned crew is the natural target; only an
             // unassigned job faxes to the local player.
             bool viaAssignment = false;
@@ -128,6 +135,7 @@ namespace DLE.Dispatch
                 return Result.Fail($"fax jammed: {ex.GetType().Name}: {ex.Message}");
             }
             if (booklet == null) return Result.Fail("fax jammed: no booklet came out");
+            FaxPaperLedger.Remember(jobId, booklet);
 
             if (isLocal)
             {
@@ -140,7 +148,7 @@ namespace DLE.Dispatch
                         if (slot >= 0)
                         {
                             Main.LogAlways($"[Fax] {jobId} faxed to the local player's inventory.");
-                            return Result.Done($"{jobId} faxed to your inventory");
+                            return Result.Done($"{jobId} faxed to your inventory{refresh}");
                         }
                     }
                 }
@@ -162,7 +170,7 @@ namespace DLE.Dispatch
             }
 
             Main.LogAlways($"[Fax] {jobId} faxed; printed in front of {name}.");
-            return Result.Done($"{jobId} faxed; printing in front of {name}");
+            return Result.Done($"{jobId} faxed; printing in front of {name}{refresh}");
         }
 
         /// <summary>Fax-to-crew implies assignment when nothing else set one.</summary>

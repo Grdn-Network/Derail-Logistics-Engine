@@ -143,6 +143,8 @@ namespace DLE
                     // The fax tray is session paper: a fresh world starts with an empty
                     // tray, and restored "pending" jobs already reverted to unsigned.
                     Dispatch.DeskInbox.Clear();
+                    // Printed-paper ledger too: last world's booklet refs are dead here.
+                    Dispatch.FaxPaperLedger.Clear();
                 }
                 DleHttpServer.StartOnHost();
                 // The director behaviour also runs the one-time pool seeding once the
