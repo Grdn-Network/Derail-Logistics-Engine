@@ -272,6 +272,8 @@ border-radius:8px;padding:9px 13px;font-size:12.5px;box-shadow:0 6px 18px rgba(0
  <span class='pill pok' id='dot' title='board connection'>&#9679; board live &middot; 5s</span>
  <span class='chip num' id='chipStations'></span>
  <span class='pill pal' id='chipStarve' style='display:none'></span>
+ <span class='pill pal' id='chipInbox' data-act='inboxRead' style='display:none;cursor:pointer' title='reply faxes in the tray: click to read and clear'></span>
+ <span class='chip' id='chipClock' title='in-game time'></span>
  <span class='chip' id='chipVer'></span>
  <span class='pill pld' id='chipBoost' title='Global productivity from city consumption: keep the cities fed and every industry speeds up'></span>
  <span class='pill pal' id='chipMachines' style='display:none' title='Stations on their last machine: ship replacements or they crawl'></span>
@@ -545,6 +547,10 @@ async function refresh(){
  $('bLock').textContent='DIRECTOR '+(lockOn?'OFF':'ON');
  $('bLock').className='lockbtn'+(lockOn?' on':'');
  $('chipVer').textContent='v'+(state.modVersion||'?');
+ $('chipClock').textContent=state.gameTime||'';
+ const inboxN=state.inboxUnacked||0;
+ $('chipInbox').style.display=inboxN?'':'none';
+ $('chipInbox').textContent=inboxN+(inboxN===1?' reply':' replies');
  const liveN=(state.perf||{}).liveCars||0,dormN=state.dormantCars||0;
  $('chipStations').textContent=state.stationCount+' stations · '+(liveN+dormN)+' cars · '+dormN+' stored';
  const starveN=(lastEconData||[]).filter(e=>netMissing(e).length>0).length;
@@ -666,6 +672,16 @@ function jobDetail(x){
    <button class='mini' data-act='unassign' data-id='${esc(x.id)}' title='Clear assignment'>Unassign</button>
    <button class='mini danger' data-act='delhaul' data-id='${esc(x.id)}' title='Delete this haul; its supply returns to the pile'>×</button>
   </div>
+  ${x.logi?'':`<div style='display:flex;gap:8px;align-items:center;border-top:1px solid var(--line);padding-top:9px'>
+   <span class='loadpill ${x.sign==='signed'?'yes':'no'}'>${esc((x.sign||'signed').toUpperCase())}</span>
+   ${x.signedBy?`<span class='meta'>by ${esc(x.signedBy)}</span>`:''}
+   ${x.signReason?`<span class='meta'>· ${esc(x.signReason)}</span>`:''}
+   ${x.sign==='signed'
+    ?`<button class='mini' data-act='amend' data-id='${esc(x.id)}' title='Unsign to edit; the paper needs a new signature after'>Amend</button>`
+    :x.sign==='pending'
+    ?`<span class='meta'>reply incoming…</span>`
+    :`<button class='mini' data-act='signReq' data-id='${esc(x.id)}' title='Fax the consignee station for a signature'>Fax for signature</button>`}
+  </div>`}
   ${x.logi?'':`<div style='display:flex;gap:8px;align-items:flex-start;border-top:1px solid var(--line);padding-top:9px'>
    <textarea class='deskNote' id='note_${esc(x.id)}' maxlength='500'
     placeholder='dispatcher note: prints as a DISPATCH page in the booklet on the next fax'>${esc(x.note||'')}</textarea>
@@ -1250,6 +1266,19 @@ const actions={
   const t=($('note_'+jid)||{}).value||'';
   const r=await j('/api/v1/jobs/'+encodeURIComponent(jid)+'/note','PUT',{text:t});
   toast(r.message||(r.ok?'note saved':'note failed'),!r.ok);last.desk=null;refresh()},
+ signReq:async(id,el)=>{const jid=el.dataset.id;
+  const r=await j('/api/v1/jobs/'+encodeURIComponent(jid)+'/sign-request','POST',{});
+  toast(r.message||r.error||'sent',!r.ok);last.jobs=null;refresh()},
+ amend:async(id,el)=>{const jid=el.dataset.id;
+  const r=await j('/api/v1/jobs/'+encodeURIComponent(jid)+'/amend','POST',{});
+  toast(r.message||r.error||'amended',!r.ok);last.jobs=null;refresh()},
+ inboxRead:async()=>{const items=await j('/api/v1/inbox');
+  const un=(items||[]).filter(i=>!i.acked);
+  if(!un.length){toast('the tray is empty');return}
+  un.slice(0,6).forEach(i=>toast(i.text,i.verdict==='refused'));
+  if(un.length>6)toast((un.length-6)+' more in the tray');
+  await j('/api/v1/inbox/ack','POST',{ids:un.map(i=>i.id)});
+  last.jobs=null;refresh()},
  stripJump:(id,el)=>{openYard(el.dataset.id)},
  stBar:(id,el)=>{const y=el.dataset.id;
   if(lens==='logi'&&surface==='yard'&&$('hOrigin').value===y){backToMap();renderStationBar();return}

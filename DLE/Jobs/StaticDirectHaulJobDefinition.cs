@@ -62,6 +62,19 @@ namespace DLE.Jobs
         /// a DISPATCH page in the booklet. Null or empty means no page.</summary>
         public string dispatcherNote;
 
+        /// <summary>Desk signature state (#225, Desk v20): null means pre-desk or
+        /// director/away paper and reads as signed everywhere; dispatcher-created jobs
+        /// start "unsigned", go "pending" when faxed to the consignee, then "signed"
+        /// or "refused" when the reply prints. Signed paper locks its terms: the note
+        /// route refuses edits until an amend unsigns it.</summary>
+        public string signState;        // null | unsigned | pending | signed | refused
+        public string signedBy;
+        public string signReason;
+
+        /// <summary>Desk-only shorthand (the yellow sticky): shown on the board,
+        /// never printed in any booklet.</summary>
+        public string deskLabel;
+
         /// <summary>Whether to include a leading load task (finite/persistence mode).</summary>
         public bool includeLoadTask = false;
 

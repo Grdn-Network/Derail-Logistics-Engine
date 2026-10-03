@@ -43,6 +43,12 @@ namespace DLE.Data
             public List<LineSnapshot> Lines;
             // Additive since 0.8: the dispatcher's free-text note (#225). Null before.
             public string Note;
+            // Additive since 0.8 desk wave: signature state + desk sticky (#225).
+            // Absent in older saves, restoring as null = pre-desk paper (reads signed).
+            public string SignState;
+            public string SignedBy;
+            public string SignReason;
+            public string DeskLabel;
         }
 
         [Serializable]
@@ -87,6 +93,10 @@ namespace DLE.Data
                     WasTaken = def.LiveJob?.State == JobState.InProgress,
                     Lines = SnapshotLines(def),
                     Note = def.dispatcherNote,
+                    SignState = def.signState,
+                    SignedBy = def.signedBy,
+                    SignReason = def.signReason,
+                    DeskLabel = def.deskLabel,
                 });
             }
             data.SetObject(SaveKey, new SaveData { SchemaVersion = SchemaVersion, Jobs = snapshots });
@@ -260,6 +270,12 @@ namespace DLE.Data
                         rebuilt.loadedCarloads = snap.LoadedCarloads;
                     rebuilt.unpaidMove = snap.UnpaidMove;
                     rebuilt.dispatcherNote = snap.Note;
+                    // A reply that never printed is lost in the mail: pending reverts
+                    // to unsigned so the dispatcher can simply fax again.
+                    rebuilt.signState = snap.SignState == "pending" ? "unsigned" : snap.SignState;
+                    rebuilt.signedBy = snap.SignedBy;
+                    rebuilt.signReason = snap.SignReason;
+                    rebuilt.deskLabel = snap.DeskLabel;
 
                     // #94: a haul that was in progress at save comes back in progress, the
                     // same way the vanilla save restores taken jobs. The rebuild leaves it
