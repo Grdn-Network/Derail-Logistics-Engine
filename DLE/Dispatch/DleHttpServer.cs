@@ -911,6 +911,11 @@ namespace DLE.Dispatch
                     int purged = 0;
                     if (!wasLocked && AssignmentStore.Instance.LockEnabled)
                         purged = DispatchLifecycle.ExpireUnassignedAvailable();
+                    // Lock OFF hands the valley back to the director: refill the board
+                    // now instead of waiting out directorTickSeconds (the old silent
+                    // minute-plus that made the director look broken).
+                    if (wasLocked && !AssignmentStore.Instance.LockEnabled)
+                        Economy.DleDirectorBehaviour.KickFill("unlock");
 
                     Json(ctx, 200, new { ok = true, lockEnabled = AssignmentStore.Instance.LockEnabled, purged });
                     return;
