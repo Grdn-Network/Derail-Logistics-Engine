@@ -266,25 +266,7 @@ namespace DLE.Economy
             // nested coroutine so the fill spreads across frames.
             yield return Data.DleCarPool.Instance.SeedOnceIfNeededRoutine();
 
-            // A tick that throws must not kill the whole generation loop for the session
-            // (an unhandled NRE in job creation would end all generation silently).
-            bool SafeTick()
-            {
-                try { return DispatcherBrain.Current.TickOnce(); }
-                catch (System.Exception ex)
-                {
-                    Main.LogAlways($"[Director] tick failed: {ex.GetType().Name}: {ex.Message}");
-                    return false;
-                }
-            }
-
-            Main.LogAlways("[Director] initial fill starting.");
-            int created = 0;
-            while (Main.IsHostOrSingleplayer() && WorldReady() &&
-                   SafeTick() && created++ < 40)
-                yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
-            Main.LogAlways($"[Director] initial fill done: {created} haul(s) created." +
-                (created == 0 ? " Nothing shippable: check available supply at /api/v1/options (stock may be drained or fully reserved)." : ""));
+            yield return FillRoutine("initial");
 
             Main.Log("[Director] initial fill done; ticking.");
             while (true)
@@ -305,6 +287,50 @@ namespace DLE.Economy
 
                 SafeTick();
             }
+        }
+
+        // A tick that throws must not kill the generation loop for the session
+        // (an unhandled NRE in job creation would end all generation silently).
+        private static bool SafeTick()
+        {
+            try { return DispatcherBrain.Current.TickOnce(); }
+            catch (System.Exception ex)
+            {
+                Main.LogAlways($"[Director] tick failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool _fillRunning;
+
+        /// <summary>A burst fill: up to 40 hauls, one per 1.5s slice. Shared by the
+        /// world-load initial fill and the unlock kick; the guard keeps bursts from
+        /// stacking when both fire close together.</summary>
+        internal static IEnumerator FillRoutine(string label)
+        {
+            if (_fillRunning) yield break;
+            _fillRunning = true;
+            try
+            {
+                Main.LogAlways($"[Director] {label} fill starting.");
+                int created = 0;
+                while (Main.IsHostOrSingleplayer() && WorldReady() &&
+                       SafeTick() && created++ < 40)
+                    yield return new WaitForSeconds(1.5f); // one spawn per frame-slice, no hitching
+                Main.LogAlways($"[Director] {label} fill done: {created} haul(s) created." +
+                    (created == 0 ? " Nothing shippable: check available supply at /api/v1/options (stock may be drained or fully reserved)." : ""));
+            }
+            finally { _fillRunning = false; }
+        }
+
+        /// <summary>The unlock kick: turning the director back on refills the board
+        /// NOW instead of waiting out directorTickSeconds (which left the valley
+        /// silent for up to two minutes and made it look broken).</summary>
+        public static void KickFill(string why)
+        {
+            if (!Main.IsHostOrSingleplayer()) return;
+            if (!TryRun(FillRoutine(why)))
+                Main.LogAlways($"[Director] {why} fill could not start: world not ready.");
         }
 
         private static bool WorldReady() =>

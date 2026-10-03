@@ -29,6 +29,7 @@
     <Publicize Include="Assembly-CSharp:DV.RenderTextureSystem.RenderTextureSystem.currentRenderTexture" />
     <Publicize Include="Assembly-CSharp:DV.RenderTextureSystem.RenderTextureSystem.cam" />
     <Publicize Include="Assembly-CSharp:JobChainController.responsibleStationForJobChain" />
+    <Publicize Include="Assembly-CSharp:StationController.attemptJobOverviewGeneration" />
     <Publicize Include="Assembly-CSharp:StaticJobDefinition.initialWage" />
     <Publicize Include="Assembly-CSharp:StaticJobDefinition.timeLimitForJob" />
     <Publicize Include="Assembly-CSharp:DV.Logic.Job.WarehouseMachine.currentTasks" />
