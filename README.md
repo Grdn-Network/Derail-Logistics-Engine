@@ -16,7 +16,10 @@ Works in single player and multiplayer.
 - Production, recipes and storage limits for every station, set in `economy.json`
 - Load at the warehouse machine, or park cars anywhere in the yard and let
   station staff load them (slower)
-- Delivering tools to a source speeds up its production for a while
+- Sources need their equipment delivered to run at full speed, and it wears
+  out. Delivered tools make it last longer, and make factories work faster.
+- Cities and the power plant use up cargo over time, so demand keeps coming
+- The harbor imports goods based on how much you export through it
 - Jobs close when the cargo is unloaded, with no turn-in
 - If the destination is full, the leftover cargo stays on the cars until
   there's room
@@ -54,15 +57,22 @@ Station and economy settings are in `economy.json` in the mod folder. It's
 created from `economy.default.json` on first run. After editing, reload it
 from the mod settings.
 
+`settings` holds the world tuning, like production speed, overall pace,
+equipment wear and harbor imports. `defaults` holds the values every station
+starts with. Each station can override them under `stations.<YARD>`:
+
 | Key | Controls |
 | --- | --- |
-| `settings` | Starting stock, production and job generation timers, car pool size, excluded cargo |
-| `defaults` | Values every station uses unless it sets its own |
-| `stations.<YARD>.source`, `boosters` | What a source produces and what speeds it up |
-| `stations.<YARD>.recipes` | A factory's inputs and outputs |
-| `stations.<YARD>.defaultCap`, `caps` | Storage limits |
-| `stations.<YARD>.role` | `load`, `unload` or `both` |
-| `stations.<YARD>.remoteLoad`, `remoteUnload`, `remoteSecondsPerCar` | Staff loading away from the warehouse track, and seconds per car |
+| `totalCap` | How much the station can store, all cargo combined |
+| `role` | `load`, `unload` or `both` |
+| `remoteLoad`, `remoteUnload`, `remoteSecondsPerCar` | Staff loading away from the warehouse track, and seconds per car |
+| `source` | Produces cargo over time |
+| `machines` | Equipment the station needs to produce at full speed |
+| `catalysts` | Cargo that slows equipment wear, or speeds up a factory |
+| `recipes` | A factory's inputs and outputs, replacing the built-in ones |
+| `consumesStock`, `emitsScrap` | Uses up cargo over time, and whether that leaves scrap |
+| `importHub` | Imports goods based on the exports it receives |
+| `routes` | Extra destinations for a cargo, added to the vanilla ones |
 
 The mod settings also have the open booklet limit, the board password and
 port, and verbose logging.
