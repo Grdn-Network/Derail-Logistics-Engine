@@ -71,11 +71,4 @@ These routes still answer.
 
 ## How stock is counted
 
-Each station's stock is split into what it made and what was delivered to
-it. Paid hauls only draw from what a station made. Moving delivered goods on
-is unpaid. A factory uses delivered goods first and credits what it makes, so
-each unit of cargo pays once per production step.
-
-An untaken booklet only reserves stock in the director's own planning. Taking
-it reserves the stock for real, after checking it's still there. Booklets
-that sit too long expire.
+See [design/economy.md](design/economy.md).
