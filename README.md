@@ -1,125 +1,106 @@
 # Derail Logistics Engine
 
-DLE turns Derail Valley into a finite logistics operation run by a dispatcher,
-in single player or multiplayer alike (one host-only install; clients need
-nothing). Cargo is real: sources produce it slowly, factories convert it by
-recipe, stations can only hold so much, and money is only made when real cargo
-reaches real demand. Cars are a persistent, finite fleet. When stock runs dry
-or empties are in the wrong yard, that is not a bug; that is the job.
+A Derail Valley mod that adds a cargo economy. Mines, farms and other sources
+produce cargo over time, factories turn their inputs into other goods, and
+every station has a storage limit. You get paid when cargo is delivered to a
+station that uses it.
 
-Persistent Jobs asks "what if jobs were persistent?" DLE asks "what if the
-cargo was real?"
+Cars are persistent and don't respawn on their own, so getting empties to the
+right station is part of the work.
 
-## How it plays
+Works in single player and multiplayer.
 
-**Crews** see Company Haul jobs: paperwork that says what to bring and where.
-Bring suitable empties to the producer, load at the warehouse terminal (or let
-station staff do it slowly), haul to the destination, unload. That is the whole
-loop: there is no turn-in, the job closes itself the moment the cargo is off
-the cars at the destination. The booklet itself pays nothing; the delivery is
-what pays, exactly once per production stage: delivered goods relocate payless
-until a factory consumes them and makes something new. A full destination
-never destroys cargo; the remainder waits aboard until room frees.
+## Features
 
-**Dispatchers** run the board at `http://127.0.0.1:7246/` on the host, or from
-any machine on the network behind a password (mod settings). It opens on a live
-map of the economy: every station's recipe, stock and boosters, with arrows for
-what is shippable right now; click a route and the create form fills itself.
-Create hauls from live stock, assign crews (names autocomplete from the
-session), fax booklets (faxing a named crew assigns them the job; every loco
-has a fax machine), pick the exact cars staff will load with a distance-sorted
-car picker, and watch the dispatch log tick as the world produces, converts,
-loads and delivers. With the assignment lock ON, public paper expires, the
-generator pauses, and operations run entirely from the board: crews drive,
-dispatch decides.
+- Company Haul jobs, generated from cargo that's actually in stock
+- Production, recipes and storage limits for every station, set in `economy.json`
+- Load at the warehouse machine, or park cars anywhere in the yard and let
+  station staff load them (slower)
+- Sources need their equipment delivered to run at full speed, and it wears
+  out. Delivered tools make it last longer, and make factories work faster.
+- Cities and the power plant use up cargo over time, so demand keeps coming
+- The harbor imports goods based on how much you export through it
+- Jobs close when the cargo is unloaded, with no turn-in
+- If the destination is full, the leftover cargo stays on the cars until
+  there's room
+- Booklets stay open until someone takes them, even when nobody's at the
+  station
+- A dispatch board in the browser with jobs, stock, crews and a live map of
+  the railway
+- Optional DV Signals support, which adds signals to the map
 
-**The economy** breathes on its own: a director generates hauls from real
-produced stock, sources run on the production clock (tools delivered to them
-act as boosters: any one brand speeds production and slowly wears out),
-factories chew their input buffers by recipe, and full consumers stop paying
-until they drain. Open paper never freezes stock: holds harden when a booklet
-is taken, and stale paper expires instead of lying. Harbor is the big storage
-hub; a handful of major stations hold more than the rest.
+## How a job works
 
-## Servicing: terminal or staff
+1. Take a Company Haul booklet at the station office.
+2. Bring empty cars of the right type to the pickup station.
+3. Load them at the warehouse machine, or park them in the yard for the staff.
+4. Haul them to the destination and unload.
 
-Loading and unloading always use the real cargo rules. The choice is the
-gameplay:
+You're paid when the cargo comes off at the destination. Whoever took the
+booklet shows on the board as the crew.
 
-- **Terminal**: spot the cars on the warehouse track and run the machine
-  (in person or remotely from the board). Fast.
-- **Station staff**: cars parked anywhere in the yard get worked one car at a
-  time on a per-car timer, where the station has staff for it. Slow, but no
-  shunting to the loading track.
+## Installation
 
-Times, staff availability, station roles and storage capacities are all
-configured per station in `economy.json`.
+Install [Unity Mod Manager](https://www.nexusmods.com/site/mods/21), then
+extract the `DerailLogisticsEngine` folder from the release zip into your
+Derail Valley `Mods` folder. In multiplayer, everyone in the session needs
+DLE installed.
 
-## Install
+## Dispatch board
 
-Host-only: in multiplayer, only the host installs DLE; jobs sync to clients
-through the Multiplayer mod natively. Works in single player too.
-
-1. Install [UnityModManager](https://www.nexusmods.com/site/mods/21).
-2. Drop the `DerailLogisticsEngine` folder (from the release zip) into the
-   game's `Mods` folder.
-3. Optional multiplayer: install the Multiplayer mod; DLE loads after it and
-   registers itself host-only.
-
-On first run `economy.default.json` is copied to `economy.json`; edit that and
-reload from the mod settings.
+While in game, open `http://127.0.0.1:7246/` on the host PC. To open it from
+another PC on your network, set a board password in the mod settings. You can
+change the port there too.
 
 ## Configuration
 
-`economy.json` controls the world:
+Station and economy settings are in `economy.json` in the mod folder. It's
+created from `economy.default.json` on first run. After editing, reload it
+from the mod settings.
 
-| Key | Meaning |
+`settings` holds the world tuning, like production speed, overall pace,
+equipment wear and harbor imports. `defaults` holds the values every station
+starts with. Each station can override them under `stations.<YARD>`:
+
+| Key | Controls |
 | --- | --- |
-| `settings` | World tuning: starting stock, production and generation clocks, pool packing and cap, excluded cargos |
-| `defaults` | Baseline for every station: `role`, `remoteLoad`, `remoteUnload`, `remoteSecondsPerCar`, `defaultCap` |
-| `stations.<YARD>.source` / `boosters` | Source industries produce on the clock; boosters multiply their rate |
-| `stations.<YARD>.recipes` | Input and output carloads for that station's conversion |
-| `stations.<YARD>.defaultCap` / `caps` | Storage capacity (also the demand cap) |
-| `stations.<YARD>.role` | `load`, `unload`, or `both` |
-| `stations.<YARD>.remoteLoad` / `remoteUnload` | Whether station staff can service cars parked off the warehouse track |
-| `stations.<YARD>.remoteSecondsPerCar` | Staff time per car |
+| `totalCap` | How much the station can store, all cargo combined |
+| `role` | `load`, `unload` or `both` |
+| `remoteLoad`, `remoteUnload`, `remoteSecondsPerCar` | Staff loading away from the warehouse track, and seconds per car |
+| `source` | Produces cargo over time |
+| `machines` | Equipment the station needs to produce at full speed |
+| `catalysts` | Cargo that slows equipment wear, or speeds up a factory |
+| `recipes` | A factory's inputs and outputs, replacing the built-in ones |
+| `consumesStock`, `emitsScrap` | Uses up cargo over time, and whether that leaves scrap |
+| `importHub` | Imports goods based on the exports it receives |
+| `routes` | Extra destinations for a cargo, added to the vanilla ones |
 
-Default storage tiers: small pickup yards 25, standard stations 50, major
-industry (FF, CW, GF) 100, Steel Mill 100, Machine Factory 150, harbor 200.
+The mod settings also have the open booklet limit, the board password and
+port, and verbose logging.
 
-Mod settings hold the host preferences (public booklet caps, network board and
-its password, verbose logging); everything about the world lives in
-`economy.json` and hot-reloads. Console recovery commands exist for bad days:
-`company.respawn` rebuilds the car pools and clears wreckage, and
-`company.resupply` resets stockpiles, input buffers included.
+Console commands:
+
+- `company.respawn` rebuilds the car pools and clears wrecks
+- `company.resupply` resets all station stock
 
 ## API
 
-Everything the board does is a local HTTP API (`docs/API.md`), built for
-RemoteDispatch integration: state, economy, jobs, options, hauls, assignments,
-lock, take, complete, load, unload, fax, empties, logistics runs.
+The board runs on a local HTTP API. See [docs/API.md](docs/API.md).
 
-## Status
+## Bugs
 
-Pre-release. The 0.2 and 0.3 lines are feature-complete for the core loop and
-are being hardened for a community beta; expect sharp edges. Report issues
-with the UMM log and steps to reproduce.
+DLE is in beta. Open an
+[issue](https://github.com/Grdn-Network/Derail-Logistics-Engine/issues) with
+your UMM log and what you were doing when it happened.
 
-Planned beyond the beta: contracts (paid car loans to production chains,
-routes with return legs), an AI dispatcher with autonomy tiers that humans
-always outrank, express hauls, and in-game economy visibility.
+## Development
 
-## Building from source
-
-DLL references load from `DLE/lib/` (not committed): copy the referenced
-assemblies from `DerailValley_Data/Managed/` and
-`DerailValley_Data/Managed/UnityModManager/`, then `dotnet build
-DLE/DLE.csproj`. The built DLL lands in `build/`.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for building, testing and how the
+code is laid out.
 
 ## Support
 
-DLE is free and always will be. If it made your sessions better and you feel
-like fueling the next wave: [ko-fi.com/grdn23](https://ko-fi.com/grdn23).
+If you want to support development: [ko-fi.com/grdn23](https://ko-fi.com/grdn23)
 
 ## Credits
 

@@ -1,8 +1,8 @@
 # Game and neighbor-mod internals notes
 
-Findings from reading Derail Valley's assemblies (via metadata dumps), SelfShunter, Persistent
-Jobs, and the Multiplayer mod. Kept here so servicing and job-lifecycle work does not rediscover
-them the hard way.
+What we've learned reading Derail Valley's code and the mods DLE runs next to (SelfShunter,
+Persistent Jobs, Multiplayer). Every game name here was checked against the assemblies in
+`DLE/lib` on 2026-11-25.
 
 ## Warehouse machine (DV.Logic.Job.WarehouseMachine + WarehouseMachineController)
 
@@ -13,14 +13,16 @@ them the hard way.
   screen text, sounds). **`DelayedLoadUnload(bool isLoading, float delayBetweenActions, bool
   play2D)`** is the underlying sequence with a configurable per-car delay
   (`DELAY_BETWEEN_MACHINE_ACTIONS` is the vanilla value). `LoadAllInstant()` /
-  `UnloadAllInstant()` skip the pacing. This is the sanctioned way to run "the same function as
-  the load terminal" at a different speed.
+  `UnloadAllInstant()` skip the pacing. DLE doesn't use any of these. Staff loading paces
+  itself and moves cargo car by car (see below).
 - Logic-layer: `machine.LoadOneCarOfTask(task)` / `UnloadOneCarOfTask(task)` move one car's
   cargo with the real rules; `TryLoadCargoToAllCarsInstant()` / `TryUnloadCargoToAllCarsInstant()`
   do a whole track's worth. All of these only consider cars ON the warehouse track
   (`AtLeastOneCarOnWarehouseTrack` / `CarsPresentOnWarehouseTrack`), so servicing cars parked
   elsewhere in a yard must move cargo via `Car.LoadCargo`/`UnloadCargo` directly.
 - `machine.currentTasks` / `currentJobToTasks` track which warehouse tasks are checked in.
+- The terminal's unload and the office turn-in know nothing about DLE storage. A full
+  destination still unloads and turns in, and the economy drops whatever doesn't fit (#239).
 
 ## Job lifecycle (DV.Logic.Job)
 
@@ -34,6 +36,10 @@ them the hard way.
   registered during rebuild.
 - Office paper: `StationController.spawnedJobOverviews` (publicized) holds each station's
   `JobOverview` papers; `DestroyJobOverview()` despawns one.
+- The validator's concurrent-job limit and its reprint both read `JobsManager.currentJobs`. A
+  job finished outside the normal take flow can stay in that list and hold a slot forever
+  (#216). If the player never took it, add it to `currentJobs` before `TryToCompleteAJob`
+  (vanilla's `CompleteTheJob` throws otherwise), then remove any same-id leftovers.
 
 ## Car spawning (CarSpawner)
 
@@ -62,6 +68,9 @@ them the hard way.
   `JobAbandoned` / `JobExpired` events and marks the job dirty for sync. Anything that drives the
   lifecycle through those events (our remote take/turn-in does) syncs to clients with no MP
   changes. Job-keyed MP dictionaries use indexers, not `.Add`.
+- In Multiplayer, a client taking a job goes through the host's validator. If the host refuses,
+  the client is never told why (dv-mp's validate-response send is commented out), so the
+  host log is the only record.
 - **Persistent Jobs**: avoids stacking via the YardTracksOrganizer reservation ledger plus
   near-player generation, not overlap checks; it would stack under map-wide seeding. Its
   perf value is persistence discipline (stable fleet, reservation hygiene), which DLE already has
