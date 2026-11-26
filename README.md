@@ -23,7 +23,8 @@ Works in single player and multiplayer.
 - Jobs close when the cargo is unloaded, with no turn-in
 - If the destination is full, the leftover cargo stays on the cars until
   there's room
-- Jobs nobody takes expire after a while
+- Booklets stay open until someone takes them, even when nobody's at the
+  station
 - A dispatch board in the browser with jobs, stock, crews and a live map of
   the railway
 - Optional DV Signals support, which adds signals to the map
@@ -92,11 +93,10 @@ DLE is in beta. Open an
 [issue](https://github.com/Grdn-Network/Derail-Logistics-Engine/issues) with
 your UMM log and what you were doing when it happened.
 
-## Building
+## Development
 
-Copy the assemblies DLE references from `DerailValley_Data/Managed/` and
-`DerailValley_Data/Managed/UnityModManager/` into `DLE/lib/`, then run
-`dotnet build DLE/DLE.csproj`. The DLL ends up in `build/`.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for building, testing and how the
+code is laid out.
 
 ## Support
 

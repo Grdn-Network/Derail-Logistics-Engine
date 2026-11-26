@@ -74,7 +74,8 @@ Everything else holds 100. A full station won't take deliveries.
 Every 2 minutes the director writes Company Hauls from produced stock, up to
 10 open booklets per station (a mod setting). An open booklet only holds its
 stock loosely. Taking it checks the stock is still there and locks it in.
-Booklets nobody takes expire and their stock goes back.
+If the stock has gone to other hauls by then, the booklet expires instead.
+Untaken booklets stay open, even when nobody's at the station.
 
 ## Loading
 
